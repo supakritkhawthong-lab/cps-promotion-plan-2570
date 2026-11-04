@@ -1,0 +1,797 @@
+// ============================================================================
+// ไฟล์: Code.gs
+// ระบบจัดทำแผนส่งเสริมสหกรณ์/กลุ่มเกษตรกร รายแห่ง ปีงบประมาณ พ.ศ. 2570
+// สำนักงานสหกรณ์จังหวัดชลบุรี (Full Enterprise Version)
+// ============================================================================
+
+
+
+function doGet() {
+  // หน้าเว็บหลักย้ายไป GitHub Pages แล้ว — คง doGet ไว้ไม่ให้ /exec ขึ้น error
+  return HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>ระบบจัดทำแผนส่งเสริมสหกรณ์ 2570</title></head>' +
+    '<body style="font-family:sans-serif;padding:24px;line-height:1.6">' +
+    '<h2>API พร้อมใช้งาน</h2>' +
+    '<p>หน้าเว็บหลักย้ายไป GitHub Pages แล้ว กรุณาเข้าใช้งานจาก URL ของ Pages</p>' +
+    '<p>ตรวจสอบสถานะ: <code>POST {"action":"ping"}</code></p>' +
+    '</body></html>'
+  ).setTitle('ระบบจัดทำแผนส่งเสริมสหกรณ์/กลุ่มเกษตรกร รายแห่ง ปีงบประมาณ พ.ศ. 2570');
+}
+
+// แปลงชื่อเดือนให้เป็นรูปแบบวันสิ้นปีทางบัญชีแบบเต็ม
+function normalizeFiscalDate(str) {
+  const s = String(str || '').trim();
+  const map = [
+    { keys: ['มกราคม', 'ม.ค.'], full: '31 มกราคม' },
+    { keys: ['กุมภาพันธ์', 'ก.พ.'], full: '28 กุมภาพันธ์' },
+    { keys: ['มีนาคม', 'มี.ค.'], full: '31 มีนาคม' },
+    { keys: ['เมษายน', 'เม.ย.'], full: '30 เมษายน' },
+    { keys: ['พฤษภาคม', 'พ.ค.'], full: '31 พฤษภาคม' },
+    { keys: ['มิถุนายน', 'มิ.ย.'], full: '30 มิถุนายน' },
+    { keys: ['กรกฎาคม', 'ก.ค.'], full: '31 กรกฎาคม' },
+    { keys: ['สิงหาคม', 'ส.ค.'], full: '31 สิงหาคม' },
+    { keys: ['กันยายน', 'ก.ย.'], full: '30 กันยายน' },
+    { keys: ['ตุลาคม', 'ต.ค.'], full: '31 ตุลาคม' },
+    { keys: ['พฤศจิกายน', 'พ.ย.'], full: '30 พฤศจิกายน' },
+    { keys: ['ธันวาคม', 'ธ.ค.'], full: '31 ธันวาคม' }
+  ];
+  for (let i = 0; i < map.length; i++) {
+    for (let k = 0; k < map[i].keys.length; k++) {
+      if (s.includes(map[i].keys[k])) return map[i].full;
+    }
+  }
+  return s || '31 มีนาคม';
+}
+
+// ----------------------------------------------------------------------------
+// Rule-Based Engine & Strength Score Simulator (สแกน 18 ตัวชี้วัด + Gap Analysis)
+// ----------------------------------------------------------------------------
+function evaluateCoopStrengthAndGap(coopType, subScores, level69, total69) {
+  const typeStr = String(coopType || '');
+  const isAgri = typeStr.includes('เกษตร') || typeStr.includes('ประมง') || typeStr.includes('นิคม');
+  const isGroup = typeStr.includes('กลุ่มเกษตรกร');
+  const s = subScores || {};
+  const num = (v) => (v === undefined || v === null || v === '' || isNaN(Number(v))) ? 0 : Number(v);
+  const tot = num(total69);
+  const lv = String(level69 || 'ชั้น 3').trim();
+
+  const max1_2 = isGroup ? 12 : (isAgri ? 10 : 15);
+  const max4_1 = isGroup ? 10 : 15;
+
+  // รายการตัวชี้วัดและคะแนนเต็มตามประเภทสหกรณ์
+  const indicators = [
+    { id: '1.1', name: 'อัตราส่วนสมาชิกที่มีส่วนร่วมทำธุรกิจกับสหกรณ์', score: num(s.s1_1), max: 15, ease: 'ปานกลาง (กระตุ้นสมาชิกทำธุรกิจเพิ่ม)' },
+    { id: '1.2', name: isGroup ? 'การจัดสรรกำไรสุทธิและจ่ายปันผล/เฉลี่ยคืน' : 'การจัดสรรและเบิกจ่ายทุนสวัสดิการสมาชิกและทุนสาธารณประโยชน์ครบ 2 ทุน', score: num(s.s1_2), max: max1_2, ease: 'ง่ายที่สุด (จัดสรรและเบิกจ่ายจริงตามระเบียบ ได้คะแนนเต็มทันที)' }
+  ];
+  if (isAgri && !isGroup) {
+    indicators.push({ id: '1.3', name: 'จำนวนประเภทธุรกิจที่สหกรณ์ดำเนินการ (6 ประเภทธุรกิจหลัก)', score: num(s.s1_3), max: 5, ease: 'ปานกลาง (ขยายบริการธุรกิจให้ครบ 6 ด้าน)' });
+  }
+  indicators.push(
+    { id: '2.1', name: 'อัตราส่วนหนี้สินต่อทุน (D/E Ratio)', score: num(s.s2_1), max: 3, ease: 'ปานกลาง (เพิ่มทุนเรือนหุ้น/ทุนสำรอง และลดหนี้ภายนอก)' },
+    { id: '2.2', name: 'อัตราส่วนทุนสำรองต่อสินทรัพย์', score: num(s.s2_2), max: 2, ease: 'ปานกลาง (จัดสรรกำไรเป็นทุนสำรองเพิ่ม)' },
+    { id: '2.3', name: 'อัตราผลตอบแทนต่อสินทรัพย์ (ROA)', score: num(s.s2_3), max: 4, ease: 'ปานกลาง (บริหารสินทรัพย์ให้เกิดรายได้)' },
+    { id: '2.4', name: 'อัตราค่าใช้จ่ายดำเนินงานต่อกำไรก่อนหักค่าใช้จ่าย', score: num(s.s2_4), max: 4, ease: 'ง่าย (ควบคุมและลดค่าใช้จ่ายดำเนินงานที่ไม่จำเป็น)' },
+    { id: '2.5', name: 'อัตราส่วนทุนหมุนเวียน (Current Ratio)', score: num(s.s2_5), max: 3, ease: 'ปานกลาง (ดำรงสินทรัพย์สภาพคล่อง)' },
+    { id: '2.6', name: 'อัตราลูกหนี้ระยะสั้นที่ชำระหนี้ได้ตามกำหนด', score: num(s.s2_6), max: 4, ease: 'สำคัญ (เร่งรัดติดตามหนี้ค้างชำระก่อนสิ้นปีบัญชี)' },
+    { id: '3.1', name: 'การใช้เทคโนโลยีสารสนเทศโปรแกรมระบบบัญชี กตส.', score: num(s.s3_1), max: 4, ease: 'ง่ายที่สุด (ใช้งานโปรแกรมบัญชี กตส. ให้ครบระบบ)' },
+    { id: '3.2', name: 'การควบคุมภายใน: สภาพแวดล้อมการควบคุม', score: num(s.s3_2), max: 4, ease: 'ง่าย (จัดทำโครงสร้าง คู่มือ และระเบียบปฏิบัติงานให้ครบ)' },
+    { id: '3.3', name: 'การควบคุมภายใน: การประเมินความเสี่ยงและกิจกรรมควบคุม', score: num(s.s3_3), max: 4, ease: 'ง่าย (ประเมินความเสี่ยงและวางมาตรการควบคุม)' },
+    { id: '3.4', name: 'การควบคุมภายใน: ระบบสารสนเทศและการสื่อสารข้อมูล', score: num(s.s3_4), max: 4, ease: 'ง่าย (รายงานข้อมูลการเงินและเผยแพร่แก่สมาชิก)' },
+    { id: '3.5', name: 'การควบคุมภายใน: ระบบการติดตามและประเมินผล', score: num(s.s3_5), max: 4, ease: 'ง่าย (ติดตามผลการควบคุมภายในและผู้ตรวจสอบกิจการเข้าตรวจ)' },
+    { id: '4.1', name: '[เงื่อนไขสำคัญ] ผลการดำเนินงานไม่มีข้อบกพร่อง/ทุจริต หรือแก้ไขเสร็จสมบูรณ์', score: num(s.s4_1), max: max4_1, ease: 'เงื่อนไขบังคับ (ต้องเร่งแก้ไขข้อบกพร่องให้เสร็จสิ้นเพื่อปลดล็อกระดับชั้น)' },
+    { id: '4.2', name: '[เงื่อนไขสำคัญ] ผลการดำเนินงานไม่ขาดทุนในรอบ 2 ปีบัญชี', score: num(s.s4_2), max: 5, ease: 'เงื่อนไขบังคับ (ต้องบริหารให้มีกำไรสุทธิประจำปี)' },
+    { id: '4.3', name: 'ส่งงบการเงินภายใน 30 วัน และประชุมใหญ่อนุมัติงบภายใน 150 วัน', score: num(s.s4_3), max: 5, ease: 'ง่ายที่สุด (วางแผนปิดบัญชี 3 ระยะ ส่งงบภายใน 30 วันได้ 5 คะแนนเต็มทันที)' },
+    { id: '4.4', name: 'การจัดจ้างเจ้าหน้าที่ปฏิบัติงานประจำ', score: num(s.s4_4), max: 5, ease: 'ง่าย (จัดทำสัญญาจ้างเจ้าหน้าที่ปฏิบัติงานประจำ)' }
+  );
+
+  const weaknesses = [];
+  const easyWins = [];
+
+  indicators.forEach(ind => {
+    const gap = +(ind.max - ind.score).toFixed(2);
+    if (gap > 0) {
+      weaknesses.push(`${ind.name} (ได้ ${ind.score}/${ind.max} คะแนน ขาดอีก ${gap} คะแนน)`);
+      easyWins.push({
+        id: ind.id,
+        name: ind.name,
+        score: ind.score,
+        max: ind.max,
+        gap: gap,
+        ease: ind.ease
+      });
+    }
+  });
+
+  // เรียงลำดับตัวชี้วัดที่เก็บคะแนนเพิ่มได้ง่ายและคุ้มค่าที่สุดขึ้นก่อน
+  easyWins.sort((a, b) => {
+    const pA = a.id.startsWith('4.') ? 100 : (a.ease.includes('ง่ายที่สุด') ? 90 : (a.ease.includes('ง่าย') ? 80 : 50));
+    const pB = b.id.startsWith('4.') ? 100 : (b.ease.includes('ง่ายที่สุด') ? 90 : (b.ease.includes('ง่าย') ? 80 : 50));
+    if (pB !== pA) return pB - pA;
+    return b.gap - a.gap;
+  });
+
+  // วิเคราะห์เงื่อนไขการผ่านชั้น 1 และชั้น 2 (Gap Analysis)
+  const s4_1 = num(s.s4_1);
+  const s4_2 = num(s.s4_2);
+  const passTier1 = (tot >= 80 && s4_1 >= max4_1 && s4_2 >= 5);
+  const passTier2 = (tot >= 55 && s4_1 >= 10 && s4_2 >= 3);
+
+  const gapToTier2Score = Math.max(0, +(55 - tot).toFixed(2));
+  const gapToTier1Score = Math.max(0, +(80 - tot).toFixed(2));
+
+  const gapSummaryLines = [];
+  if (!passTier2) {
+    if (tot >= 55) {
+      gapSummaryLines.push(`⚠️ คะแนนรวมปัจจุบัน (${tot} คะแนน) ผ่านเกณฑ์ขั้นต่ำ 55 คะแนนของชั้น 2 แล้ว แต่ที่ตกไปอยู่ "${lv}" เพราะติดเงื่อนไขสำคัญในมิติที่ 4!`);
+    } else {
+      gapSummaryLines.push(`⚠️ ปัจจุบันอยู่ "${lv}" (${tot} คะแนน) ยังขาดคะแนนรวมอีก ${gapToTier2Score} คะแนน จึงจะถึงเกณฑ์ชั้น 2 (55 คะแนน) และขาดอีก ${gapToTier1Score} คะแนน เพื่อถึงเกณฑ์ชั้น 1 (80 คะแนน)`);
+    }
+    if (s4_1 < 10) {
+      gapSummaryLines.push(`❌ ติดเงื่อนไขสำคัญตัวชี้วัดที่ 4.1 (ข้อบกพร่อง/ทุจริต): ปัจจุบันได้ ${s4_1}/${max4_1} คะแนน (เกณฑ์ชั้น 2 ต้องได้ >= 10 คะแนน คือแก้ไขเสร็จและอยู่ระหว่างติดตาม / เกณฑ์ชั้น 1 ต้องได้ ${max4_1} คะแนนเต็ม)`);
+    }
+    if (s4_2 < 3) {
+      gapSummaryLines.push(`❌ ติดเงื่อนไขสำคัญตัวชี้วัดที่ 4.2 (ผลประกอบการ): ปัจจุบันได้ ${s4_2}/5 คะแนน (เกณฑ์ชั้น 2 ต้องไม่ขาดทุนในปีที่ประเมิน >= 3 คะแนน / เกณฑ์ชั้น 1 ต้องไม่ขาดทุนทั้ง 2 ปี = 5 คะแนนเต็ม)`);
+    }
+  } else if (!passTier1) {
+    if (tot >= 80) {
+      gapSummaryLines.push(`⚠️ คะแนนรวมปัจจุบัน (${tot} คะแนน) ถึงเกณฑ์ 80 คะแนนของชั้น 1 แล้ว แต่ยังไม่สามารถขึ้นชั้น 1 ได้เพราะติดเงื่อนไขสำคัญในมิติที่ 4!`);
+    } else {
+      gapSummaryLines.push(`✅ ปัจจุบันผ่านเกณฑ์ "${lv}" (${tot} คะแนน) แล้ว หากต้องการยกระดับขึ้นสู่ "ชั้น 1" ต้องทำคะแนนเพิ่มอีก ${gapToTier1Score} คะแนน (ให้ถึง 80 คะแนน)`);
+    }
+    if (s4_1 < max4_1) {
+      gapSummaryLines.push(`❌ ติดเงื่อนไขสำคัญของชั้น 1 (ตัวชี้วัด 4.1): ปัจจุบันได้ ${s4_1}/${max4_1} คะแนน ต้องเร่งรัดแก้ไขข้อบกพร่องให้แล้วเสร็จสมบูรณ์จนได้ ${max4_1} คะแนนเต็ม (+${max4_1 - s4_1} คะแนน)`);
+    }
+    if (s4_2 < 5) {
+      gapSummaryLines.push(`❌ ติดเงื่อนไขสำคัญของชั้น 1 (ตัวชี้วัด 4.2): ปัจจุบันได้ ${s4_2}/5 คะแนน ต้องบริหารให้มีกำไรสุทธิต่อเนื่องครบ 2 ปีบัญชีจนได้ 5 คะแนนเต็ม`);
+    }
+  } else {
+    gapSummaryLines.push(`🏆 ปัจจุบันสหกรณ์อยู่ในระดับ "ชั้น 1" (${tot} คะแนน) และผ่านเงื่อนไขสำคัญครบทุกข้อ เป้าหมายปี 2570 คือการรักษามาตรฐานระดับชั้น 1 อย่างต่อเนื่อง`);
+  }
+
+  return {
+    isAgri: isAgri,
+    coopCategoryName: isGroup ? "กลุ่มเกษตรกร" : (isAgri ? "สหกรณ์ภาคการเกษตร (ประเมินรวมตัวชี้วัด 1.3)" : "สหกรณ์นอกภาคการเกษตร (ไม่ประเมิน 1.3 น้ำหนักอยู่ที่ 1.2 เต็ม 15 คะแนน)"),
+    currentTotal: tot,
+    currentLevel: lv,
+    gapToTier2Score: gapToTier2Score,
+    gapToTier1Score: gapToTier1Score,
+    passTier2: passTier2,
+    passTier1: passTier1,
+    gapSummaryLines: gapSummaryLines,
+    weaknesses: weaknesses,
+    easyWins: easyWins.slice(0, 6)
+  };
+}
+
+// ----------------------------------------------------------------------------
+// 1. ดึงฐานข้อมูลสหกรณ์ + ประวัติที่เคยบันทึกไว้ (Save Draft / Load History)
+// ----------------------------------------------------------------------------
+function getMasterCoopList() {
+  const ss = getSS_();
+  const sheetAssign = ss.getSheetByName('คำสั่งมอบหมาย');
+  const sheet68 = ss.getSheetByName('ผลปี68');
+  const sheet69 = ss.getSheetByName('ผลปี69');
+  const sheetLog = ss.getSheetByName('บันทึกข้อมูล');
+
+  const cleanName = (str) => String(str || '').replace(/\s+/g, ' ').trim();
+
+  const savedDraftsMap = {};
+  if (sheetLog && sheetLog.getLastRow() > 1) {
+    const logData = sheetLog.getDataRange().getValues();
+    for (let r = 1; r < logData.length; r++) {
+      const cName = cleanName(logData[r][1]);
+      const jsonStr = logData[r][7];
+      if (cName && jsonStr) {
+        try {
+          savedDraftsMap[cName] = {
+            savedAt: Utilities.formatDate(new Date(logData[r][0]), "GMT+7", "dd/MM/yyyy HH:mm"),
+            formData: JSON.parse(jsonStr)
+          };
+        } catch (e) {}
+      }
+    }
+  }
+
+  const map68 = {};
+  if (sheet68) {
+    sheet68.getDataRange().getValues().forEach(row => {
+      const name = cleanName(row[2]);
+      if (name && (name.includes('สหกรณ์') || name.includes('กลุ่มเกษตรกร'))) {
+        map68[name] = {
+          code13: cleanName(row[3]),
+          coopType: cleanName(row[4]),
+          d1: row[8], d2: row[15], d3: row[22], d4: row[27],
+          total: row[30], level: String(row[31] || '').replace('ชั้น', 'ชั้น '),
+          fy: normalizeFiscalDate(row[37])
+        };
+      }
+    });
+  }
+
+  const map69 = {};
+  if (sheet69) {
+    sheet69.getDataRange().getValues().forEach(row => {
+      const name = cleanName(row[2]);
+      if (name && (name.includes('สหกรณ์') || name.includes('กลุ่มเกษตรกร'))) {
+        const coopType = cleanName(row[4]);
+        const subScores = {
+          s1_1: row[5], s1_2: row[6], s1_3: row[7],
+          s2_1: row[9], s2_2: row[10], s2_3: row[11], s2_4: row[12], s2_5: row[13], s2_6: row[14],
+          s3_1: row[16], s3_2: row[17], s3_3: row[18], s3_4: row[19], s3_5: row[20],
+          s4_1: row[23], s4_2: row[24], s4_3: row[25], s4_4: row[26]
+        };
+        const lv = String(row[31] || '').replace('ชั้น', 'ชั้น ');
+        const tot = row[30];
+        const simResult = evaluateCoopStrengthAndGap(coopType, subScores, lv, tot);
+
+        map69[name] = {
+          code13: cleanName(row[3]),
+          coopType: coopType,
+          d1: row[8], d2: row[15], d3: row[22], d4: row[27],
+          total: tot, level: lv,
+          fy: normalizeFiscalDate(row[37]),
+          closeStatus: cleanName(row[34]),
+          agmStatus: cleanName(row[35]),
+          cadNote: cleanName(row[32]),
+          subScores: subScores,
+          simResult: simResult
+        };
+      }
+    });
+  }
+
+  const coopList = [];
+  let currentZone = "";
+  let defaultDistrict = "";
+
+  if (sheetAssign) {
+    sheetAssign.getDataRange().getValues().forEach(row => {
+      const col1 = cleanName(row[1]);
+      if (col1.includes('กลุ่มส่งเสริมสหกรณ์')) {
+        const matchZone = col1.match(/กลุ่มส่งเสริมสหกรณ์\s*(\d+)/);
+        if (matchZone) currentZone = "กสส." + matchZone[1];
+        const matchDist = col1.match(/\(อำเภอ(.*?)\)/);
+        if (matchDist) {
+          const dists = matchDist[1].trim().split(/\s+/);
+          defaultDistrict = dists.length === 1 ? dists[0] : "";
+        }
+      } else if (col1 && (col1.includes('สหกรณ์') || col1.includes('กลุ่มเกษตรกร')) && col1 !== 'สหกรณ์/กลุ่มเกษตรกร') {
+        const mainOfficer = cleanName(row[2]);
+        const coArr = [row[3], row[4], row[5], row[6], row[7]].map(x => cleanName(x).split(' ')[0]).filter(x => x && x !== 'nan' && x !== 'ชื่อ');
+
+        const s68 = map68[col1] || {};
+        const s69 = map69[col1] || {};
+        const coopType = s69.coopType || s68.coopType || (col1.includes('กลุ่มเกษตรกร') ? 'กลุ่มเกษตรกร' : 'สหกรณ์');
+        const sim = s69.simResult || evaluateCoopStrengthAndGap(coopType, {}, 'ชั้น 3', 0);
+
+        coopList.push({
+          name: col1,
+          code13: s69.code13 || s68.code13 || "",
+          coopType: coopType,
+          isAgri: sim.isAgri,
+          coopCategoryName: sim.coopCategoryName,
+          weaknesses: sim.weaknesses,
+          simResult: sim,
+          zone: currentZone,
+          district: defaultDistrict,
+          mainOfficer: mainOfficer,
+          coOfficers: coArr.join('/'),
+          fiscalYear: s69.fy || s68.fy || "31 มีนาคม",
+          score68: s68,
+          score69: s69,
+          savedDraft: savedDraftsMap[col1] || null
+        });
+      }
+    });
+  }
+  return coopList;
+}
+
+// บันทึกข้อมูลร่างลงชีต 'บันทึกข้อมูล'
+function saveDraftToSheet(form) {
+  return withScriptLock_(function () {
+    const ss = getSS_();
+    let logSheet = ss.getSheetByName('บันทึกข้อมูล');
+    if (!logSheet) logSheet = ss.insertSheet('บันทึกข้อมูล');
+    if (logSheet.getLastRow() === 0) {
+      logSheet.appendRow(['วันเวลาที่บันทึก', 'ชื่อสหกรณ์', 'อำเภอ', 'ปีบัญชี', 'ผู้สอบบัญชี', 'จำนวนครั้งที่เข้า', 'หมายเหตุจำนวนครั้ง', 'JSON_DATA']);
+    }
+
+    const cleanName = (str) => String(str || '').replace(/\s+/g, ' ').trim();
+    const targetName = cleanName(form.coop_name);
+    const auditorDisplay = form.auditor_name ? `${form.auditor_type} (${form.auditor_name})` : (form.auditor_type || "");
+    const jsonStr = JSON.stringify(form);
+    const now = new Date();
+
+    const data = logSheet.getDataRange().getValues();
+    let foundRow = -1;
+    for (let r = 1; r < data.length; r++) {
+      if (cleanName(data[r][1]) === targetName) {
+        foundRow = r + 1;
+        break;
+      }
+    }
+
+    const rowValues = [now, form.coop_name, form.district, form.fiscal_year, auditorDisplay, form.planned_visits, form.visit_remark, jsonStr];
+    if (foundRow > 0) {
+      logSheet.getRange(foundRow, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      logSheet.appendRow(rowValues);
+    }
+
+    return { savedAt: Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy HH:mm") };
+  });
+}
+
+// ----------------------------------------------------------------------------
+// 2. วิเคราะห์เอกสารด้วย AI (Fast Mode: รองรับทั้ง Text ที่สกัดมาจากเบราว์เซอร์และไฟล์แนบ)
+// ----------------------------------------------------------------------------
+function getFallbackModelsList(excludeList) {
+  const fallback = [];
+  try {
+    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${getGeminiKey_()}`;
+    const res = UrlFetchApp.fetch(listUrl, { muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) {
+      const data = JSON.parse(res.getContentText());
+      (data.models || []).forEach(m => {
+        const name = (m.name || "").replace("models/", "");
+        const methods = m.supportedGenerationMethods || [];
+        const isTextModel = /^gemini-[0-9]/.test(name) &&
+          !/tts|image|embedding|vision|robotics|computer-use|lyria|gemma|nano-banana|omni|transcribe/.test(name);
+        if (isTextModel && methods.includes("generateContent") && !excludeList.includes(name)) {
+          fallback.push(name);
+        }
+      });
+      // ให้ flash มาก่อน แล้วเรียงเวอร์ชันใหม่ → เก่า
+      fallback.sort((a, b) => {
+        const aFlash = a.includes("flash") ? 1 : 0;
+        const bFlash = b.includes("flash") ? 1 : 0;
+        if (aFlash !== bFlash) return bFlash - aFlash;
+        return b.localeCompare(a);
+      });
+    }
+  } catch (e) {}
+  return fallback;
+}
+
+function analyzeUploadedFilesWithAI(payload) {
+  // เรียกโมเดลความเร็วสูงทันทีโดยไม่ต้องเสียเวลาเรียก ListModels ก่อน
+  // ดูลำดับรุ่นได้จาก Script Property GEMINI_MODELS (คั่นด้วยจุลภาค)
+  // ค่าเริ่มต้น: gemini-3.5-flash → gemini-3.8-flash → gemini-2.5-flash
+  // (gemini-2.0-flash เลิกให้บริการแล้ว จึงต้องไม่อยู่ในลิสต์)
+  let modelsToTry = String(getProp_('GEMINI_MODELS') || 'gemini-3.5-flash,gemini-3.8-flash,gemini-2.5-flash')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const ruleWeaknessesText = (payload.weaknesses && payload.weaknesses.length > 0)
+    ? payload.weaknesses.map((w, i) => `${i + 1}) ${w}`).join("\n")
+    : "คะแนนตัวชี้วัดหลักอยู่ในเกณฑ์ดี ให้มุ่งเน้นการรักษามาตรฐานและการควบคุมภายใน";
+
+    const promptText = `
+คุณคือนักวิชาการสหกรณ์ชำนาญการพิเศษ กรมส่งเสริมสหกรณ์
+จงอ่านข้อมูลจากเอกสารงบการเงินและรายงานของ "${payload.coopName}" (${payload.coopCategoryName || 'สหกรณ์'}) แล้วสกัดตัวเลขพร้อมสรุปแผนด้วยภาษาราชการที่กระชับ สมบูรณ์ และเป็นทางการ
+
+ข้อมูลจากการสแกนตัวชี้วัดด้วยระบบ Rule-Based Engine:
+- ผลความเข้มแข็ง ปี 68: ${payload.score68?.level || '-'} (${payload.score68?.total || '-'} คะแนน) | ปี 69: ${payload.score69?.level || '-'} (${payload.score69?.total || '-'} คะแนน)
+- จุดอ่อนที่ต้องนำไปกำหนดเป็นเป้าหมายการส่งเสริม (ห้ามระบุเลขข้อตัวชี้วัด หรือคำว่ามิติที่... ในคำตอบ):
+${ruleWeaknessesText}
+
+ข้อกำหนดสำคัญในการดึงตัวเลขจากงบฐานะการเงิน (งบดุล) และงบกำไรขาดทุน:
+1. "shareLatest" และ "sharePrev" (ช่องหุ้น): ให้ดึงตัวเลขจากรายการ "ทุนเรือนหุ้น" (ทุนเรือนหุ้นที่ชำระเต็มมูลค่าแล้ว) เท่านั้น! ห้ามนำยอด "รวมทุนของสหกรณ์" มาใส่โดยเด็ดขาด
+2. "reserveLatest" และ "reservePrev" (ช่องทุนสำรอง): ให้ดึงเฉพาะรายการ "ทุนสำรอง" เท่านั้น (ไม่รวมทุนสะสมตามข้อบังคับอื่น)
+3. "debtLatest" และ "debtPrev" (ช่องหนี้สิน): ให้ดึงจากยอด "รวมหนี้สิน" (Total Liabilities) ห้ามใช้ยอดรวมหนี้สินและทุนของสหกรณ์
+4. "assetLatest" และ "assetPrev" (ช่องสินทรัพย์): ให้ดึงจากยอด "รวมสินทรัพย์" (Total Assets)
+
+ตอบกลับมาเป็น JSON ตามโครงสร้างนี้เท่านั้น (ห้ามใส่ข้อความอื่นนอกเหนือจาก JSON):
+{
+  "district": "ชื่ออำเภอ",
+  "regDate": "วันจดทะเบียน",
+  "boardCount": "จำนวนกรรมการ",
+  "auditorType": "ภาครัฐ หรือ ภาคเอกชน",
+  "auditorName": "คนึงศรี หรือ พรทิพย์ หรือชื่อผู้สอบบัญชี",
+  "fiscalDateFull": "เช่น 31 มีนาคม หรือ 30 กันยายน หรือ 31 ธันวาคม",
+  "fyCheckNote": "ตรงกัน",
+  "inspectorCount": "จำนวนผู้ตรวจสอบกิจการ",
+  "inspectorName": "ชื่อผู้ตรวจสอบกิจการ",
+  "yrLatest": "เช่น ธ.ค. 68",
+  "yrPrev": "เช่น ธ.ค. 67",
+  "memLatest": "รวม/สามัญ/สมทบ",
+  "memPrev": "รวม/สามัญ/สมทบ",
+  "assetLatest": "ยอดรวมสินทรัพย์ (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "assetPrev": "ยอดรวมสินทรัพย์ปีก่อน (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "debtLatest": "ยอดรวมหนี้สิน (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "debtPrev": "ยอดรวมหนี้สินปีก่อน (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "shareLatest": "เฉพาะยอดทุนเรือนหุ้นเท่านั้น ห้ามใช้ยอดรวมทุนของสหกรณ์ (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "sharePrev": "เฉพาะยอดทุนเรือนหุ้นปีก่อนเท่านั้น ห้ามใช้ยอดรวมทุนของสหกรณ์ (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "reserveLatest": "เฉพาะยอดทุนสำรอง (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "reservePrev": "เฉพาะยอดทุนสำรองปีก่อน (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "profitLatest": "กำไรสุทธิ หรือ (ขาดทุนสุทธิ) ประจำปี (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "profitPrev": "กำไรสุทธิ หรือ (ขาดทุนสุทธิ) ปีก่อน (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
+  "lossLatest": "ขาดทุนสะสม (ถ้าไม่มีให้ใส่ -)",
+  "lossPrev": "ขาดทุนสะสมปีก่อน (ถ้าไม่มีให้ใส่ -)",
+  "bizVolLatest": "ปริมาณธุรกิจรวมล่าสุด",
+  "bizVolPrev": "ปริมาณธุรกิจรวมย้อนหลัง",
+  "assetNumeric": 0,
+  "businessTypes": "รายชื่อธุรกิจที่ทำ",
+  "targetProjects": "กลุ่มเป้าหมายในโครงการ/แผนงาน/กิจกรรม",
+  "issue1": "ปัญหา/ข้อสังเกต/ข้อบกพร่อง ข้อ 1 (ภาษาราชการกระชับสมบูรณ์ ไม่อ้างเลขตัวชี้วัด)",
+  "issue2": "ปัญหา/ข้อสังเกต/ข้อบกพร่อง ข้อ 2",
+  "issue3": "ปัญหา/ข้อสังเกต/ข้อบกพร่อง ข้อ 3",
+  "promotionGoals": "1. ...\\n2. ...\\n3. ...\\n4. ...\\n5. ...",
+  "recommendedVisits": 4,
+  "visitRemark": "หมายเหตุความเหมาะสมของจำนวนครั้งการเข้าส่งเสริม (เจ้าหน้าที่ตั้งไว้ ${payload.plannedVisits} ครั้ง/ปี)"
+}`;
+
+  const parts = [{ text: promptText }];
+  if (payload.files && payload.files.length > 0) {
+    payload.files.forEach(f => {
+      if (f.extractedText) {
+        // กรณีสกัดข้อความจาก PDF ได้สำเร็จ ส่งเป็น Text ล้วน (เร็วกว่าส่งไฟล์หลายเท่า)
+        parts.push({
+          text: `\n--- ข้อมูลจากไฟล์ [${f.category || 'เอกสาร'}]: ${f.name} ---\n${f.extractedText}\n`
+        });
+      } else if (f.base64) {
+        // กรณีเป็นไฟล์สแกนหรือรูปภาพ ส่งเป็น inlineData ที่ตัดย่อขนาดแล้ว
+        parts.push({
+          inlineData: {
+            mimeType: f.mimeType,
+            data: f.base64
+          }
+        });
+      }
+    });
+  }
+
+  let resText = null;
+  let errorLogs = [];
+  let triedFallback = false;
+
+  for (let m = 0; m < modelsToTry.length; m++) {
+    const modelName = modelsToTry[m];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${getGeminiKey_()}`;
+
+    const requestBody = {
+      contents: [{ parts: parts }],
+      generationConfig: {
+        temperature: 0.0,
+        responseMimeType: "application/json"
+      }
+    };
+
+    const options = {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(requestBody),
+      muteHttpExceptions: true
+    };
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = UrlFetchApp.fetch(url, options);
+      const code = res.getResponseCode();
+      const bodyText = res.getContentText();
+
+      if (code === 200) {
+        const jsonRes = JSON.parse(bodyText);
+        if (jsonRes.candidates && jsonRes.candidates[0].content.parts[0].text) {
+          resText = jsonRes.candidates[0].content.parts[0].text;
+          break;
+        }
+      } else if (code === 503 || code === 429) {
+        errorLogs.push(`${modelName}(คิวเต็ม ${code})`);
+        Utilities.sleep(1200);
+      } else {
+        errorLogs.push(`${modelName}(${code})`);
+        break;
+      }
+    }
+    if (resText) break;
+
+    // หากลองครบทุกโมเดลในลิสต์แรกแล้วยังไม่ผ่าน จึงค่อยดึงรายชื่อโมเดลสำรองจาก ListModels
+    if (!triedFallback && m === modelsToTry.length - 1) {
+      triedFallback = true;
+      const extraModels = getFallbackModelsList(modelsToTry);
+      modelsToTry = modelsToTry.concat(extraModels);
+    }
+  }
+
+  if (!resText) {
+    if (errorLogs.length === 0) {
+      throw new Error("AI ประมวลผลไม่สำเร็จ: โมเดลไม่ได้ส่งคำตอบกลับมา (อาจถูกบล็อกด้วย safety filter)");
+    }
+    throw new Error("AI ประมวลผลไม่สำเร็จ: " + errorLogs.join(", "));
+  }
+
+  const cleanedJson = resText.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const parsed = JSON.parse(cleanedJson);
+  if (parsed.fiscalDateFull) {
+    parsed.fiscalDateFull = normalizeFiscalDate(parsed.fiscalDateFull);
+  }
+  return parsed;
+}
+
+// ----------------------------------------------------------------------------
+// 3. สร้างเอกสาร Word (.docx) แนวนอน (Landscape)
+//    - หน้าที่ 1: แผนส่งเสริมรายแห่ง ครบทั้ง 5 ส่วนใน 1 หน้า (แบ่งคอลัมน์ซ้าย-ขวา ตามฟอร์มต้นฉบับ)
+//    - หน้าที่ 2: รายงานจำลองคะแนนความเข้มแข็ง (Strength Score Simulator & Gap Analysis)
+// ----------------------------------------------------------------------------
+function generatePlanDocument(form) {
+  saveDraftToSheet(form);
+
+  const cleanCoopName = String(form.coop_name || 'รายแห่ง').replace(/[\\/:*?"<>|]/g, '');
+  const docTitle = `แผนส่งเสริมสหกรณ์_2570_${cleanCoopName}`;
+  const doc = DocumentApp.create(docTitle);
+  const docId = doc.getId();
+  const body = doc.getBody();
+
+  // บังคับหน้ากระดาษ A4 แนวนอน (Landscape) และตั้งขอบกระดาษให้กระชับพอดี 1 หน้า
+  body.setPageWidth(841.89);
+  body.setPageHeight(595.276);
+  body.setMarginTop(12);
+  body.setMarginBottom(10);
+  body.setMarginLeft(16);
+  body.setMarginRight(16);
+  const totalWidth = 808; // ความกว้างใช้งานจริงบน A4 แนวนอน
+
+  // หัวเรื่องเอกสาร
+  const titlePara = body.getParagraphs()[0];
+  titlePara.setText("ข้อมูลสหกรณ์/กลุ่มเกษตรกรในจังหวัดชลบุรี และแผนส่งเสริมรายแห่ง ประจำปีงบประมาณ พ.ศ. 2570 (1 ตุลาคม 2569 – 30 กันยายน 2570)");
+  titlePara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  titlePara.setFontFamily("TH SarabunPSK").setFontSize(12.5).setBold(true).setSpacingAfter(2).setSpacingBefore(0);
+
+  // ฟังก์ชันจัดสไตล์ตารางย่อยให้ฟอนต์และระยะบรรทัดกระชับพอดี 1 หน้า
+  function styleCompactTable(table, fontSize, headerBg) {
+    table.setBorderWidth(0.5);
+    table.setBorderColor("#000000");
+    for (let r = 0; r < table.getNumRows(); r++) {
+      const row = table.getRow(r);
+      for (let c = 0; c < row.getNumCells(); c++) {
+        const cell = row.getCell(c);
+        cell.setPaddingTop(0.5).setPaddingBottom(0.5).setPaddingLeft(2.5).setPaddingRight(2.5);
+        if (r === 0 && headerBg) {
+          cell.setBackgroundColor(headerBg);
+        }
+        for (let p = 0; p < cell.getNumChildren(); p++) {
+          const child = cell.getChild(p);
+          if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
+            const para = child.asParagraph();
+            para.setFontFamily("TH SarabunPSK")
+                .setFontSize(fontSize || 9.5)
+                .setLineSpacing(0.85)
+                .setSpacingAfter(0)
+                .setSpacingBefore(0);
+            if (r === 0 && headerBg) para.setBold(true);
+          }
+        }
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // แถบข้อมูลหลักด้านบนสุด (เรียงซ้ายไปขวาตามไฟล์ PDF ต้นฉบับ)
+  // --------------------------------------------------------------------------
+  const tTopBar = body.appendTable([
+    [
+      "ชื่อ", form.coop_name || "-",
+      "อำเภอ", form.district || "-",
+      "ระยะทางไป-กลับ", form.distance ? form.distance + " กม." : "-",
+      "เขตส่งเสริม", form.group_zone || "-",
+      "ผู้ดูแลหลัก", form.main_officer || "-",
+      "ผู้ดูแลร่วม", form.co_officers || "-"
+    ]
+  ]);
+  styleCompactTable(tTopBar, 9.5, null);
+  tTopBar.setColumnWidth(0, 24);
+  tTopBar.setColumnWidth(1, 175);
+  tTopBar.setColumnWidth(2, 28);
+  tTopBar.setColumnWidth(3, 60);
+  tTopBar.setColumnWidth(4, 58);
+  tTopBar.setColumnWidth(5, 42);
+  tTopBar.setColumnWidth(6, 48);
+  tTopBar.setColumnWidth(7, 45);
+  tTopBar.setColumnWidth(8, 45);
+  tTopBar.setColumnWidth(9, 115);
+  tTopBar.setColumnWidth(10, 43);
+  tTopBar.setColumnWidth(11, 125);
+  [0, 2, 4, 6, 8, 10].forEach(idx => {
+    tTopBar.getRow(0).getCell(idx).setBackgroundColor("#f1f8e9");
+    tTopBar.getRow(0).getCell(idx).getChild(0).asParagraph().setBold(true);
+  });
+
+  // --------------------------------------------------------------------------
+  // โครงสร้างหลัก 2 คอลัมน์ (ซ้าย = ข้อมูลข้อ 1-4 และเป้าหมาย / ขวา = แผน 12 เดือน + โครงการ)
+  // --------------------------------------------------------------------------
+  const masterGrid = body.appendTable([["", ""]]);
+  masterGrid.setBorderWidth(0);
+  const leftWidth = 335;  // ความกว้างฝั่งซ้าย (~41.5%)
+  const rightWidth = 473; // ความกว้างฝั่งขวา (~58.5%)
+  masterGrid.setColumnWidth(0, leftWidth);
+  masterGrid.setColumnWidth(1, rightWidth);
+
+  const leftCell = masterGrid.getRow(0).getCell(0);
+  const rightCell = masterGrid.getRow(0).getCell(1);
+  leftCell.setPaddingTop(2).setPaddingBottom(0).setPaddingLeft(0).setPaddingRight(4);
+  rightCell.setPaddingTop(2).setPaddingBottom(0).setPaddingLeft(4).setPaddingRight(0);
+
+  function addCellTitle(cell, text, isFirst) {
+    const p = isFirst ? cell.getChild(0).asParagraph() : cell.appendParagraph(text);
+    if (isFirst) p.setText(text);
+    p.setFontFamily("TH SarabunPSK").setFontSize(10.5).setBold(true).setSpacingBefore(1.5).setSpacingAfter(0.5).setLineSpacing(0.85);
+    return p;
+  }
+
+  // ==================== ฝั่งซ้าย (LEFT COLUMN) ====================
+  // 1. ข้อมูลทั่วไป
+  addCellTitle(leftCell, "1. ข้อมูลทั่วไป", true);
+  const auditorFull = (form.auditor_type || "") + (form.auditor_name ? " (" + form.auditor_name + ")" : "");
+  const inspectorFull = (form.inspector_count || "") + (form.inspector_name ? " (" + form.inspector_name + ")" : "");
+  const tGen = leftCell.appendTable([
+    ["วันจดทะเบียน", form.reg_date || "-", "กรรมการ", form.board_count || "-", "ผู้สอบบัญชี", auditorFull || "-"],
+    ["ปีบัญชี", form.fiscal_year || "-", "ผู้ตรวจสอบ", inspectorFull || "-", "แผนเข้าส่งเสริม", (form.planned_visits || "4") + " ครั้ง/ปี"]
+  ]);
+  styleCompactTable(tGen, 9.5, null);
+  tGen.setColumnWidth(0, 50);
+  tGen.setColumnWidth(1, 62);
+  tGen.setColumnWidth(2, 42);
+  tGen.setColumnWidth(3, 55);
+  tGen.setColumnWidth(4, 48);
+  tGen.setColumnWidth(5, 74);
+
+  // 2. ผลการดำเนินงาน ณ สิ้นปีบัญชีล่าสุด และย้อนหลัง 1 ปี
+  addCellTitle(leftCell, "2. ผลการดำเนินงาน ณ สิ้นปีบัญชีล่าสุด และย้อนหลัง 1 ปี", false);
+  const bizList = String(form.business_types || "-").split(/\r?\n/);
+  const tPerf = leftCell.appendTable([
+    ["รายการ", form.yr_latest || "ล่าสุด", form.yr_prev || "ย้อนหลัง", "ธุรกิจที่ทำ"],
+    ["สมาชิก(รวม/สามัญ/สมทบ)", form.mem_latest || "-", form.mem_prev || "-", form.business_types || "-"],
+    ["สินทรัพย์", form.asset_latest || "-", form.asset_prev || "-", ""],
+    ["หนี้สิน", form.debt_latest || "-", form.debt_prev || "-", ""],
+    ["หุ้น", form.share_latest || "-", form.share_prev || "-", ""],
+    ["ทุนสำรอง", form.reserve_latest || "-", form.reserve_prev || "-", ""],
+    ["กำไร (ขาดทุน)", form.profit_latest || "-", form.profit_prev || "-", ""],
+    ["ขาดทุนสะสม", form.loss_latest || "-", form.loss_prev || "-", ""],
+    ["ปริมาณธุรกิจ", form.biz_vol_latest || "-", form.biz_vol_prev || "-", ""]
+  ]);
+  styleCompactTable(tPerf, 9, "#e8f5e9");
+  tPerf.setColumnWidth(0, 82);
+  tPerf.setColumnWidth(1, 76);
+  tPerf.setColumnWidth(2, 76);
+  tPerf.setColumnWidth(3, 97);
+
+  // 3. ผลเข้มแข็ง ปี 68/69
+  addCellTitle(leftCell, "3. ผลเข้มแข็ง ปี 68/69", false);
+  const tStr = leftCell.appendTable([
+    ["ปี", "ชั้น", "รวม", "มิติ 1", "มิติ 2", "มิติ 3", "มิติ 4"],
+    ["ปี 68", form.c68_lv || "-", form.c68_tot || "-", form.c68_d1 || "-", form.c68_d2 || "-", form.c68_d3 || "-", form.c68_d4 || "-"],
+    ["ปี 69", form.c69_lv || "-", form.c69_tot || "-", form.c69_d1 || "-", form.c69_d2 || "-", form.c69_d3 || "-", form.c69_d4 || "-"]
+  ]);
+  styleCompactTable(tStr, 9, "#e8f5e9");
+  tStr.setColumnWidth(0, 41);
+  tStr.setColumnWidth(1, 48);
+  tStr.setColumnWidth(2, 48);
+  tStr.setColumnWidth(3, 48);
+  tStr.setColumnWidth(4, 48);
+  tStr.setColumnWidth(5, 48);
+  tStr.setColumnWidth(6, 50);
+
+  // 4. ปัญหา/ข้อสังเกต/ข้อบกพร่อง
+  addCellTitle(leftCell, "4. ปัญหา/ข้อสังเกต/ข้อบกพร่อง", false);
+  const tIssues = leftCell.appendTable([
+    ["1. " + (form.issue_1 || "-")],
+    ["2. " + (form.issue_2 || "-")],
+    ["3. " + (form.issue_3 || "-")]
+  ]);
+  styleCompactTable(tIssues, 9, null);
+  tIssues.setColumnWidth(0, leftWidth - 4);
+
+  // เป้าหมายการส่งเสริม
+  addCellTitle(leftCell, "เป้าหมายการส่งเสริม", false);
+  const goalsWithRemark = (form.promotion_goals || "-") +
+    (form.visit_remark ? "\n(หมายเหตุ: " + form.visit_remark + ")" : "");
+  const tGoals = leftCell.appendTable([
+    [goalsWithRemark]
+  ]);
+  styleCompactTable(tGoals, 9, null);
+  tGoals.setColumnWidth(0, leftWidth - 4);
+
+  // ==================== ฝั่งขวา (RIGHT COLUMN) ====================
+  // แผนแนะนำส่งเสริม 12 เดือน
+  addCellTitle(rightCell, "แผนแนะนำส่งเสริม (ต.ค. 69 – ก.ย. 70 | แผนเข้าส่งเสริมรวม " + (form.planned_visits || "4") + " ครั้ง/ปี)", true);
+  const schedRows = [
+    ["เดือน", "สิ่งที่สหกรณ์/กลุ่ม ต้องดำเนินการ", "สิ่งที่ จสส. ต้องดำเนินการ"],
+    ["ตุลาคม", form.coop_m10 || "", form.cpd_m10 || ""],
+    ["พฤศจิกายน", form.coop_m11 || "", form.cpd_m11 || ""],
+    ["ธันวาคม", form.coop_m12 || "", form.cpd_m12 || ""],
+    ["มกราคม", form.coop_m1 || "", form.cpd_m1 || ""],
+    ["กุมภาพันธ์", form.coop_m2 || "", form.cpd_m2 || ""],
+    ["มีนาคม", form.coop_m3 || "", form.cpd_m3 || ""],
+    ["เมษายน", form.coop_m4 || "", form.cpd_m4 || ""],
+    ["พฤษภาคม", form.coop_m5 || "", form.cpd_m5 || ""],
+    ["มิถุนายน", form.coop_m6 || "", form.cpd_m6 || ""],
+    ["กรกฎาคม", form.coop_m7 || "", form.cpd_m7 || ""],
+    ["สิงหาคม", form.coop_m8 || "", form.cpd_m8 || ""],
+    ["กันยายน", form.coop_m9 || "", form.cpd_m9 || ""]
+  ];
+  const tSched = rightCell.appendTable(schedRows);
+  styleCompactTable(tSched, 8.8, "#e8f5e9");
+  tSched.setColumnWidth(0, 45);
+  tSched.setColumnWidth(1, 212);
+  tSched.setColumnWidth(2, 212);
+
+  // เป็นกลุ่มเป้าหมายในโครงการ/แผนงาน/กิจกรรม (ใต้ตาราง 12 เดือนฝั่งขวา)
+  const tTarget = rightCell.appendTable([
+    ["เป็นกลุ่มเป้าหมายในโครงการ/แผนงาน/กิจกรรม: " + (form.target_projects || "-")]
+  ]);
+  styleCompactTable(tTarget, 9, null);
+  tTarget.setColumnWidth(0, rightWidth - 4);
+  tTarget.getRow(0).getCell(0).setBackgroundColor("#fffde7");
+
+  // --------------------------------------------------------------------------
+  // หน้าที่ 2: รายงานจำลองคะแนนความเข้มแข็งล่วงหน้า (Strength Score Simulator & Gap Analysis)
+  // --------------------------------------------------------------------------
+  body.appendPageBreak();
+
+  const pPage2Title = body.appendParagraph("หน้าที่ 2: รายงานการจำลองคะแนนความเข้มแข็งล่วงหน้าและวิเคราะห์ช่องว่าง (Strength Score Simulator & Gap Analysis)");
+  pPage2Title.setFontFamily("TH SarabunPSK").setFontSize(14).setBold(true).setAlignment(DocumentApp.HorizontalAlignment.CENTER).setSpacingAfter(4);
+
+  const coopObj = findCoopForDoc(form.coop_name);
+  const sim = coopObj ? coopObj.simResult : evaluateCoopStrengthAndGap("สหกรณ์", {}, form.c69_lv, form.c69_tot);
+
+  const tGapSummary = body.appendTable([
+    ["สหกรณ์/กลุ่มเกษตรกร", (form.coop_name || "-") + " (" + (sim.coopCategoryName || "") + ")"],
+    ["ผลความเข้มแข็ง ปี 2569 ปัจจุบัน", `ระดับ ${form.c69_lv || '-'} | คะแนนรวม ${form.c69_tot || '-'} คะแนน (มิติ1=${form.c69_d1 || '-'}, มิติ2=${form.c69_d2 || '-'}, มิติ3=${form.c69_d3 || '-'}, มิติ4=${form.c69_d4 || '-'})`],
+    ["เกณฑ์มาตรฐานการจัดชั้น", "• ชั้น 1: คะแนนรวม >= 80 คะแนน และผ่านเงื่อนไขสำคัญ (ตัวชี้วัด 4.1 = 15 คะแนนเต็ม และ ตัวชี้วัด 4.2 = 5 คะแนนเต็ม)\n• ชั้น 2: คะแนนรวม >= 55 คะแนน และผ่านเงื่อนไขสำคัญ (ตัวชี้วัด 4.1 >= 10 คะแนน และ ตัวชี้วัด 4.2 >= 3 คะแนน)"],
+    ["ผลการวิเคราะห์ช่องว่าง (Gap Analysis)", (sim.gapSummaryLines || []).join("\n")]
+  ]);
+  styleCompactTable(tGapSummary, 11, null);
+  tGapSummary.setColumnWidth(0, 160);
+  tGapSummary.setColumnWidth(1, totalWidth - 160);
+
+  const pWinHeader = body.appendParagraph("ตารางชี้เป้าตัวชี้วัดที่ควรเร่งเก็บคะแนนเพิ่ม (เรียงตามความสำคัญและความง่ายในการทำคะแนน)");
+  pWinHeader.setFontFamily("TH SarabunPSK").setFontSize(12).setBold(true).setSpacingBefore(6).setSpacingAfter(2);
+
+  const winRows = [
+    ["ตัวชี้วัด", "ชื่อตัวชี้วัดที่คะแนนยังไม่เต็ม", "คะแนนที่ได้ / เต็ม", "คะแนนที่เพิ่มได้", "แนวทางปฏิบัติเพื่อเก็บคะแนน"]
+  ];
+  if (sim.easyWins && sim.easyWins.length > 0) {
+    sim.easyWins.forEach(w => {
+      winRows.push([w.id, w.name, `${w.score} / ${w.max}`, `+${w.gap}`, w.ease]);
+    });
+  } else {
+    winRows.push(["-", "ได้คะแนนเต็มทุกตัวชี้วัดหลัก", "-", "-", "รักษามาตรฐานระดับชั้น 1"]);
+  }
+  const tWins = body.appendTable(winRows);
+  styleCompactTable(tWins, 10.5, "#e3f2fd");
+  tWins.setColumnWidth(0, 55);
+  tWins.setColumnWidth(1, 290);
+  tWins.setColumnWidth(2, 95);
+  tWins.setColumnWidth(3, 85);
+  tWins.setColumnWidth(4, totalWidth - 525);
+
+  doc.saveAndClose();
+
+  const exportUrl = `https://docs.google.com/feeds/download/documents/export/Export?id=${docId}&exportFormat=docx`;
+  const response = UrlFetchApp.fetch(exportUrl, {
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+
+  const docxBytes = response.getContent();
+  const base64Docx = Utilities.base64Encode(docxBytes);
+  DriveApp.getFileById(docId).setTrashed(true);
+
+  return {
+    fileName: `${docTitle}.docx`,
+    fileData: base64Docx,
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  };
+}
+
+function findCoopForDoc(name) {
+  const list = getMasterCoopList();
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].name === name) return list[i];
+  }
+  return null;
+}

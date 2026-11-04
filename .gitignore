@@ -1,0 +1,18 @@
+# clasp credential (ห้าม commit)
+.clasprc.json
+.clasprc.json.*
+
+# dependencies / logs
+node_modules/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# local overrides
+web/config.local.js
+
+# โค้ดที่ดึงมาชั่วคราวด้วย clasp clone
+_pull/

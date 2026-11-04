@@ -1,0 +1,5 @@
+# ให้ clasp อัปโหลดเฉพาะไฟล์ที่ Apps Script ต้องการ
+**/*
+!appsscript.json
+!**/*.gs
+!**/*.html

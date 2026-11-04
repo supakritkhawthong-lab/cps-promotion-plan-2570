@@ -1,0 +1,44 @@
+name: Deploy Apps Script
+
+on:
+  push:
+    tags:
+      - 'gas-v*'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Authenticate clasp
+        run: |
+          echo "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+
+      - name: clasp push
+        working-directory: gas
+        run: clasp push --force
+
+      - name: clasp deploy
+        working-directory: gas
+        run: |
+          if [ -n "$DEPLOYMENT_ID" ]; then
+            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$GITHUB_REF_NAME"
+          else
+            clasp deploy --description "$GITHUB_REF_NAME"
+            echo "::warning::ยังไม่ได้ตั้ง GAS_DEPLOYMENT_ID — รอบนี้สร้าง deployment ใหม่ (URL จะเปลี่ยน)"
+          fi
+        env:
+          DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
