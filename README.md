@@ -46,8 +46,9 @@
 | Apps Script API (`/exec`) | ✅ deploy แล้ว (deployment `pages-v1`) และทดสอบกับชีต/Drive/Gemini จริงผ่าน |
 | Script Properties | ✅ `GEMINI_API_KEY`, `DRIVE_ROOT_FOLDER_ID`, `API_TOKEN`, `DEBUG` (ฝั่งเซิร์ฟเวอร์เท่านั้น) |
 | `web/config.js` | ✅ ใส่ `API_URL` + `API_TOKEN` จริงแล้ว |
-| GitHub Pages | ⛔ ยังไม่ได้ push ขึ้น GitHub (repo นี้ยังไม่เป็น git repo) |
-| GitHub Actions (gas-deploy) | ⛔ รอ `CLASPRC_JSON` + `GAS_DEPLOYMENT_ID` เมื่อ push repo แล้ว |
+| GitHub repo | ✅ <https://github.com/supakritkhawthong-lab/cps-promotion-plan-2570> (public) |
+| GitHub Pages | ✅ <https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/> |
+| GitHub Actions (gas-deploy) | 🟡 มี workflow แล้ว — ยังต้องใส่ `CLASPRC_JSON` + `GAS_DEPLOYMENT_ID` ถ้าจะให้ deploy GAS อัตโนมัติ |
 
 > ผลทดสอบจริงโดยละเอียดอยู่ใน `docs/migration.md` หัวข้อ 1.9
 

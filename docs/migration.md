@@ -19,7 +19,7 @@
 | 1.5 | ตั้ง Script Properties | ✅ ทำแล้ว (ฝั่งเซิร์ฟเวอร์ ไม่มีค่าใน repo) |
 | 1.6 | `clasp push` + `clasp deploy` | ✅ ทำแล้ว — deployment `pages-v1` (`AKfycbwRmIN0s6DxePBfQYkWCpn0zD-7uw5KuhAqa-wHbzipyTw5BapF9bDVVSsGIBY5GLw`) |
 | 1.7 | ใส่ `API_URL` / `API_TOKEN` จริงใน `web/config.js` | ✅ ทำแล้ว |
-| 1.8 | เปิด GitHub Pages | ⛔ รอ repo/remote + credentials |
+| 1.8 | เปิด GitHub Pages | ✅ <https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/> |
 | 1.9 | ทดสอบ ping + RPC + หน้าเว็บ | ✅ ทดสอบกับ deployment จริงผ่านทุกฟังก์ชัน (ดูผลด้านล่าง) |
 
 หมายเหตุการปรับจากแผนเดิม (ทำไปแล้วในโค้ด):
@@ -201,7 +201,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve-web.ps1
 - error path → failure handler ได้ `message` + `code` จาก API (ไม่ใช่แค่ `HTTP 400`)
 
 #### ผลทดสอบกับ Apps Script deployment จริง (04/11/2026)
-
 ทดสอบจากเบราว์เซอร์จริง (`http://127.0.0.1:8791/index.html`) ผ่าน shim → `/exec`:
 
 | ทดสอบ | ผล |
@@ -214,6 +213,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve-web.ps1
 | `saveDraftToSheet` | ✅ เขียนแถวลงชีต `บันทึกข้อมูล` |
 | `generatePlanDocument` | ✅ `.docx` จริง (magic `PK`), ~15 KB, สร้าง 문서 → export → ลบไฟล์ชั่วคราว |
 | `analyzeUploadedFilesWithAI` (รูป PNG) | ✅ 36 ฟิลด์, อ่านเลขทะเบียน/สินทรัพย์/หนี้สิน/ชื่อผู้สอบบัญชีถูก, ~55 วินาที |
+
+ทดสอบซ้ำบน **GitHub Pages จริง** (`https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/`):
+โหลดหน้าได้, shim ทำงาน, `getMasterCoopList` คืน 124 สหกรณ์, เลือกสหกรณ์แล้วฟอร์ม + ตาราง 12 เดือนถูกเติมครบ
+(ยืนยันว่า CORS ระหว่าง `*.github.io` กับ Apps Script ผ่าน)
 
 > หมายเหตุ: การเรียกครั้งแรกหลัง deploy อาจได้โค้ดเวอร์ชันก่อนหน้า 1–2 นาที (deployment cache)
 
