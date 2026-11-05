@@ -1,0 +1,453 @@
+/**
+ * cpd.css — สไตล์สำหรับ SPA 5 แท็บ (ใช้ร่วมกับ Bootstrap 5)
+ * ครอบเฉพาะคลาสที่ขึ้นต้นด้วย cpd- และไม่แตะสไตล์เดิมของฟอร์มพื้นฐาน
+ */
+
+:root {
+  --cpd-green: #1b5e20;
+  --cpd-green-600: #2e7d32;
+  --cpd-green-050: #e8f5e9;
+  --cpd-yellow: #f9a825;
+  --cpd-red: #c62828;
+}
+
+/* ---------------------------------------------------------------- Tab bar */
+.cpd-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+}
+
+.cpd-tab-btn {
+  flex: 1 1 170px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #37474f;
+  font-weight: 600;
+  font-size: 0.92rem;
+  padding: 10px 12px;
+  border-radius: 9px;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+
+.cpd-tab-btn:hover {
+  background: var(--cpd-green-050);
+  color: var(--cpd-green);
+}
+
+.cpd-tab-btn.active {
+  background: var(--cpd-green);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(27, 94, 32, 0.35);
+}
+
+.cpd-tab-icon {
+  font-size: 1.05rem;
+}
+
+/* ------------------------------------------------------------------ Panes */
+.cpd-tab-pane {
+  display: none;
+}
+
+.cpd-tab-pane.active {
+  display: block;
+  animation: cpdFadeIn 0.18s ease-in;
+}
+
+@keyframes cpdFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.cpd-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.cpd-page-head h4 {
+  color: var(--cpd-green);
+  font-weight: 700;
+  font-size: 1.18rem;
+}
+
+/* ------------------------------------------------------- Tab 2 sub-pills */
+.cpd-subpills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.cpd-pill {
+  border: 1px solid #c8e6c9;
+  background: #ffffff;
+  color: #2e7d32;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  transition: all 0.15s ease;
+}
+
+.cpd-pill:hover {
+  background: var(--cpd-green-050);
+}
+
+.cpd-pill.active {
+  background: var(--cpd-green);
+  border-color: var(--cpd-green);
+  color: #ffffff;
+}
+
+.cpd-subsection {
+  display: none;
+}
+
+.cpd-subsection.active {
+  display: block;
+}
+
+/* ------------------------------------------------------- Status buttons */
+.cpd-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #455a64;
+}
+
+.cpd-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cpd-dot {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid #90a4ae;
+}
+
+.dot-white  { background: #ffffff; }
+.dot-black  { background: #212121; border-color: #212121; }
+.dot-yellow { background: #ffd54f; border-color: #f9a825; }
+.dot-green  { background: #43a047; border-color: #2e7d32; }
+
+.cpd-status-btn {
+  border: 1px solid #cfd8dc;
+  background: #ffffff;
+  color: #546e7a;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  transition: all 0.12s ease;
+}
+
+.cpd-status-btn:hover {
+  border-color: #90a4ae;
+}
+
+.cpd-status-btn.status-white.active {
+  background: #ffffff;
+  border-color: #455a64;
+  color: #263238;
+  box-shadow: inset 0 0 0 2px #455a64;
+}
+
+.cpd-status-btn.status-black.active {
+  background: #212121;
+  border-color: #212121;
+  color: #ffffff;
+}
+
+.cpd-status-btn.status-yellow.active {
+  background: #ffd54f;
+  border-color: #f9a825;
+  color: #5d4037;
+}
+
+.cpd-status-btn.status-green.active {
+  background: #43a047;
+  border-color: #2e7d32;
+  color: #ffffff;
+}
+
+/* ------------------------------------------------------- Tab 4 info grid */
+.cpd-info-grid {
+  row-gap: 4px;
+}
+
+.cpd-info-cell {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px;
+  border-bottom: 1px dashed #e0e0e0;
+  font-size: 0.88rem;
+}
+
+.cpd-info-label {
+  flex: 0 0 45%;
+  color: #607d8b;
+  font-weight: 600;
+}
+
+.cpd-info-value {
+  flex: 1 1 auto;
+  font-weight: 700;
+  color: #263238;
+}
+
+/* ----------------------------------------------------------- Dashboard */
+.cpd-kpi {
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-left-width: 5px;
+  border-radius: 9px;
+  padding: 12px 14px;
+  height: 100%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.cpd-kpi-label {
+  font-size: 0.76rem;
+  color: #607d8b;
+  font-weight: 600;
+  min-height: 2.2em;
+}
+
+.cpd-kpi-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 2px 0;
+}
+
+.cpd-kpi-sub {
+  font-size: 0.74rem;
+  color: #78909c;
+}
+
+.cpd-zone-block {
+  padding: 10px 12px;
+  border: 1px solid #eceff1;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+
+.cpd-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+  font-size: 0.8rem;
+}
+
+.cpd-progress-label {
+  flex: 0 0 118px;
+  color: #455a64;
+  font-weight: 600;
+}
+
+.cpd-progress {
+  flex: 1 1 auto;
+  height: 12px;
+  background: #eceff1;
+  border-radius: 999px;
+}
+
+.cpd-progress-bar {
+  border-radius: 999px;
+}
+
+.cpd-progress-value {
+  flex: 0 0 130px;
+  text-align: right;
+  font-weight: 700;
+  color: #37474f;
+}
+
+.cpd-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.cpd-chart-label {
+  flex: 0 0 58px;
+  font-weight: 700;
+  font-size: 0.84rem;
+  color: #37474f;
+}
+
+.cpd-chart-bars {
+  flex: 1 1 auto;
+}
+
+.cpd-chart-bar-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.76rem;
+  color: #546e7a;
+}
+
+.cpd-chart-bar {
+  height: 14px;
+  border-radius: 4px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+
+/* --------------------------------------------------------------- Toast */
+.cpd-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 2000;
+  max-width: 380px;
+  padding: 12px 18px;
+  border-radius: 9px;
+  color: #ffffff;
+  background: #37474f;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  font-size: 0.88rem;
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.cpd-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.cpd-toast.success { background: #2e7d32; }
+.cpd-toast.danger  { background: #c62828; }
+.cpd-toast.info    { background: #1565c0; }
+
+/* ------------------------------------------------------------ Utilities */
+.cpd-vol-input {
+  min-width: 74px;
+}
+
+/* ---------------------------------------------------------------- Print */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body {
+    background: #ffffff !important;
+  }
+
+  .no-print,
+  .cpd-tabbar,
+  .cpd-subpills,
+  .cpd-page-head .no-print,
+  .cpd-toast {
+    display: none !important;
+  }
+
+  .cpd-tab-pane {
+    display: none !important;
+  }
+
+  .cpd-tab-pane.active {
+    display: block !important;
+  }
+
+  .cpd-subsection {
+    display: none !important;
+  }
+
+  .cpd-subsection.active {
+    display: block !important;
+  }
+
+  .container {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #bdbdbd !important;
+    break-inside: avoid;
+  }
+
+  .card-header {
+    background: #e8f5e9 !important;
+    color: #1b5e20 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .cpd-tab-pane.active .cpd-subsection {
+    display: block !important;
+  }
+
+  table {
+    font-size: 0.72rem !important;
+  }
+
+  a[href]::after {
+    content: "";
+  }
+}
+
+/* -------------------------------------------------------- Small screens */
+@media (max-width: 767.98px) {
+  .cpd-tab-btn {
+    flex: 1 1 45%;
+    font-size: 0.82rem;
+    padding: 8px 6px;
+  }
+
+  .cpd-progress-label {
+    flex: 0 0 88px;
+  }
+
+  .cpd-progress-value {
+    flex: 0 0 92px;
+  }
+
+  .cpd-info-cell {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .cpd-info-label {
+    flex: none;
+  }
+}

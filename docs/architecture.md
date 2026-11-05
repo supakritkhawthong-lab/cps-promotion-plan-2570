@@ -32,13 +32,16 @@
 
 ```mermaid
 flowchart LR
-  U[ผู้ใช้] --> P[GitHub Pages<br/>web/index.html]
+  U[ผู้ใช้] --> P[GitHub Pages<br/>SPA 5 แท็บ]
+  S1[CPD_AppState<br/>cpd-state.js] --> P
   P -->|fetch POST text/plain| A[Apps Script Web App<br/>/exec → doPost]
   A --> R[RPC Router<br/>RPC_ALLOWLIST]
   R --> F1[getMasterCoopList]
   R --> F2[saveDraftToSheet]
   R --> F3[analyzeUploadedFilesWithAI]
   R --> F4[generatePlanDocument]
+  R --> F5[save/getCompleteCoopRecord]
+  R --> F6[getDashboardSummaryData]
   F1 --> S[(Google Sheets)]
   F2 --> S
   F3 --> G[Gemini API]
@@ -46,6 +49,9 @@ flowchart LR
   F4 --> S
   F4 --> DOC[DocumentApp]
   DOC --> D
+  F5 --> C[(CPD Sheets 3 ชีต)]
+  F6 --> C
+  F6 --> S
 ```
 
 ### หลักการสำคัญ
@@ -59,12 +65,16 @@ flowchart LR
 
 | องค์ประกอบ | ไฟล์ | หน้าที่ |
 |---|---|---|
-| Static UI | `web/index.html` | ฟอร์ม, ตาราง, การเรียก API |
+| Static UI | `web/index.html` | ฟอร์มเดิม Tab 1 + shell เมนู 5 แท็บ |
+| UI แท็บ 2–5 | `web/js/cpd-ui.js` | แผนเต็ม, รายเดือน, ปิดบัญชี, Dashboard, ส่งออก |
+| State กลาง | `web/js/cpd-state.js` | sync, merge, auto-calc, โหลด state กลับฟอร์ม |
+| SPA style | `web/css/cpd.css` | เมนู, ตาราง, การ์ด, สถานะสีและ Print |
 | Runtime config | `web/config.js` | `API_URL`, `API_TOKEN` |
 | RPC shim | `web/js/google-script-shim.js` | แปลง `google.script.run` → `fetch` |
 | HTTP entry | `gas/Api.gs` | `doPost`, allowlist, JSON envelope, token |
 | Config | `gas/config.gs` | อ่าน Script Properties, `getSS_()` |
 | Business logic เดิม | `gas/Code.gs` | คำนวณคะแนน, AI, สร้าง Word |
+| CPD database | `gas/CPD_Database.gs` | upsert state, โหลดแผน, สรุป Dashboard จาก 3 ชีต |
 | Sheets helper | `gas/lib/SheetUtil.gs` | อ่านตาราง, lock, กัน formula injection |
 | Drive helper | `gas/lib/DriveUtil.gs` | สร้างโฟลเดอร์, เก็บไฟล์ |
 | CI frontend | `.github/workflows/pages.yml` | deploy `web/` |
@@ -99,6 +109,28 @@ collectFormObject()
   → DocumentApp สร้างเอกสาร → export .docx → base64
   → คืน {fileName, fileData, mimeType}
   → browser สร้าง Blob แล้วดาวน์โหลด
+```
+
+### 4.4 บันทึกและโหลดแผนทั้ง 5 แท็บ
+
+```
+เลือกสหกรณ์/AI/กรอกแท็บ 2–4
+  → cpd-state.js รวมเป็น CPD_AppState ชุดเดียว
+  → saveCompleteCoopRecord({state, form})
+  → Script Lock → upsert CPD_Plans_2570 + Monthly_Tracking + Closing_Success
+  → full_state_json เก็บ state สำหรับ round-trip
+เลือกสหกรณ์หรือกด "โหลดข้อมูลเพื่อแก้ไข"
+  → getCompleteCoopRecord → loadStateFromRecord → เติม Tab 1–4 และคำนวณซ้ำ
+```
+
+### 4.5 Dashboard
+
+```
+getDashboardSummaryData(filters)
+  → อ่าน master list + CPD Sheets 3 ชีต
+  → join ด้วย fiscalYear + coopId (fallback ชื่อ)
+  → กรอง → KPI/zone/class/dimension/rows → cpd-ui.js วาด CSS charts
+  → ถ้า RPC ล้มเหลว ใช้ masterCoops + state ปัจจุบันเป็นข้อมูลสำรองพร้อม badge แจ้งเตือน
 ```
 
 ## 5. ทำไมใช้ shim ไม่เขียน frontend ใหม่

@@ -5,6 +5,7 @@
   <title>ระบบจัดทำแผนส่งเสริมสหกรณ์/กลุ่มเกษตรกร รายแห่ง ปีงบประมาณ พ.ศ. 2570</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="css/cpd.css" rel="stylesheet">
   <!-- โหลดไลบรารี pdf-lib และ PDF.js สำหรับสกัดข้อความ/คัดกรองหน้าสำคัญอัตโนมัติด้วยความเร็วสูง -->
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -23,6 +24,28 @@
     <h3 class="fw-bold text-success">ระบบจัดทำแผนส่งเสริมสหกรณ์/กลุ่มเกษตรกร รายแห่ง ประจำปีงบประมาณ พ.ศ. 2570</h3>
     <p class="text-muted">สำนักงานสหกรณ์จังหวัดชลบุรี (Enterprise Version: Smart Fast-Read AI + Strength Score Simulator + Cross-Check บัญชี)</p>
   </div>
+
+  <!-- แถบเมนู 5 แท็บ -->
+  <nav class="cpd-tabbar mb-4 no-print" id="cpdTabBar">
+    <button type="button" class="cpd-tab-btn active" data-action="switch-tab" data-tab="base-form">
+      <span class="cpd-tab-icon">📝</span><span>1. ฟอร์มพื้นฐาน</span>
+    </button>
+    <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="full-plan">
+      <span class="cpd-tab-icon">📘</span><span>2. แผนฉบับเต็ม</span>
+    </button>
+    <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="monthly-track">
+      <span class="cpd-tab-icon">📅</span><span>3. ติดตามรายเดือน</span>
+    </button>
+    <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="closing-report">
+      <span class="cpd-tab-icon">📄</span><span>4. รายงานปิดบัญชี</span>
+    </button>
+    <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="dashboard">
+      <span class="cpd-tab-icon">📊</span><span>5. Dashboard จังหวัด</span>
+    </button>
+  </nav>
+
+  <!-- ================= แท็บ 1: ฟอร์มพื้นฐาน (โครงเดิมทั้งหมด) ================= -->
+  <div id="tab-base-form" class="cpd-tab-pane active">
 
   <!-- ขั้นที่ 1: ค้นหาสหกรณ์ + Simulator + อัปโหลดไฟล์ 4 ช่องความเร็วสูง -->
   <div class="card shadow-sm mb-4">
@@ -271,6 +294,13 @@
       <div id="docResult" class="px-3 pb-3"></div>
     </div>
   </form>
+  </div><!-- /#tab-base-form -->
+
+  <!-- ================= แท็บ 2-5: สร้างโครงด้วย js/cpd-ui.js ================= -->
+  <div id="tab-full-plan" class="cpd-tab-pane"></div>
+  <div id="tab-monthly-track" class="cpd-tab-pane"></div>
+  <div id="tab-closing-report" class="cpd-tab-pane"></div>
+  <div id="tab-dashboard" class="cpd-tab-pane"></div>
 
   <!-- GitHub Pages: โหลด config + shim ก่อนโค้ด UI เดิม (ห้ามสลับลำดับ) -->
   <script src="config.js"></script>
@@ -282,8 +312,9 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
-  let masterCoops = [];
-  let currentCoopIndex = -1;
+  // ใช้ var เพื่อให้โค้ด SPA แท็บ 2-5 เข้าถึงผ่าน window.* ได้ (ไม่กระทบโค้ดเดิม)
+  var masterCoops = [];
+  var currentCoopIndex = -1;
   let currentAssetNumeric = 0;
 
   const monthsOrder = [
@@ -761,6 +792,7 @@
 
         alertBox.className = "alert alert-success mt-3";
         alertBox.textContent = "✅ ประมวลผลเอกสารความเร็วสูง สกัดตัวเลขงบการเงิน และเกลาสำนวนราชการสำเร็จ!";
+        if (typeof window.CPD_scheduleSync === 'function') window.CPD_scheduleSync();
       }).withFailureHandler(err => {
         btn.disabled = false;
         btn.textContent = "⚡ ประมวลผลเอกสารความเร็วสูงด้วย AI (ดึงตัวเลขและเกลาสำนวนราชการ)";
@@ -858,5 +890,8 @@
     }).generatePlanDocument(formObj);
   }
 </script>
+<!-- State + UI ของแท็บ 2-5 (โหลดหลังโค้ดเดิมเสมอ) -->
+<script src="js/cpd-state.js"></script>
+<script src="js/cpd-ui.js"></script>
 </body>
 </html>

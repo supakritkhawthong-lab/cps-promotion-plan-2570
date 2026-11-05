@@ -1,7 +1,8 @@
-# ระบบจัดทำแผนส่งเสริมสหกรณ์ 2570 — GitHub Pages + Apps Script + Sheets + Drive
+# ระบบจัดทำแผนส่งเสริมสหกรณ์ 2570 — 5 แท็บ + GitHub Pages + Apps Script
 
-เว็บ static บน **GitHub Pages** เรียก API ของ **Apps Script Web App** ซึ่งอ่าน/เขียน **Google Sheets**
-และเก็บไฟล์บน **Google Drive** โดยใช้โค้ด Apps Script เดิมเป็นแกนหลัก
+เว็บ SPA บน **GitHub Pages** เรียก API ของ **Apps Script Web App** ซึ่งอ่าน/เขียน **Google Sheets**
+และเก็บไฟล์บน **Google Drive** โดยคงฟอร์มเดิมเป็นแท็บที่ 1 และเพิ่มแผนฉบับเต็ม ติดตามรายเดือน
+รายงานปิดบัญชี และ Dashboard จังหวัด โดยใช้ `window.CPD_AppState` เป็นข้อมูลกลางชุดเดียว
 
 ```
 ผู้ใช้ → GitHub Pages (web/) → fetch POST text/plain → Apps Script /exec (gas/)
@@ -14,11 +15,16 @@
 ```
 .
 ├─ web/                         # frontend (GitHub Pages)
-│  ├─ index.html                # UI เดิม (ย้ายมาจาก Index.html ของ Apps Script)
+│  ├─ index.html                # ฟอร์มเดิม Tab 1 + shell เมนู 5 แท็บ
 │  ├─ config.js                 # API_URL / API_TOKEN
-│  └─ js/google-script-shim.js  # ทำให้ google.script.run เดิมทำงานบน Pages ได้
+│  ├─ css/cpd.css               # สไตล์ SPA, Dashboard และ Print
+│  └─ js/
+│     ├─ google-script-shim.js  # แปลง google.script.run เป็น fetch
+│     ├─ cpd-state.js           # state กลาง, sync, คำนวณการเงิน/คะแนน/วันครบกำหนด
+│     └─ cpd-ui.js              # Tab 2–5, บันทึก/โหลด, Dashboard, ส่งออก
 ├─ gas/                         # Apps Script (clasp root)
-│  ├─ Code.gs                   # โค้ดธุรกิจเดิม (แก้ 2 จุดตาม docs/migration.md แล้ว)
+│  ├─ Code.gs                   # โค้ดธุรกิจเดิม: master list, AI, ร่าง, Word
+│  ├─ CPD_Database.gs           # บันทึก/โหลด state และ Dashboard ทั้ง 5 แท็บ
 │  ├─ Api.gs                    # doPost + RPC router + allowlist
 │  ├─ config.gs                 # อ่านค่าจาก Script Properties
 │  ├─ Setup.gs                  # ตัวช่วยตั้งค่า/ตรวจสอบ (ไม่ถูกเรียกจากเว็บ)
@@ -39,23 +45,36 @@
    └─ data-model.md
 ```
 
+## หน้าจอ 5 แท็บ
+
+1. **ฟอร์มพื้นฐาน** — โค้ดและ element `id` เดิม, ค้นหาสหกรณ์, แนบไฟล์, AI, ร่างและ Word
+2. **แผนฉบับเต็ม** — Profile, งบการเงิน/อัตราส่วน, 4 มิติ 18 ตัวชี้วัด, 4M, แผน 30/150 วัน
+3. **ติดตามรายเดือน** — สถานะ 12 เดือน 4 สี, ปริมาณธุรกิจ 6 ประเภท และบันทึกลงพื้นที่
+4. **รายงานปิดบัญชี** — ผลปิดบัญชี/ประชุมใหญ่, ผลสำเร็จ 2.1–2.5, อุปสรรคและข้อเสนอแนะ
+5. **Dashboard จังหวัด** — ตัวกรอง, 6 KPI, กราฟเขต/ชั้นความเข้มแข็ง, ทะเบียน 123 แห่ง และ CSV/Excel
+
+การบันทึกจากแท็บ 2–4 เขียน `CPD_AppState` ทั้งก้อนลง `full_state_json` และสรุปข้อมูลลงชีต
+`CPD_Plans_2570`, `CPD_Monthly_Tracking`, `CPD_Closing_Success` โดยอัตโนมัติ
+
 ## สถานะปัจจุบัน
 
 | ส่วน | สถานะ |
 |---|---|
-| Apps Script API (`/exec`) | ✅ deploy แล้ว (deployment `pages-v1`) และทดสอบกับชีต/Drive/Gemini จริงผ่าน |
+| Apps Script API (`/exec`) | ✅ deployment เดิม `@37` — legacy + CPD 5 แท็บ ผ่าน E2E |
+| ชีต CPD 3 ชีต | ✅ สร้างและทดสอบ save/load/dashboard/filter แล้ว ล้างข้อมูลทดสอบแล้ว |
+| Frontend 5 แท็บ | ✅ ทดสอบ local ผ่าน — 🟡 รอ commit/push เพื่อเผยแพร่ |
 | Script Properties | ✅ `GEMINI_API_KEY`, `DRIVE_ROOT_FOLDER_ID`, `API_TOKEN`, `DEBUG` (ฝั่งเซิร์ฟเวอร์เท่านั้น) |
 | `web/config.js` | ✅ ใส่ `API_URL` + `API_TOKEN` จริงแล้ว |
 | GitHub repo | ✅ <https://github.com/supakritkhawthong-lab/cps-promotion-plan-2570> (public) |
-| GitHub Pages | ✅ <https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/> |
+| GitHub Pages | ✅ <https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/> (รอ UI 5 แท็บรอบใหม่) |
 | GitHub Actions (gas-deploy) | 🟡 มี workflow แล้ว — ยังต้องใส่ `CLASPRC_JSON` + `GAS_DEPLOYMENT_ID` ถ้าจะให้ deploy GAS อัตโนมัติ |
 
-> ผลทดสอบจริงโดยละเอียดอยู่ใน `docs/migration.md` หัวข้อ 1.9
+> ผลทดสอบ Phase 1 อยู่ใน `docs/migration.md` หัวข้อ 1.9 และผล SPA 5 แท็บอยู่ในหัวข้อ 2A
 
 ## เริ่มใช้งาน (สรุป)
 
-> สถานะ: `gas/Code.gs` และ `web/index.html` ถูกวางเข้า repo แล้ว และแก้ตามข้อ 3 เรียบร้อย
-> เหลือขั้นที่ต้องใช้บัญชี GitHub จริง (ข้อ 7, 8) — ดูตารางสถานะใน `docs/migration.md`
+> ติดตั้งครั้งแรกให้ทำตามขั้นตอนด้านล่าง สำหรับการพัฒนาต่อให้แก้ `web/` หรือ `gas/`
+> แล้วทดสอบ local ก่อน `clasp push` และ deploy GitHub Pages ตามลำดับ
 
 1. **ดึงโค้ดเดิมจาก Apps Script** (ถ้ายังไม่ได้ดึง — ข้ามได้ถ้าใช้ไฟล์ใน repo นี้)
    ```bash
@@ -91,10 +110,14 @@
    ตั้ง Web App เป็น **Execute as: Me** / **Who has access: Anyone**
    แล้วคัดลอก URL `/exec` ไปใส่ `web/config.js` (โปรเจกต์นี้ตั้งไว้แล้ว)
 
-6. **ตรวจ `web/index.html`** — repo นี้แทรก 2 บรรทัดนี้ไว้ก่อน `<script>` ก้อนใหญ่ท้ายไฟล์แล้ว
+6. **ตรวจ `web/index.html`** — repo นี้โหลด `config.js` + shim ก่อนโค้ดเดิม
+   และโหลด `js/cpd-state.js` + `js/cpd-ui.js` หลังโค้ดเดิมแล้ว (ห้ามสลับลำดับ)
    ```html
    <script src="config.js"></script>
    <script src="js/google-script-shim.js"></script>
+   <!-- โค้ดเดิม ... -->
+   <script src="js/cpd-state.js"></script>
+   <script src="js/cpd-ui.js"></script>
    ```
 
 7. **เปิด GitHub Pages**: Settings → Pages → Source = **GitHub Actions**

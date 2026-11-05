@@ -229,6 +229,46 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve-web.ps1
 
 ---
 
+## ระยะที่ 2A — SPA 5 แท็บ (05/11/2026)
+
+### สถานะการทำ
+
+| รายการ | สถานะ |
+|---|---|
+| เมนู 5 แท็บ โดยคง element `id` ของฟอร์มเดิม | ✅ ตรวจ 76 `id` เดิม ไม่มีรายการที่หาย |
+| `CPD_AppState` + sync จากฟอร์ม/AI ไปทุกแท็บ | ✅ |
+| แผนฉบับเต็ม, การเงิน, 4 มิติ 18 ตัวชี้วัด, 4M, 30/150 วัน | ✅ |
+| ติดตาม 12 เดือน, 4 สี, ธุรกิจ 6 ประเภท, visit log | ✅ |
+| รายงานปิดบัญชี 2.1–2.5 และ Dashboard 123 แห่ง | ✅ |
+| `saveCompleteCoopRecord`, `getCompleteCoopRecord`, `getDashboardSummaryData` | ✅ |
+| ชีต `CPD_Plans_2570`, `CPD_Monthly_Tracking`, `CPD_Closing_Success` | ✅ สร้างอัตโนมัติ |
+| Backend deployment เดิม `@37` | ✅ push/deploy แล้ว |
+| ถอด admin/test endpoints ออกจาก RPC allowlist | ✅ เหลือเฉพาะ 7 public functions |
+| ล้างข้อมูลทดสอบ CPD และร่างเดิมที่สร้างระหว่าง E2E | ✅ Dashboard กลับเป็น planned 0 |
+| Frontend 5 แท็บขึ้น GitHub Pages | 🟡 รอ commit/push |
+
+### ผลทดสอบ
+
+- `node --check` ผ่านสำหรับ JavaScript และ Apps Script ทุกไฟล์
+- Backend E2E ผ่าน: ping, สร้างชีต, save, load, dashboard, server-side filters และลบข้อมูลทดสอบ
+- UI ผ่าน: เลือกสหกรณ์, sync, auto-calc การเงิน/คะแนน, deadline 30/150 วัน,
+  สถานะและปริมาณธุรกิจรายเดือน, เพิ่ม/ลบ visit log และบันทึกจากแท็บ 2, 3, 4
+- โหลด CPD record อัตโนมัติได้แม้สหกรณ์มีร่างเดิม และปุ่ม "โหลดข้อมูลเพื่อแก้ไข"
+  โหลดกลับ Tab 1–4 ครบ (full-state round-trip)
+- Dashboard เชื่อม backend จริง: 123 แถว, 4 เขต, 6 KPI, filter เขต/อำเภอถูกต้อง,
+  วันที่ไทยและ deadline แสดงถูกต้อง
+- CSV = header + 123 แถว, Excel (.xls) และ Word (.docx) ดาวน์โหลดสำเร็จ
+- Print ถูกเรียกจากแท็บรายงาน และไม่พบ console error ใน flow ที่ทดสอบ
+
+### หมายเหตุก่อน production
+
+- ต้อง push `web/` แล้วทดสอบ 5 แท็บซ้ำบน URL GitHub Pages จริง
+- ปิด `DEBUG` เมื่อไม่ต้องการ stack trace และตั้ง CI secrets ถ้าจะ deploy GAS ผ่าน Actions
+- ข้อมูลต้นทาง 86 จาก 123 แห่งไม่มีอำเภอ จึงควรแก้ทะเบียนต้นทางก่อนใช้ตัวกรองอำเภอเต็มรูปแบบ
+- `API_TOKEN` ใน frontend เป็นเพียง speed bump ไม่ใช่ระบบยืนยันตัวตน
+
+---
+
 ## ระยะที่ 2 — ความถูกต้องและประสิทธิภาพ
 
 ทำทีละข้อ commit ทีละเรื่อง

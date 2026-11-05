@@ -71,6 +71,19 @@ Apps Script ไม่รองรับ `OPTIONS` ดังนั้นห้า
 | `saveDraftToSheet` | `form` | `{ savedAt }` |
 | `analyzeUploadedFilesWithAI` | `payload` | object ผลสกัดจาก AI |
 | `generatePlanDocument` | `form` | `{ fileName, fileData, mimeType }` |
+| `saveCompleteCoopRecord` | `{ state, form? }` | `{ savedAt, planId, coopId, coopName, fiscalYear }` |
+| `getCompleteCoopRecord` | `{ fiscalYear, coopId?, coopName? }` | `{ found, savedAt?, state?, summary? }` |
+| `getDashboardSummaryData` | `{ fiscalYear, promotionZone?, district?, coopType?, primaryOfficer? }` | KPI, zones, charts, filterOptions และ rows |
+
+### สัญญาข้อมูล CPD 5 แท็บ
+
+- `state` คือ `window.CPD_AppState` ทั้งก้อน โครงสร้างอยู่ใน `docs/data-model.md`
+- `saveCompleteCoopRecord` upsert ด้วยปีงบประมาณ + รหัส 13 หลัก (หรือชื่อเมื่อไม่มีรหัส)
+  และเขียนลง 3 ชีตภายใต้ Script Lock
+- `getCompleteCoopRecord` คืน `found:false` เมื่อไม่มีข้อมูล ไม่ถือเป็น error
+- Dashboard รองรับตัวกรองทั้ง 5 ช่อง; ค่าว่างหมายถึงไม่กรองช่องนั้น
+- `ensureCpdDatabase()` และ `deleteCpdRecord()` เป็นฟังก์ชันสำหรับผู้ดูแลจาก Apps Script editor
+  **ไม่อยู่ใน `RPC_ALLOWLIST`** จึงเรียกจากเว็บไม่ได้
 
 ## ตัวอย่าง curl
 

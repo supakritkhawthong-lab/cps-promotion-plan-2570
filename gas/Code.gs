@@ -22,6 +22,12 @@ function doGet() {
 
 // แปลงชื่อเดือนให้เป็นรูปแบบวันสิ้นปีทางบัญชีแบบเต็ม
 function normalizeFiscalDate(str) {
+  const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+  // ค่าจาก Sheets อาจเป็น Date object — แปลงเป็น "วัน เดือนไทย" ก่อน
+  if (Object.prototype.toString.call(str) === '[object Date]' && !isNaN(str.getTime())) {
+    return str.getDate() + ' ' + TH_MONTHS[str.getMonth()];
+  }
   const s = String(str || '').trim();
   const map = [
     { keys: ['มกราคม', 'ม.ค.'], full: '31 มกราคม' },

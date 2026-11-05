@@ -19,7 +19,10 @@ var RPC_ALLOWLIST = [
   'getMasterCoopList',
   'saveDraftToSheet',
   'analyzeUploadedFilesWithAI',
-  'generatePlanDocument'
+  'generatePlanDocument',
+  'saveCompleteCoopRecord',
+  'getCompleteCoopRecord',
+  'getDashboardSummaryData'
 ];
 
 /** จำกัดขนาด body (~34 MB ไบนารีหลัง base64) กัน memory quota */
@@ -115,7 +118,10 @@ function resolveRpc_(name) {
     getMasterCoopList: getMasterCoopList,
     saveDraftToSheet: saveDraftToSheet,
     analyzeUploadedFilesWithAI: analyzeUploadedFilesWithAI,
-    generatePlanDocument: generatePlanDocument
+    generatePlanDocument: generatePlanDocument,
+    saveCompleteCoopRecord: saveCompleteCoopRecord,
+    getCompleteCoopRecord: getCompleteCoopRecord,
+    getDashboardSummaryData: getDashboardSummaryData
   };
   return handlers[name];
 }
