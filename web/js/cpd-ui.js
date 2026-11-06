@@ -1308,6 +1308,239 @@
   // =========================================================================
 
   UI.switchTab = switchTab;
+  
+  // =========================================================================
+  // DASHBOARD DATA LOADING
+  // =========================================================================
+
+  function readDashboardFilters() {
+    return {
+      fiscalYear: ($('cpd5FilterYear') && $('cpd5FilterYear').value) || '2570',
+      district: ($('cpd5FilterDistrict') && $('cpd5FilterDistrict').value) || '',
+      coopType: ($('cpd5FilterType') && $('cpd5FilterType').value) || '',
+      primaryOfficer: ($('cpd5FilterOfficer') && $('cpd5FilterOfficer').value) || ''
+    };
+  }
+
+  function loadDashboard(force) {
+    if (!force && dashboardData) {
+      renderDashboard();
+      return;
+    }
+    var status = $('cpd5Status');
+    if (status) status.textContent = 'กำลังโหลดข้อมูลจาก Google Sheets...';
+    var filters = readDashboardFilters();
+    global.google.script.run.withSuccessHandler(function (res) {
+      dashboardData = res || null;
+      dashboardError = '';
+      populateDashboardFilters(res && res.filterOptions);
+      renderDashboard();
+    }).withFailureHandler(function (err) {
+      dashboardError = err && err.message ? err.message : String(err);
+      dashboardData = fallbackDashboard(filters);
+      populateDashboardFilters(dashboardData.filterOptions);
+      renderDashboard();
+    }).getDashboardSummaryData(filters);
+  }
+
+  function fallbackDashboard(filters) {
+    var master = (global.masterCoops || []).slice();
+    var current = A();
+    var currentName = current.coopProfile.coopName;
+    var currentPlanned = !!currentName && (!!current.meta.updatedAt ||
+      (current.scheduleAndActivities.monthlyPlan12Months || []).some(function (m) {
+        return m.statusColor && m.statusColor !== 'white';
+      }));
+
+    var optionSets = { promotionZone: {}, district: {}, coopType: {}, primaryOfficer: {} };
+    master.forEach(function (c) {
+      if (c.zone) optionSets.promotionZone[c.zone] = true;
+      if (c.district) optionSets.district[c.district] = true;
+      if (c.coopType) optionSets.coopType[c.coopType] = true;
+      if (c.mainOfficer) optionSets.primaryOfficer[c.mainOfficer] = true;
+    });
+
+    var rows = master.map(function (c) {
+      var isCurrent = currentName && c.name === currentName;
+      var hasPlan = isCurrent && currentPlanned;
+      var cls68 = String((c.score68 && c.score68.level) || '').replace(/^.*?(\d)/, '');
+      var cls69 = String((c.score69 && c.score69.level) || '').replace(/^.*?(\d)/, '');
+      var sum = current.financials.summary2Years;
+      var st = current.strength;
+      return {
+        fiscalYear: '2570',
+        coopId: c.code13 || '',
+        coopName: c.name,
+        district: c.district || '',
+        promotionZone: c.zone || '',
+        coopSubType: c.coopType || '',
+        primaryOfficer: c.mainOfficer || '',
+        fiscalEndDate: hasPlan ? current.coopProfile.fiscalEndDate : formatThaiDate(c.fiscalYear),
+        targetClose30d: hasPlan ? current.scheduleAndActivities.targetCloseAccountDate30Days : '',
+        targetAgm150d: hasPlan ? current.scheduleAndActivities.targetAgm150Days : '',
+        assetsLatest: hasPlan ? S.num(sum.assetsLatest) : 0,
+        businessVolLatest: hasPlan ? S.num(sum.businessVolumeLatest) : 0,
+        class68: cls68,
+        class69: cls69,
+        strengthScorePrev: S.num(c.score68 && c.score68.total),
+        strengthScoreLatest: S.num(c.score69 && c.score69.total),
+        dim1: hasPlan ? S.num(st.dim1ByYear['2569']) : S.num(c.score69 && c.score69.d1),
+        dim2: hasPlan ? S.num(st.dim2ByYear['2569']) : S.num(c.score69 && c.score69.d2),
+        dim3: hasPlan ? S.num(st.dim3ByYear['2569']) : S.num(c.score69 && c.score69.d3),
+        dim4: hasPlan ? S.num(st.dim4ByYear['2569']) : S.num(c.score69 && c.score69.d4),
+        approvalStatus: hasPlan ? (current.meta.approvalStatus || 'ร่าง') : '',
+        monthlyProgress: hasPlan ? (current.scheduleAndActivities.monthlyPlan12Months || []).filter(function (m) {
+          return m.statusColor && m.statusColor !== 'white';
+        }).length / 12 * 100 : 0,
+        canCloseAccount: hasPlan ? current.closingReport.canCloseAccount : '',
+        closeTimeframe: hasPlan ? current.closingReport.closeAccountTimeframe : '',
+        canHoldAgm: hasPlan ? current.closingReport.canHoldAgm : '',
+        agmTimeframe: hasPlan ? current.closingReport.agmTimeframe : '',
+        hasPlan: hasPlan
+      };
+    });
+
+    if (rows.length === 0 && currentName) {
+      rows.push({
+        fiscalYear: '2570', coopId: current.coopProfile.coopId13, coopName: currentName,
+        district: current.coopProfile.district, promotionZone: current.coopProfile.promotionZone,
+        coopSubType: current.coopProfile.coopSubType, primaryOfficer: current.coopProfile.primaryOfficer,
+        fiscalEndDate: current.coopProfile.fiscalEndDate,
+        targetClose30d: current.scheduleAndActivities.targetCloseAccountDate30Days,
+        targetAgm150d: current.scheduleAndActivities.targetAgm150Days,
+        assetsLatest: S.num(current.financials.summary2Years.assetsLatest),
+        businessVolLatest: S.num(current.financials.summary2Years.businessVolumeLatest),
+        class68: current.strength.classByYear['2568'], class69: current.strength.classByYear['2569'],
+        dim1: S.num(current.strength.dim1ByYear['2569']), dim2: S.num(current.strength.dim2ByYear['2569']),
+        dim3: S.num(current.strength.dim3ByYear['2569']), dim4: S.num(current.strength.dim4ByYear['2569']),
+        approvalStatus: current.meta.approvalStatus, monthlyProgress: 0,
+        canCloseAccount: current.closingReport.canCloseAccount,
+        closeTimeframe: current.closingReport.closeAccountTimeframe,
+        canHoldAgm: current.closingReport.canHoldAgm,
+        agmTimeframe: current.closingReport.agmTimeframe,
+        hasPlan: true
+      });
+    }
+
+    var filtered = rows.filter(function (r) {
+      return matchFilter(r.district, filters.district) &&
+        matchFilter(r.coopSubType, filters.coopType) &&
+        matchFilter(r.primaryOfficer, filters.primaryOfficer);
+    });
+    var agg = aggregateClientRows(filtered);
+    return {
+      generatedAt: 'แสดงผลจากข้อมูลในเบราว์เซอร์ (ยังเชื่อมต่อฐานข้อมูลไม่ได้)',
+      filters: filters,
+      filterOptions: {
+        fiscalYears: ['2570'],
+        districts: Object.keys(optionSets.district).sort(),
+        coopTypes: Object.keys(optionSets.coopType).sort(),
+        primaryOfficers: Object.keys(optionSets.primaryOfficer).sort()
+      },
+      kpis: agg.kpis,
+      zones: agg.zones,
+      classDistribution: agg.classDistribution,
+      dimAverages: agg.dimAverages,
+      rows: filtered
+    };
+  }
+
+  function matchFilter(value, filter) {
+    if (!filter) return true;
+    return String(value || '').trim().toLowerCase() === String(filter).trim().toLowerCase();
+  }
+
+  function formatThaiDate(value) {
+    if (!value) return '';
+    if (typeof value === 'string' && value.indexOf('/') !== -1 && value.length <= 10) return value;
+    var d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    var day = ('0' + d.getDate()).slice(-2);
+    var month = ('0' + (d.getMonth() + 1)).slice(-2);
+    var year = d.getFullYear() + 543;
+    return day + '/' + month + '/' + year;
+  }
+
+  function classBucket(value) {
+    var m = String(value || '').match(/(\d)/);
+    return m ? 'class' + m[1] : '';
+  }
+
+  function aggregateClientRows(rows) {
+    var kpis = {
+      totalCoops: rows.length,
+      planned: rows.filter(function (r) { return r.hasPlan; }).length,
+      approved: rows.filter(function (r) { return r.approvalStatus === 'อนุมัติแล้ว'; }).length,
+      closed30: rows.filter(function (r) { return r.canCloseAccount === 'ได้' && /30/.test(r.closeTimeframe); }).length,
+      agm150: rows.filter(function (r) { return r.canHoldAgm === 'ได้' && /150/.test(r.agmTimeframe); }).length,
+      monthlyReported: rows.filter(function (r) { return S.num(r.monthlyProgress) > 0; }).length,
+      totalBusinessVolume: rows.reduce(function (sum, r) { return sum + S.num(r.businessVolLatest); }, 0),
+      totalAssets: rows.reduce(function (sum, r) { return sum + S.num(r.assetsLatest); }, 0)
+    };
+    kpis.plannedPct = rows.length ? Math.round(kpis.planned / rows.length * 100) : 0;
+    kpis.approvedPct = rows.length ? Math.round(kpis.approved / rows.length * 100) : 0;
+    kpis.closed30Pct = rows.length ? Math.round(kpis.closed30 / rows.length * 100) : 0;
+    kpis.agm150Pct = rows.length ? Math.round(kpis.agm150 / rows.length * 100) : 0;
+    kpis.monthlyReportedPct = rows.length ? Math.round(kpis.monthlyReported / rows.length * 100) : 0;
+
+    var zoneMap = {};
+    rows.forEach(function (r) {
+      var z = r.promotionZone || 'ไม่ระบุ';
+      if (!zoneMap[z]) zoneMap[z] = { zone: z, total: 0, planned: 0, approved: 0, monthlyReported: 0, closed30: 0, agm150: 0, businessVolume: 0 };
+      var zb = zoneMap[z];
+      zb.total++;
+      if (r.hasPlan) zb.planned++;
+      if (r.approvalStatus === 'อนุมัติแล้ว') zb.approved++;
+      if (S.num(r.monthlyProgress) > 0) zb.monthlyReported++;
+      if (r.canCloseAccount === 'ได้' && /30/.test(r.closeTimeframe)) zb.closed30++;
+      if (r.canHoldAgm === 'ได้' && /150/.test(r.agmTimeframe)) zb.agm150++;
+      zb.businessVolume += S.num(r.businessVolLatest);
+    });
+    var zones = Object.keys(zoneMap).sort(function (a, b) { return a.localeCompare(b, 'th'); }).map(function (z) {
+      var o = zoneMap[z];
+      o.planPct = o.total ? Math.round(o.planned / o.total * 100) : 0;
+      o.approvedPct = o.total ? Math.round(o.approved / o.total * 100) : 0;
+      o.monthlyPct = o.total ? Math.round(o.monthlyReported / o.total * 100) : 0;
+      o.closedPct = o.total ? Math.round(o.closed30 / o.total * 100) : 0;
+      o.agmPct = o.total ? Math.round(o.agm150 / o.total * 100) : 0;
+      return o;
+    });
+
+    var classDistribution = {
+      y2568: { class1: 0, class2: 0, class3: 0 },
+      y2569: { class1: 0, class2: 0, class3: 0 }
+    };
+    rows.forEach(function (r) {
+      var b68 = classBucket(r.class68);
+      var b69 = classBucket(r.class69);
+      if (b68) classDistribution.y2568[b68]++;
+      if (b69) classDistribution.y2569[b69]++;
+    });
+
+    var dimAverages = [1, 2, 3, 4].map(function (n) {
+      var key = 'dim' + n;
+      var values = rows.map(function (r) { return S.num(r[key]); }).filter(function (v) { return v > 0; });
+      var avg = values.length ? Math.round((values.reduce(function (s, v) { return s + v; }, 0) / values.length) * 100) / 100 : 0;
+      return { key: key, label: 'มิติที่ ' + n, average: avg, count: values.length };
+    });
+
+    return { kpis: kpis, zones: zones, classDistribution: classDistribution, dimAverages: dimAverages };
+  }
+
+  function populateDashboardFilters(opts) {
+    if (!opts) return;
+    function setOptions(id, list) {
+      var sel = $(id);
+      if (!sel) return;
+      var current = sel.value;
+      sel.innerHTML = '<option value="">— ทั้งหมด —</option>' + list.map(function (v) { return '<option value="' + h(v) + '">' + h(v) + '</option>'; }).join('');
+      if (current && list.indexOf(current) !== -1) sel.value = current;
+    }
+    setOptions('cpd5FilterDistrict', opts.districts || []);
+    setOptions('cpd5FilterType', opts.coopTypes || []);
+    setOptions('cpd5FilterOfficer', opts.primaryOfficers || []);
+  }
+
   UI.loadDashboard = loadDashboard;
   UI.saveCompletePlan = saveCompletePlan;
   UI.showToast = showToast;
