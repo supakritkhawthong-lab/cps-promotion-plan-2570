@@ -1666,8 +1666,6 @@ function maybeLoadSavedRecord() {
     });
   }
 
-  UI.loadDashboard = loadDashboard;
-  
   function saveCompletePlan() {
     S.syncFromBaseFormToAllTabs();
     var state = A();
@@ -1679,6 +1677,9 @@ function maybeLoadSavedRecord() {
       showToast('กรุณาเลือกสหกรณ์ก่อนบันทึก', 'danger');
       return;
     }
+
+  UI.loadDashboard = loadDashboard;
+  
     showToast('กำลังบันทึกข้อมูลทุกแท็บ...', 'info');
     global.google.script.run.withSuccessHandler(function (res) {
       state.meta.planId = res.planId || state.meta.planId;
