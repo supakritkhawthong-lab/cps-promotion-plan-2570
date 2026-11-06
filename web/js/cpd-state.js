@@ -702,10 +702,13 @@
     var st = AppState.strength;
     YEARS.forEach(function (y) {
       if (y === '2567') return;
-      var hasIndicators = STRENGTH_INDICATORS.some(function (ind) {
-        return num((st.indicators[ind.id] || {})[y]) > 0;
+      // เช็กว่ามีตัวชี้วัดที่ผู้ใช้แก้เอง (ไม่ใช่ autoDistributed) หรือไม่
+      var hasUserIndicators = STRENGTH_INDICATORS.some(function (ind) {
+        var indData = st.indicators[ind.id] || {};
+        var isAuto = indData._autoDistributed;
+        return num(indData[y]) > 0 && !isAuto;
       });
-      if (!hasIndicators) {
+      if (!hasUserIndicators) {
         st.classByYear[y] = base.strength.classByYear[y] || st.classByYear[y] || '';
         st.totalByYear[y] = base.strength.totalByYear[y] || st.totalByYear[y] || 0;
         st.dim1ByYear[y] = base.strength.dim1ByYear[y] || st.dim1ByYear[y] || 0;
@@ -929,36 +932,43 @@
     var st = AppState.strength;
     YEARS.forEach(function (y) {
       var dims = { 1: 0, 2: 0, 3: 0, 4: 0 };
-      var anyIndicator = false;
+      var anyUserIndicator = false;
+      
+      // เช็กว่ามีตัวชี้วัดที่ผู้ใช้แก้เอง (ไม่ใช่ autoDistributed) หรือไม่
       STRENGTH_INDICATORS.forEach(function (ind) {
         var v = num((st.indicators[ind.id] || {})[y]);
-        if (v > 0) anyIndicator = true;
-        dims[ind.dim] += v;
+        var isAuto = (st.indicators[ind.id] || {})._autoDistributed;
+        if (v > 0 && !isAuto) anyUserIndicator = true;
+        if (v > 0 && !isAuto) dims[ind.dim] += v;
       });
       
-      if (anyIndicator) {
-        // มี 18 ตัวชี้วัดย่อย -> คำนวณ dim1-4 จาก indicators
+      if (anyUserIndicator) {
+        // ผู้ใช้กรอกตัวชี้วัดเองในหน้า 2 -> คำนวณ dim1-4 จาก indicators
+        STRENGTH_INDICATORS.forEach(function (ind) {
+          var v = num((st.indicators[ind.id] || {})[y]);
+          var isAuto = (st.indicators[ind.id] || {})._autoDistributed;
+          if (v > 0 && !isAuto) dims[ind.dim] += v;
+        });
         st.dim1ByYear[y] = round4(dims[1]);
         st.dim2ByYear[y] = round4(dims[2]);
         st.dim3ByYear[y] = round4(dims[3]);
         st.dim4ByYear[y] = round4(dims[4]);
         st.totalByYear[y] = round4(dims[1] + dims[2] + dims[3] + dims[4]);
       } else {
-        // ไม่มี indicators -> กระจาย dim1-4 (จากหน้า 1) ไปยัง indicators ตามน้ำหนัก
+        // ไม่มีตัวชี้วัดที่ผู้ใช้แก้ -> กระจาย dim1-4 (จากหน้า 1) ไปยัง indicators ตามน้ำหนัก
         for (var d = 1; d <= 4; d++) {
           var dimTotal = num(st['dim' + d + 'ByYear'][y]);
           if (dimTotal <= 0) continue;
           
-          // คำนวณน้ำหนักรวมของมิตินี้
           var indicatorsInDim = STRENGTH_INDICATORS.filter(function (ind) { return ind.dim === d; });
           var totalWeight = indicatorsInDim.reduce(function (sum, ind) { return sum + ind.weight; }, 0);
           if (totalWeight === 0) continue;
           
-          // กระจาย dimTotal ไปยัง indicators ตามน้ำหนัก
           indicatorsInDim.forEach(function (ind) {
             if (!st.indicators[ind.id]) st.indicators[ind.id] = {};
             var distributed = round4(dimTotal * ind.weight / totalWeight);
             st.indicators[ind.id][y] = distributed;
+            st.indicators[ind.id]._autoDistributed = true; // ระบุว่าระบบกระจายให้อัตโนมัติ
             dims[d] += distributed;
           });
         }

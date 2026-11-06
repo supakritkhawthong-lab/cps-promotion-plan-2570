@@ -972,35 +972,50 @@
 
   /**
    * syncActivitiesFromMonthlyPlan() — ดึงกิจกรรมจากแผน 12 เดือน (หน้า 1) มาใส่ตาราง 5.2
-   * เฉพาะ cpdAction ที่มีคำว่า "ประชุม" จะถูกดึงมาใส่ในหัวข้อ 2
+   * เฉพาะ cpdAction ที่มีคำว่า "ประชุม" หรือ "เข้าร่วม" จะถูกดึงมาใส่ในหัวข้อ 2
    */
   function syncActivitiesFromMonthlyPlan() {
     var sch = A().scheduleAndActivities;
     if (!Array.isArray(sch.monthlyPlan12Months) || sch.monthlyPlan12Months.length === 0) return;
     
-    // ดึง cpdAction ที่มีคำว่า "ประชุม" จาก monthlyPlan12Months
+    // ดึง cpdAction ที่มีคำว่า "ประชุม" หรือ "เข้าร่วม" จาก monthlyPlan12Months
     var meetingActivities = sch.monthlyPlan12Months
       .filter(function (m) {
-        return m.cpdAction && /ประชุม|เข้าร่วม|รับรอง/.test(m.cpdAction);
+        return m.cpdAction && /ประชุม|เข้าร่วม/.test(m.cpdAction);
+      })
+      .filter(function (m) {
+        // กรองไม่ให้นัดหมายซ้ำกับ 2.1-2.4
+        var text = m.cpdAction;
+        if (/คณะกรรมการฯ เพื่อแนะนำส่งเสริม/.test(text) && /รักษาระดับชั้น/.test(text)) return false; // ซ้ำกับ 2.1
+        if (/รับรองงบการเงิน/.test(text)) return false; // ซ้ำกับ 2.2
+        if (/ประชุมใหญ่สามัญ/.test(text)) return false; // ซ้ำกับ 2.3
+        if (/แผนกลยุทธ์/.test(text)) return false; // ซ้ำกับ 2.4
+        return true;
       })
       .map(function (m, idx) {
+        // หาเลขลำดับถัดไป (ไม่ซ้ำกับรหัสที่มีอยู่)
+        var existingCodes = sch.activities.filter(function(a) { return a.code && a.code.indexOf('2.') === 0; })
+          .map(function(a) { return parseInt(a.code.split('.')[1]) || 0; });
+        var nextNum = 5;
+        while (existingCodes.indexOf(nextNum) !== -1) nextNum++;
+        
         return {
-          code: '2.' + (5 + idx), // ต่อจาก 2.1-2.4
+          code: '2.' + nextNum,
           auto: true,
           goal: m.cpdAction,
           target: '1',
           unit: 'ครั้ง',
-          startDate: A().scheduleAndActivities.targetCloseAccountDate30Days || '',
+          startDate: A().scheduleAndActivities.targetCloseAccountDate30Days || '', // ใช้วันปิดบัญชี 30 วัน
           endDate: m.month || '',
           operator: 'เจ้าหน้าที่ส่งเสริม',
           syncedFromPlan: true
         };
       });
 
-    // ลบกิจกรรมที่ sync มาแล้ว (syncedFromPlan) ก่อนเพิ่มใหม่
+    // ลบกิจกรรมที่ sync มาแล้ว (syncedFromPlan) แต่ไม่ลบแถวที่ผู้ใช้แก้เอง (auto=false)
     if (Array.isArray(sch.activities)) {
       sch.activities = sch.activities.filter(function (a) {
-        return !a.syncedFromPlan;
+        return !a.syncedFromPlan || a.auto === false;
       });
     }
 
@@ -1185,6 +1200,10 @@
       var st = A().strength;
       if (!st.indicators[ind]) st.indicators[ind] = { '2567': 0, '2568': 0, '2569': 0 };
       st.indicators[ind][year] = S.num(el.value);
+      // ลบ flag autoDistributed เพราะผู้ใช้แก้เองแล้ว
+      if (st.indicators[ind]._autoDistributed) {
+        delete st.indicators[ind]._autoDistributed;
+      }
       S.recalcStrength();
       changed = true;
     } else if (el.matches('[data-monthvol]')) {
@@ -1197,6 +1216,8 @@
       var pf = el.getAttribute('data-pfield');
       if (A().scheduleAndActivities.activities[pi]) {
         A().scheduleAndActivities.activities[pi][pf] = el.value;
+        // ติด flag ว่าผู้ใช้แก้เองแล้ว (เพื่อไม่ให้ syncActivitiesFromMonthlyPlan ลบทิ้ง)
+        A().scheduleAndActivities.activities[pi].auto = false;
       }
       changed = true;
     } else if (el.matches('[data-visit]')) {
@@ -2096,7 +2117,7 @@
     var n = S.num(v);
     if (n > 0) return 'มีกำไรเฉพาะธุรกิจ จำนวน ' + S.fmt(n, 2) + ' บาท';
     if (n < 0) return 'มีผลขาดทุนเฉพาะธุรกิจ จำนวน ' + S.fmt(Math.abs(n), 2) + ' บาท';
-    return '......';
+    return 'มีกำไร/ขาดทุนเฉพาะธุรกิจ จำนวน ...... บาท';
   }
 
   function pctText(part, total) {
@@ -2366,8 +2387,8 @@
     var summary = [];
     summary.push('สรุปผลการวิเคราะห์');
     summary.push('สหกรณ์แห่งนี้มีประสิทธิภาพในการจัดการองค์กรดี คณะกรรมการมีความรู้ความสามารถและประสบการณ์เพียงพอ ' +
-      fmtTextOrPlaceholder(p.inspectorName ? 'ผู้ตรวจสอบกิจการชื่อ ' + p.inspectorName + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ' : '') +
-      ' มีเจ้าหน้าที่ปฏิบัติงาน ' + fmtTextOrPlaceholder(staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : '') +
+      'ผู้ตรวจสอบกิจการชื่อ ' + fmtTextOrPlaceholder(p.inspectorName) + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ ' +
+      'มีเจ้าหน้าที่ปฏิบัติงาน ' + fmtTextOrPlaceholder(staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : '') +
       ' และมีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์');
     summary.push('อัตราส่วนทางการเงินที่ปรากฏสะท้อนถึงผลการดำเนินธุรกิจที่ดี ' +
       (profit > 0 ? 'มีผลกำไรต่อเนื่อง ' : '') +
