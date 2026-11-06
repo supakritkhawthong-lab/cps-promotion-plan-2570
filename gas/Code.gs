@@ -390,6 +390,10 @@ ${ruleWeaknessesText}
 2. "reserveLatest" และ "reservePrev" (ช่องทุนสำรอง): ให้ดึงเฉพาะรายการ "ทุนสำรอง" เท่านั้น (ไม่รวมทุนสะสมตามข้อบังคับอื่น)
 3. "debtLatest" และ "debtPrev" (ช่องหนี้สิน): ให้ดึงจากยอด "รวมหนี้สิน" (Total Liabilities) ห้ามใช้ยอดรวมหนี้สินและทุนของสหกรณ์
 4. "assetLatest" และ "assetPrev" (ช่องสินทรัพย์): ให้ดึงจากยอด "รวมสินทรัพย์" (Total Assets)
+5. ต้องสกัดตัวเลขทั้ง "ปีบัญชีล่าสุด (Year N)" และ "ย้อนหลัง 1 ปี (Year N-1)" ให้ครบทุกช่องตามโครงสร้าง JSON ด้านล่าง
+6. หากเอกสารระบุเฉพาะยอดปีล่าสุดพร้อมข้อความผลต่าง เช่น "เพิ่มขึ้น 1,104,363.77" หรือ "ลดลง 58,491.24" ให้ใส่ข้อความผลต่างนั้นในออบเจกต์ "changes" ตามชื่อตัวชี้วัด (wc, coopCap, loan, payable, cash, inventory, ppe, receivable, otherAsset, income, expense, salesTrading, costTrading, profitTrading, salesProcessing, costProcessing, profitProcessing, depositAmount, profitDeposit, assets, debt, share, reserve, profit) ระบบจะคำนวณย้อนหลังให้อัตโนมัติ
+7. ตัวเลขทุกช่องให้ใส่เป็นข้อความที่มีลูกน้ำคั่นหลักพันและทศนิยม 2 ตำแหน่ง (เช่น "25,723,883.12") หากไม่พบให้ใส่ "-"
+8. "membersDepositLatest/TradingLatest/ProcessingLatest" = จำนวนสมาชิกที่ร่วมทำธุรกิจแต่ละประเภท, "agmAttendeesLatest" = จำนวนสมาชิกที่เข้าประชุมใหญ่สามัญประจำปี, "staffCountLatest" = จำนวนเจ้าหน้าที่ประจำ
 
 ตอบกลับมาเป็น JSON ตามโครงสร้างนี้เท่านั้น (ห้ามใส่ข้อความอื่นนอกเหนือจาก JSON):
 {
@@ -420,6 +424,90 @@ ${ruleWeaknessesText}
   "lossPrev": "ขาดทุนสะสมปีก่อน (ถ้าไม่มีให้ใส่ -)",
   "bizVolLatest": "ปริมาณธุรกิจรวมล่าสุด",
   "bizVolPrev": "ปริมาณธุรกิจรวมย้อนหลัง",
+  "wcLatest": "ทุนดำเนินงานรวมล่าสุด",
+  "wcPrev": "ทุนดำเนินงานรวมย้อนหลัง 1 ปี",
+  "coopCapLatest": "ทุนของสหกรณ์ล่าสุด (รวมทุนของสหกรณ์)",
+  "coopCapPrev": "ทุนของสหกรณ์ย้อนหลัง 1 ปี",
+  "loanLatest": "เงินกู้ยืมล่าสุด",
+  "loanPrev": "เงินกู้ยืมย้อนหลัง 1 ปี",
+  "payableLatest": "เจ้าหนี้การค้าล่าสุด",
+  "payablePrev": "เจ้าหนี้การค้าย้อนหลัง 1 ปี",
+  "cashLatest": "เงินสดและเงินฝากธนาคารล่าสุด",
+  "cashPrev": "เงินสดและเงินฝากธนาคารย้อนหลัง 1 ปี",
+  "inventoryLatest": "สินค้าคงเหลือล่าสุด",
+  "inventoryPrev": "สินค้าคงเหลือย้อนหลัง 1 ปี",
+  "ppeLatest": "ที่ดิน อาคาร และอุปกรณ์ - สุทธิ ล่าสุด",
+  "ppePrev": "ที่ดิน อาคาร และอุปกรณ์ - สุทธิ ย้อนหลัง 1 ปี",
+  "receivableLatest": "ลูกหนี้การค้าล่าสุด",
+  "receivablePrev": "ลูกหนี้การค้าย้อนหลัง 1 ปี",
+  "otherAssetLatest": "สินทรัพย์อื่นๆ ล่าสุด",
+  "otherAssetPrev": "สินทรัพย์อื่นๆ ย้อนหลัง 1 ปี",
+  "incomeLatest": "รายได้รวมล่าสุด",
+  "incomePrev": "รายได้รวมย้อนหลัง 1 ปี",
+  "expenseLatest": "ต้นทุนและค่าใช้จ่ายรวมล่าสุด",
+  "expensePrev": "ต้นทุนและค่าใช้จ่ายรวมย้อนหลัง 1 ปี",
+  "salesTradingLatest": "รายได้ธุรกิจจัดหาสินค้ามาจำหน่ายล่าสุด",
+  "salesTradingPrev": "รายได้ธุรกิจจัดหาสินค้ามาจำหน่ายย้อนหลัง 1 ปี",
+  "costTradingLatest": "ต้นทุนธุรกิจจัดหาสินค้ามาจำหน่ายล่าสุด",
+  "costTradingPrev": "ต้นทุนธุรกิจจัดหาสินค้ามาจำหน่ายย้อนหลัง 1 ปี",
+  "profitTradingLatest": "กำไร/ขาดทุนเฉพาะธุรกิจจัดหาสินค้ามาจำหน่ายล่าสุด",
+  "profitTradingPrev": "กำไร/ขาดทุนเฉพาะธุรกิจจัดหาสินค้ามาจำหน่ายย้อนหลัง 1 ปี",
+  "planTradingLatest": "แผนงานประมาณการธุรกิจจัดหาสินค้ามาจำหน่ายล่าสุด",
+  "planTradingPrev": "แผนงานประมาณการธุรกิจจัดหาสินค้ามาจำหน่ายย้อนหลัง 1 ปี",
+  "salesProcessingLatest": "รายได้ธุรกิจแปรรูปและผลิตสินค้าล่าสุด",
+  "salesProcessingPrev": "รายได้ธุรกิจแปรรูปและผลิตสินค้าย้อนหลัง 1 ปี",
+  "costProcessingLatest": "ต้นทุนธุรกิจแปรรูปและผลิตสินค้าล่าสุด",
+  "costProcessingPrev": "ต้นทุนธุรกิจแปรรูปและผลิตสินค้าย้อนหลัง 1 ปี",
+  "profitProcessingLatest": "กำไร/ขาดทุนเฉพาะธุรกิจแปรรูปและผลิตสินค้าล่าสุด",
+  "profitProcessingPrev": "กำไร/ขาดทุนเฉพาะธุรกิจแปรรูปและผลิตสินค้าย้อนหลัง 1 ปี",
+  "planProcessingLatest": "แผนงานประมาณการธุรกิจแปรรูปและผลิตสินค้าล่าสุด",
+  "planProcessingPrev": "แผนงานประมาณการธุรกิจแปรรูปและผลิตสินค้าย้อนหลัง 1 ปี",
+  "depositAmountLatest": "เงินรับฝากจากสมาชิกในรอบปีล่าสุด",
+  "depositAmountPrev": "เงินรับฝากจากสมาชิกในรอบปีย้อนหลัง 1 ปี",
+  "profitDepositLatest": "กำไร/ขาดทุนเฉพาะธุรกิจรับฝากเงินล่าสุด",
+  "profitDepositPrev": "กำไร/ขาดทุนเฉพาะธุรกิจรับฝากเงินย้อนหลัง 1 ปี",
+  "membersDepositLatest": "จำนวนสมาชิกที่ร่วมทำธุรกิจรับฝากเงินล่าสุด",
+  "membersDepositPrev": "จำนวนสมาชิกที่ร่วมทำธุรกิจรับฝากเงินย้อนหลัง 1 ปี",
+  "membersTradingLatest": "จำนวนสมาชิกที่ร่วมทำธุรกิจจัดหาสินค้ามาจำหน่ายล่าสุด",
+  "membersTradingPrev": "จำนวนสมาชิกที่ร่วมทำธุรกิจจัดหาสินค้ามาจำหน่ายย้อนหลัง 1 ปี",
+  "membersProcessingLatest": "จำนวนสมาชิกที่ร่วมทำธุรกิจแปรรูปและผลิตสินค้าล่าสุด",
+  "membersProcessingPrev": "จำนวนสมาชิกที่ร่วมทำธุรกิจแปรรูปและผลิตสินค้าย้อนหลัง 1 ปี",
+  "agmAttendeesLatest": "จำนวนสมาชิกที่เข้าประชุมใหญ่สามัญประจำปีล่าสุด",
+  "agmAttendeesPrev": "จำนวนสมาชิกที่เข้าประชุมใหญ่สามัญประจำปีย้อนหลัง 1 ปี",
+  "avgProfit3Latest": "กำไรเฉลี่ย 3 ปีย้อนหลัง",
+  "avgProfit3Prev": "กำไรเฉลี่ย 3 ปีย้อนหลัง (ปีก่อน)",
+  "avgSavingLatest": "เงินออมเฉลี่ยต่อสมาชิก",
+  "avgSavingPrev": "เงินออมเฉลี่ยต่อสมาชิก (ปีก่อน)",
+  "avgDebtLatest": "หนี้สินเฉลี่ยต่อสมาชิก",
+  "avgDebtPrev": "หนี้สินเฉลี่ยต่อสมาชิก (ปีก่อน)",
+  "staffCountLatest": "จำนวนเจ้าหน้าที่ปฏิบัติงานประจำ",
+  "staffCountPrev": "จำนวนเจ้าหน้าที่ปฏิบัติงานประจำ (ปีก่อน)",
+  "changes": {
+    "wc": "เพิ่มขึ้น 1,104,363.77 หรือ ลดลง 58,491.24 (ถ้ามี)",
+    "coopCap": "ข้อความผลต่างจากปีก่อน",
+    "loan": "ข้อความผลต่างจากปีก่อน",
+    "payable": "ข้อความผลต่างจากปีก่อน",
+    "cash": "ข้อความผลต่างจากปีก่อน",
+    "inventory": "ข้อความผลต่างจากปีก่อน",
+    "ppe": "ข้อความผลต่างจากปีก่อน",
+    "receivable": "ข้อความผลต่างจากปีก่อน",
+    "otherAsset": "ข้อความผลต่างจากปีก่อน",
+    "income": "ข้อความผลต่างจากปีก่อน",
+    "expense": "ข้อความผลต่างจากปีก่อน",
+    "salesTrading": "ข้อความผลต่างจากปีก่อน",
+    "costTrading": "ข้อความผลต่างจากปีก่อน",
+    "profitTrading": "ข้อความผลต่างจากปีก่อน",
+    "salesProcessing": "ข้อความผลต่างจากปีก่อน",
+    "costProcessing": "ข้อความผลต่างจากปีก่อน",
+    "profitProcessing": "ข้อความผลต่างจากปีก่อน",
+    "depositAmount": "ข้อความผลต่างจากปีก่อน",
+    "profitDeposit": "ข้อความผลต่างจากปีก่อน",
+    "assets": "ข้อความผลต่างจากปีก่อน",
+    "debt": "ข้อความผลต่างจากปีก่อน",
+    "share": "ข้อความผลต่างจากปีก่อน",
+    "reserve": "ข้อความผลต่างจากปีก่อน",
+    "profit": "ข้อความผลต่างจากปีก่อน"
+  },
   "assetNumeric": 0,
   "businessTypes": "รายชื่อธุรกิจที่ทำ",
   "targetProjects": "กลุ่มเป้าหมายในโครงการ/แผนงาน/กิจกรรม",
@@ -515,7 +603,76 @@ ${ruleWeaknessesText}
   if (parsed.fiscalDateFull) {
     parsed.fiscalDateFull = normalizeFiscalDate(parsed.fiscalDateFull);
   }
+  applyPrevYearFallbacks_(parsed);
   return parsed;
+}
+
+/**
+ * Fallback Year N-1: หาก AI อ่านได้เฉพาะยอดปีล่าสุด + ข้อความ "เพิ่มขึ้น/ลดลง"
+ * ให้คำนวณยอดปีก่อนหน้าเติมอัตโนมัติ
+ */
+function applyPrevYearFallbacks_(data) {
+  if (!data || typeof data !== 'object') return data;
+  const changes = data.changes || {};
+  const map = {
+    wc: ['wcLatest', 'wcPrev'],
+    coopCap: ['coopCapLatest', 'coopCapPrev'],
+    loan: ['loanLatest', 'loanPrev'],
+    payable: ['payableLatest', 'payablePrev'],
+    cash: ['cashLatest', 'cashPrev'],
+    inventory: ['inventoryLatest', 'inventoryPrev'],
+    ppe: ['ppeLatest', 'ppePrev'],
+    receivable: ['receivableLatest', 'receivablePrev'],
+    otherAsset: ['otherAssetLatest', 'otherAssetPrev'],
+    income: ['incomeLatest', 'incomePrev'],
+    expense: ['expenseLatest', 'expensePrev'],
+    salesTrading: ['salesTradingLatest', 'salesTradingPrev'],
+    costTrading: ['costTradingLatest', 'costTradingPrev'],
+    profitTrading: ['profitTradingLatest', 'profitTradingPrev'],
+    salesProcessing: ['salesProcessingLatest', 'salesProcessingPrev'],
+    costProcessing: ['costProcessingLatest', 'costProcessingPrev'],
+    profitProcessing: ['profitProcessingLatest', 'profitProcessingPrev'],
+    depositAmount: ['depositAmountLatest', 'depositAmountPrev'],
+    profitDeposit: ['profitDepositLatest', 'profitDepositPrev'],
+    assets: ['assetLatest', 'assetPrev'],
+    debt: ['debtLatest', 'debtPrev'],
+    share: ['shareLatest', 'sharePrev'],
+    reserve: ['reserveLatest', 'reservePrev'],
+    profit: ['profitLatest', 'profitPrev']
+  };
+
+  function toNumber_(value) {
+    if (typeof value === 'number') return isFinite(value) ? value : null;
+    const s = String(value === undefined || value === null ? '' : value)
+      .replace(/,/g, '')
+      .replace(/[()]/g, '')
+      .replace(/บาท|泰铢/g, '')
+      .trim();
+    if (!s || s === '-') return null;
+    const n = Number(s);
+    return isFinite(n) ? n : null;
+  }
+
+  function formatNumber_(n) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  Object.keys(map).forEach(function (key) {
+    const pair = map[key];
+    const latestKey = pair[0];
+    const prevKey = pair[1];
+    const latest = toNumber_(data[latestKey]);
+    const prev = toNumber_(data[prevKey]);
+    if (latest === null || prev !== null) return;
+    const changeText = String(changes[key] || data[key + 'Change'] || '').trim();
+    if (!changeText) return;
+    const delta = toNumber_(changeText.replace(/เพิ่มขึ้น|ลดลง|จากปีก่อน|จากปีที่แล้ว/g, ''));
+    if (delta === null) return;
+    const isDecrease = /ลดลง|ลด|ติดลบ|\-/.test(changeText) && !/เพิ่มขึ้น/.test(changeText);
+    const computed = isDecrease ? latest + Math.abs(delta) : latest - delta;
+    data[prevKey] = formatNumber_(computed);
+  });
+  return data;
 }
 
 // ----------------------------------------------------------------------------

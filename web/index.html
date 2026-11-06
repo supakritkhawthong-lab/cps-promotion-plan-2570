@@ -9,6 +9,8 @@
   <!-- โหลดไลบรารี pdf-lib และ PDF.js สำหรับสกัดข้อความ/คัดกรองหน้าสำคัญอัตโนมัติด้วยความเร็วสูง -->
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- JSZip สำหรับอ่านข้อความจาก .docx/.xlsx ฝั่งเบราว์เซอร์ -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     body { font-family: 'Sarabun', sans-serif; background-color: #f4f7f6; }
     .card-header { font-weight: 700; background-color: #1b5e20; color: white; }
@@ -74,22 +76,22 @@
         <!-- อัปโหลดไฟล์ 4 ช่อง (ไม่ต้องระบุเลขหน้า ระบบสกัดหน้าสำคัญให้อัตโนมัติ) -->
         <div class="col-md-3">
           <label class="form-label fw-bold text-primary">ไฟล์ที่ 1: ข้อมูลพื้นฐานสหกรณ์</label>
-          <input type="file" id="fileBasic" class="form-control" accept=".pdf,image/*" multiple>
-          <div class="form-text text-muted" style="font-size: 0.78rem;">รองรับ PDF หรือรูปภาพ</div>
+          <input type="file" id="fileBasic" class="form-control" accept=".pdf,.doc,.docx,.xlsx,image/*" multiple>
+          <div class="form-text text-muted" style="font-size: 0.78rem;">รองรับ PDF, Word (.doc/.docx), Excel (.xlsx) หรือรูปภาพ</div>
         </div>
         <div class="col-md-3">
           <label class="form-label fw-bold text-primary">ไฟล์ที่ 2: งบการเงิน / รายงานสอบบัญชี</label>
-          <input type="file" id="fileFinance" class="form-control" accept=".pdf,image/*" multiple>
-          <div class="form-text text-muted" style="font-size: 0.78rem;">สกัดหน้างบการเงินอัตโนมัติ</div>
+          <input type="file" id="fileFinance" class="form-control" accept=".pdf,.doc,.docx,.xlsx,image/*" multiple>
+          <div class="form-text text-muted" style="font-size: 0.78rem;">สกัดงบการเงินทั้งปีล่าสุดและย้อนหลัง 1 ปี</div>
         </div>
         <div class="col-md-3">
           <label class="form-label fw-bold text-primary">ไฟล์ที่ 3: ผลปิดบัญชี / ข้อสังเกตผู้สอบฯ</label>
-          <input type="file" id="fileAudit" class="form-control" accept=".pdf,image/*" multiple>
+          <input type="file" id="fileAudit" class="form-control" accept=".pdf,.doc,.docx,.xlsx,image/*" multiple>
           <div class="form-text text-muted" style="font-size: 0.78rem;">สกัดข้อสังเกต/ข้อบกพร่องอัตโนมัติ</div>
         </div>
         <div class="col-md-3">
           <label class="form-label fw-bold text-primary">ไฟล์ที่ 4: ไฟล์อื่นๆ (เพิ่มเติม)</label>
-          <input type="file" id="fileOther" class="form-control" accept=".pdf,image/*" multiple>
+          <input type="file" id="fileOther" class="form-control" accept=".pdf,.doc,.docx,.xlsx,image/*" multiple>
           <div class="form-text text-muted" style="font-size: 0.78rem;">รายงานประจำปี / เอกสารประกอบอื่นๆ</div>
         </div>
 
@@ -136,7 +138,7 @@
               <div class="col-md-3"><label class="form-label small mb-1">กรรมการ</label><input type="text" id="board_count" class="form-control form-control-sm"></div>
               <div class="col-md-5">
                 <label class="form-label small fw-bold text-success mb-1">ปีบัญชี</label>
-                <select id="fiscal_year" class="form-select form-select-sm fw-bold" onchange="generate12MonthSchedule()">
+                <select id="fiscal_year" class="form-select form-select-sm fw-bold" onchange="onFiscalYearChange()">
                   <option value="31 มกราคม">31 มกราคม</option>
                   <option value="28 กุมภาพันธ์">28 กุมภาพันธ์</option>
                   <option value="31 มีนาคม" selected>31 มีนาคม</option>
@@ -204,6 +206,52 @@
             </table>
             <label class="form-label small fw-bold mb-1" id="bizTypeLabel">ธุรกิจที่ทำ</label>
             <textarea id="business_types" class="form-control form-control-sm" rows="2"></textarea>
+
+            <details class="mt-3" open>
+              <summary class="fw-bold text-success small mb-2" style="cursor:pointer;">📋 รายละเอียดผลการดำเนินงานฉบับเต็ม (Year N / Year N-1) — ระบบเติมให้อัตโนมัติจากไฟล์</summary>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm mb-0" style="font-size:0.82rem;">
+                  <thead class="table-light text-center">
+                    <tr><th style="width:40%">รายการ</th><th>ล่าสุด (Year N)</th><th>ย้อนหลัง (Year N-1)</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr class="table-secondary"><td colspan="3" class="fw-bold">สมาชิกและการมีส่วนร่วม</td></tr>
+                    <tr><td>สมาชิกเข้าประชุมใหญ่สามัญ (คน)</td><td><input type="text" id="agm_attend_latest" class="form-control form-control-sm"></td><td><input type="text" id="agm_attend_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>สมาชิกร่วมธุรกิจรับฝากเงิน (คน)</td><td><input type="text" id="mem_biz_deposit_latest" class="form-control form-control-sm"></td><td><input type="text" id="mem_biz_deposit_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>สมาชิกร่วมธุรกิจจัดหาสินค้ามาจำหน่าย (คน)</td><td><input type="text" id="mem_biz_trading_latest" class="form-control form-control-sm"></td><td><input type="text" id="mem_biz_trading_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>สมาชิกร่วมธุรกิจแปรรูป/ผลิตสินค้า (คน)</td><td><input type="text" id="mem_biz_processing_latest" class="form-control form-control-sm"></td><td><input type="text" id="mem_biz_processing_prev" class="form-control form-control-sm"></td></tr>
+                    <tr class="table-secondary"><td colspan="3" class="fw-bold">ทุน หนี้สิน และสินทรัพย์</td></tr>
+                    <tr><td>ทุนดำเนินงานรวม</td><td><input type="text" id="wc_latest" class="form-control form-control-sm"></td><td><input type="text" id="wc_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>ทุนของสหกรณ์ (รวม)</td><td><input type="text" id="coopcap_latest" class="form-control form-control-sm"></td><td><input type="text" id="coopcap_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>เงินกู้ยืม</td><td><input type="text" id="loan_latest" class="form-control form-control-sm"></td><td><input type="text" id="loan_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>เจ้าหนี้การค้า</td><td><input type="text" id="payable_latest" class="form-control form-control-sm"></td><td><input type="text" id="payable_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>เงินสดและเงินฝากธนาคาร</td><td><input type="text" id="cash_latest" class="form-control form-control-sm"></td><td><input type="text" id="cash_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>สินค้าคงเหลือ</td><td><input type="text" id="inventory_latest" class="form-control form-control-sm"></td><td><input type="text" id="inventory_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>ที่ดิน อาคาร และอุปกรณ์ - สุทธิ</td><td><input type="text" id="ppe_latest" class="form-control form-control-sm"></td><td><input type="text" id="ppe_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>ลูกหนี้การค้า</td><td><input type="text" id="receivable_latest" class="form-control form-control-sm"></td><td><input type="text" id="receivable_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>สินทรัพย์อื่นๆ</td><td><input type="text" id="otherasset_latest" class="form-control form-control-sm"></td><td><input type="text" id="otherasset_prev" class="form-control form-control-sm"></td></tr>
+                    <tr class="table-secondary"><td colspan="3" class="fw-bold">รายได้ ต้นทุน และผลการดำเนินงาน</td></tr>
+                    <tr><td>รายได้รวม</td><td><input type="text" id="income_latest" class="form-control form-control-sm"></td><td><input type="text" id="income_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>ต้นทุนและค่าใช้จ่ายรวม</td><td><input type="text" id="expense_latest" class="form-control form-control-sm"></td><td><input type="text" id="expense_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>รายได้ธุรกิจจัดหาสินค้ามาจำหน่าย</td><td><input type="text" id="sales_trading_latest" class="form-control form-control-sm"></td><td><input type="text" id="sales_trading_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>ต้นทุนธุรกิจจัดหาสินค้ามาจำหน่าย</td><td><input type="text" id="cost_trading_latest" class="form-control form-control-sm"></td><td><input type="text" id="cost_trading_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>กำไร/ขาดทุนเฉพาะธุรกิจจัดหาสินค้า</td><td><input type="text" id="profit_biz_trading_latest" class="form-control form-control-sm"></td><td><input type="text" id="profit_biz_trading_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>แผนงานประมาณการธุรกิจจัดหาสินค้า</td><td><input type="text" id="plan_trading_latest" class="form-control form-control-sm"></td><td><input type="text" id="plan_trading_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>รายได้ธุรกิจแปรรูป/ผลิตสินค้า</td><td><input type="text" id="sales_processing_latest" class="form-control form-control-sm"></td><td><input type="text" id="sales_processing_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>ต้นทุนธุรกิจแปรรูป/ผลิตสินค้า</td><td><input type="text" id="cost_processing_latest" class="form-control form-control-sm"></td><td><input type="text" id="cost_processing_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>กำไร/ขาดทุนเฉพาะธุรกิจแปรรูป/ผลิตสินค้า</td><td><input type="text" id="profit_biz_processing_latest" class="form-control form-control-sm"></td><td><input type="text" id="profit_biz_processing_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>แผนงานประมาณการธุรกิจแปรรูป/ผลิตสินค้า</td><td><input type="text" id="plan_processing_latest" class="form-control form-control-sm"></td><td><input type="text" id="plan_processing_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>เงินรับฝากจากสมาชิกในรอบปี</td><td><input type="text" id="deposit_amount_latest" class="form-control form-control-sm"></td><td><input type="text" id="deposit_amount_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>กำไร/ขาดทุนเฉพาะธุรกิจรับฝากเงิน</td><td><input type="text" id="profit_biz_deposit_latest" class="form-control form-control-sm"></td><td><input type="text" id="profit_biz_deposit_prev" class="form-control form-control-sm"></td></tr>
+                    <tr class="table-secondary"><td colspan="3" class="fw-bold">ตัวชี้วัดเพิ่มเติม</td></tr>
+                    <tr><td>กำไรเฉลี่ย 3 ปีย้อนหลัง</td><td><input type="text" id="avgprofit3_latest" class="form-control form-control-sm"></td><td><input type="text" id="avgprofit3_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>เงินออมเฉลี่ยต่อสมาชิก</td><td><input type="text" id="avgsaving_latest" class="form-control form-control-sm"></td><td><input type="text" id="avgsaving_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>หนี้สินเฉลี่ยต่อสมาชิก</td><td><input type="text" id="avgdebt_latest" class="form-control form-control-sm"></td><td><input type="text" id="avgdebt_prev" class="form-control form-control-sm"></td></tr>
+                    <tr><td>จำนวนเจ้าหน้าที่ปฏิบัติงานประจำ (คน)</td><td><input type="text" id="staff_count_latest" class="form-control form-control-sm"></td><td><input type="text" id="staff_count_prev" class="form-control form-control-sm"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -251,6 +299,16 @@
           </div>
           <div class="card-body py-2">
             <div class="mb-2"><span class="visit-badge" id="scheduleSummaryBadge">เลือกสหกรณ์เพื่อคำนวณแผน...</span></div>
+            <div class="row g-2 mb-2">
+              <div class="col-md-6">
+                <label class="form-label small fw-bold mb-1 text-primary">วันประชุมใหญ่สามัญประจำปี (ไม่เกิน 150 วัน)</label>
+                <input type="text" id="agm_date" class="form-control form-control-sm fw-bold" placeholder="วว/ดด/ปปปป" onchange="generate12MonthSchedule(); if(window.CPD_scheduleSync) window.CPD_scheduleSync();">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-bold mb-1 text-success">วันที่รับรองงบการเงิน (เดือนเดียวกับประชุมใหญ่)</label>
+                <input type="text" id="certify_date" class="form-control form-control-sm bg-light" readonly>
+              </div>
+            </div>
             <div class="table-responsive">
               <table class="table table-bordered align-middle table-sm mb-2">
                 <thead class="table-light text-center" style="font-size:0.85rem;">
@@ -309,6 +367,15 @@
   var masterCoops = [];
   var currentCoopIndex = -1;
   let currentAssetNumeric = 0;
+
+  // ช่องผลการดำเนินงานฉบับละเอียด (Year N / Year N-1)
+  const CPD_DETAIL_IDS = [
+    'agm_attend', 'mem_biz_deposit', 'mem_biz_trading', 'mem_biz_processing',
+    'wc', 'coopcap', 'loan', 'payable', 'cash', 'inventory', 'ppe', 'receivable', 'otherasset',
+    'income', 'expense', 'sales_trading', 'cost_trading', 'profit_biz_trading', 'plan_trading',
+    'sales_processing', 'cost_processing', 'profit_biz_processing', 'plan_processing',
+    'deposit_amount', 'profit_biz_deposit', 'avgprofit3', 'avgsaving', 'avgdebt', 'staff_count'
+  ];
 
   const monthsOrder = [
     { key: 'm10', name: 'ตุลาคม', num: 10 }, { key: 'm11', name: 'พฤศจิกายน', num: 11 }, { key: 'm12', name: 'ธันวาคม', num: 12 },
@@ -472,7 +539,8 @@
   }
 
   function loadFormFromSavedData(f) {
-    const fields = ['coop_name', 'district', 'distance', 'group_zone', 'main_officer', 'co_officers', 'reg_date', 'board_count', 'inspector_count', 'inspector_name', 'target_projects', 'yr_latest', 'yr_prev', 'mem_latest', 'mem_prev', 'asset_latest', 'asset_prev', 'debt_latest', 'debt_prev', 'share_latest', 'share_prev', 'reserve_latest', 'reserve_prev', 'profit_latest', 'profit_prev', 'loss_latest', 'loss_prev', 'biz_vol_latest', 'biz_vol_prev', 'business_types', 'c68_lv', 'c68_tot', 'c68_d1', 'c68_d2', 'c68_d3', 'c68_d4', 'c69_lv', 'c69_tot', 'c69_d1', 'c69_d2', 'c69_d3', 'c69_d4', 'issue_1', 'issue_2', 'issue_3', 'promotion_goals', 'planned_visits', 'visit_remark'];
+    const fields = ['coop_name', 'district', 'distance', 'group_zone', 'main_officer', 'co_officers', 'reg_date', 'board_count', 'inspector_count', 'inspector_name', 'target_projects', 'yr_latest', 'yr_prev', 'mem_latest', 'mem_prev', 'asset_latest', 'asset_prev', 'debt_latest', 'debt_prev', 'share_latest', 'share_prev', 'reserve_latest', 'reserve_prev', 'profit_latest', 'profit_prev', 'loss_latest', 'loss_prev', 'biz_vol_latest', 'biz_vol_prev', 'business_types', 'c68_lv', 'c68_tot', 'c68_d1', 'c68_d2', 'c68_d3', 'c68_d4', 'c69_lv', 'c69_tot', 'c69_d1', 'c69_d2', 'c69_d3', 'c69_d4', 'issue_1', 'issue_2', 'issue_3', 'promotion_goals', 'planned_visits', 'visit_remark', 'agm_date', 'certify_date'];
+    CPD_DETAIL_IDS.forEach(prefix => { fields.push(prefix + '_latest', prefix + '_prev'); });
     fields.forEach(id => { if (document.getElementById(id) && f[id] !== undefined) document.getElementById(id).value = f[id]; });
     if (f.auditor_type) { document.getElementById('auditor_type').value = f.auditor_type; onAuditorTypeChange(); }
     if (f.auditor_name) {
@@ -517,7 +585,82 @@
     }
   }
 
-    function generate12MonthSchedule() {
+  function pad2(n) { return ('0' + n).slice(-2); }
+
+  function formatDateObj(d) {
+    return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+  }
+
+  function parseDateInput(text) {
+    const m = String(text || '').trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (!m) return null;
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function getPlanYear() {
+    return Number((window.CPD_AppState && window.CPD_AppState.meta && window.CPD_AppState.meta.fiscalYear) || 2570);
+  }
+
+  function getFiscalMonthNum(text) {
+    const monthMap = {
+      'มกราคม': 1, 'กุมภาพันธ์': 2, 'มีนาคม': 3, 'เมษายน': 4,
+      'พฤษภาคม': 5, 'มิถุนายน': 6, 'กรกฎาคม': 7, 'สิงหาคม': 8,
+      'กันยายน': 9, 'ตุลาคม': 10, 'พฤศจิกายน': 11, 'ธันวาคม': 12
+    };
+    let num = 3;
+    Object.keys(monthMap).forEach(k => { if (String(text || '').includes(k)) num = monthMap[k]; });
+    return num;
+  }
+
+  function computeDefaultAgmDate() {
+    const fyText = document.getElementById('fiscal_year').value || '31 มีนาคม';
+    const fyMonthNum = getFiscalMonthNum(fyText);
+    const fyDay = Number((String(fyText).match(/(\d{1,2})/) || [0, 28])[1]) || 28;
+    const planYear = getPlanYear();
+    const endYear = fyMonthNum >= 9 ? planYear - 1 : planYear;
+    const endDate = new Date(endYear, fyMonthNum - 1, fyDay);
+    return formatDateObj(new Date(endDate.getTime() + 150 * 86400000));
+  }
+
+  function getAgmInfo() {
+    const input = document.getElementById('agm_date');
+    let agmDate = parseDateInput(input ? input.value : '');
+    if (!agmDate) {
+      agmDate = parseDateInput(computeDefaultAgmDate());
+      if (input) input.value = formatDateObj(agmDate);
+    }
+    // วันที่รับรองงบ: อยู่เดือนเดียวกับประชุมใหญ่ และไม่เกินวันประชุมใหญ่
+    let certDate = new Date(agmDate.getTime() - 7 * 86400000);
+    if (certDate.getMonth() !== agmDate.getMonth() || certDate.getFullYear() !== agmDate.getFullYear()) {
+      certDate = new Date(agmDate.getFullYear(), agmDate.getMonth(), 1);
+    }
+    const certInput = document.getElementById('certify_date');
+    if (certInput) certInput.value = formatDateObj(certDate);
+    return {
+      agmDate: formatDateObj(agmDate),
+      certDate: formatDateObj(certDate),
+      agmMonthNum: agmDate.getMonth() + 1,
+      agmMonthName: ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'][agmDate.getMonth() + 1],
+      agmYear: agmDate.getFullYear()
+    };
+  }
+
+  function onFiscalYearChange() {
+    const agmInput = document.getElementById('agm_date');
+    if (agmInput) agmInput.value = '';
+    generate12MonthSchedule();
+    if (window.CPD_scheduleSync) window.CPD_scheduleSync();
+  }
+
+  // เรียกจากหน้า 2 เมื่อผู้ใช้เปลี่ยนวันประชุมใหญ่
+  window.setAgmDateFromState = function (value) {
+    const input = document.getElementById('agm_date');
+    if (input) input.value = value || '';
+    generate12MonthSchedule();
+  };
+
+  function generate12MonthSchedule() {
     const fyText = document.getElementById('fiscal_year').value || '31 มีนาคม';
     const auditorType = document.getElementById('auditor_type').value || 'ภาครัฐ';
     const auditorName = getSelectedAuditorName();
@@ -538,15 +681,18 @@
       } 
     });
 
-    // คำนวณหาเดือนที่ต้องจัดประชุมใหญ่ (150 วัน หรือประมาณ 5 เดือนหลังจากวันสิ้นปีบัญชี)
-    // เช่น สิ้นปีบัญชี 30 กันยายน (เดือน 9) + 5 เดือน = เดือนกุมภาพันธ์ (เดือน 2 ของปีถัดไป)
-    let agmMonthNum = (fyMonthNum + 5) % 12;
-    if (agmMonthNum === 0) agmMonthNum = 12;
-
+    // เดือนประชุมใหญ่ต้องอ้างอิงจากวันที่ประชุมใหญ่จริง (ไม่เกิน 150 วัน)
+    // หากยังไม่ระบุ ระบบคำนวณจากวันสิ้นปีบัญชี + 150 วันให้อัตโนมัติ
+    const agmInfo = getAgmInfo();
+    const agmMonthNum = agmInfo.agmMonthNum;
+    const agmMonthName = agmInfo.agmMonthName;
+    const agmDateText = agmInfo.agmDate;
+    const certifyDateText = agmInfo.certDate;
+    const agmYearText = agmInfo.agmYear;
     const monthNamesThai = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-    const agmMonthName = monthNamesThai[agmMonthNum];
+    const prevAgmMonthName = monthNamesThai[((agmMonthNum - 2 + 12) % 12) + 1];
 
-    document.getElementById('scheduleSummaryBadge').textContent = `ปีบัญชีสิ้นสุด: "${fyText}" | ประชุมใหญ่ (ภายใน 150 วัน): เดือน "${agmMonthName}" | แผนเข้าส่งเสริม: ${plannedVisits} ครั้ง/ปี`;
+    document.getElementById('scheduleSummaryBadge').textContent = `ปีบัญชีสิ้นสุด: "${fyText}" | ประชุมใหญ่: ${agmDateText} (เดือน "${agmMonthName}") | รับรองงบ: ${certifyDateText} | แผนเข้าส่งเสริม: ${plannedVisits} ครั้ง/ปี`;
 
     // กำหนดความสำคัญของเดือนที่จะลงพื้นที่เข้าส่งเสริม (เกลี่ยให้ครบตามจำนวน plannedVisits)
     // โดยให้ความสำคัญกับเดือนปิดบัญชี, เดือนส่งงบ, เดือนประชุมใหญ่ และเดือนประชุมคณะกรรมการชุดใหม่
@@ -574,14 +720,14 @@
         // 1 เดือนหลังสิ้นปีบัญชี (ส่งงบให้ผู้สอบบัญชีภายใน 30 วัน)
         coopAct = "ประชุมคณะกรรมการดำเนินการ จัดทำงบการเงินประจำปีส่งผู้สอบบัญชีรับตรวจภายใน 30 วัน นับแต่วันสิ้นปีทางบัญชีตามมาตรา 66 และส่งรายงานการเปลี่ยนแปลงทะเบียนสมาชิกและทะเบียนหุ้นภายใน 30 วันตามมาตรา 64";
         cpdAct = (isVisit ? "[เข้าส่งเสริม] " : "") + "เร่งรัดการจัดทำงบการเงินประจำปีส่งผู้สอบบัญชีรับตรวจภายใน 30 วัน นับแต่วันสิ้นปีทางบัญชี และตรวจสอบการจัดส่งสำเนาทะเบียนสมาชิกและทะเบียนหุ้นตามมาตรา 64";
-      } else if (m.name === monthNamesThai[(agmMonthNum - 1 + 12) % 12 || 12]) {
-        // เดือนก่อนประชุมใหญ่ (รับรองงบการเงินและกำหนดวันประชุมใหญ่)
-        coopAct = "ประชุมคณะกรรมการดำเนินการเพื่อรับรองงบการเงินประจำปี พิจารณาวางแผนจัดสรรกำไรสุทธิและจ่ายทุนสวัสดิการสมาชิก/ทุนสาธารณประโยชน์ตามมาตรา 60 และกำหนดวันประชุมใหญ่สามัญประจำปี";
-        cpdAct = (isVisit ? "[เข้าส่งเสริม] " : "") + "เข้าร่วมประชุมคณะกรรมการดำเนินการเพื่อรับรองงบการเงิน แนะนำการจัดสรรกำไรสุทธิตามมาตรา 60 และการเบิกจ่ายทุนสวัสดิการสมาชิกและทุนสาธารณประโยชน์ให้ครบถ้วน";
+      } else if (m.name === prevAgmMonthName) {
+        // เดือนก่อนประชุมใหญ่: เตรียมความพร้อมเท่านั้น (ห้ามรับรองงบก่อนเดือนประชุมใหญ่)
+        coopAct = "ประชุมคณะกรรมการดำเนินการเพื่อจัดเตรียมร่างงบการเงินประจำปี ตรวจสอบความถูกต้องของทะเบียนสมาชิก/ทะเบียนหุ้น และรวบรวมเอกสารประกอบการรับรองงบการเงินเพื่อเสนอในเดือนประชุมใหญ่";
+        cpdAct = (isVisit ? "[เข้าส่งเสริม] " : "") + "แนะนำการเตรียมความพร้อมก่อนการรับรองงบการเงินและการจัดประชุมใหญ่สามัญประจำปี ให้เอกสารครบถ้วนก่อนเข้าสู่เดือนประชุมใหญ่";
       } else if (m.name === agmMonthName) {
-        // เดือนประชุมใหญ่ (ภายใน 150 วัน)
-        coopAct = `จัดประชุมใหญ่สามัญประจำปีเพื่ออนุมัติงบการเงินภายใน 150 วัน นับแต่วันสิ้นปีทางบัญชี (ภายในเดือน${agmMonthName}) ตามมาตรา 54 และมาตรา 66 พิจารณาจัดสรรกำไรสุทธิตามมาตรา 60 และเลือกตั้งคณะกรรมการดำเนินการ/ผู้ตรวจสอบกิจการ`;
-        cpdAct = (isVisit ? "[เข้าส่งเสริม] " : "") + `เข้าร่วมประชุมใหญ่สามัญประจำปีเพื่อกำกับดูแลการอนุมัติงบการเงินภายใน 150 วัน (ภายในเดือน${agmMonthName}) และการลงมติให้เป็นไปตามกฎหมายและข้อบังคับ`;
+        // เดือนประชุมใหญ่: รับรองงบและจัดประชุมใหญ่อยู่ในเดือนเดียวกัน (ต้องไม่เกินวันประชุมใหญ่)
+        coopAct = `ประชุมคณะกรรมการดำเนินการเพื่อรับรองงบการเงินประจำปี ภายในวันที่ ${certifyDateText} (เดือน${agmMonthName} ปี ${agmYearText}) พิจารณาจัดสรรกำไรสุทธิตามมาตรา 60 และจัดประชุมใหญ่สามัญประจำปีภายในวันที่ ${agmDateText} ตามมาตรา 54 และมาตรา 66 รวมทั้งเลือกตั้งคณะกรรมการดำเนินการ/ผู้ตรวจสอบกิจการ`;
+        cpdAct = (isVisit ? "[เข้าส่งเสริม] " : "") + `เข้าร่วมประชุมคณะกรรมการดำเนินการเพื่อรับรองงบการเงินและเข้าร่วมประชุมใหญ่สามัญประจำปีภายในวันที่ ${agmDateText} (เดือนเดียวกับวันรับรองงบ ${certifyDateText}) กำกับดูแลการอนุมัติงบการเงินและการลงมติให้เป็นไปตามกฎหมายและข้อบังคับ`;
       } else if (m.name === monthNamesThai[(agmMonthNum % 12) + 1]) {
         // เดือนถัดจากประชุมใหญ่ (ประชุมคณะกรรมการชุดใหม่ ครั้งที่ 1)
         coopAct = "ประชุมคณะกรรมการดำเนินการชุดใหม่ ครั้งที่ 1 จัดส่งสำเนารายงานประจำปีและงบการเงินต่อนายทะเบียนสหกรณ์ภายใน 30 วันนับแต่วันประชุมใหญ่ตามมาตรา 67 และยื่นขอความเห็นชอบวงเงินกู้ยืมหรือค้ำประกันตามมาตรา 47";
@@ -634,12 +780,198 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // อ่านไฟล์ Word/Excel ฝั่งเบราว์เซอร์ (.doc Word HTML UTF-16LE, .docx, .xlsx)
+  // ---------------------------------------------------------------------------
+
+  function decodeXmlEntities(text) {
+    return String(text || '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(Number(n)); })
+      .replace(/&#x([0-9a-f]+);/gi, function (_, n) { return String.fromCharCode(parseInt(n, 16)); });
+  }
+
+  function stripOfficeMarkup(html) {
+    var text = String(html || '')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+      .replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
+      .replace(/<(br|hr)\s*\/?>/gi, '\n')
+      .replace(/<\/(td|th)>/gi, '\t')
+      .replace(/<[^>]+>/g, ' ');
+    text = decodeXmlEntities(text);
+    return text
+      .replace(/[ \t\u00a0]+/g, ' ')
+      .replace(/ *\n */g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function decodeWordBuffer(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var text = '';
+    if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+      text = new TextDecoder('utf-16le').decode(bytes);
+    } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+      text = new TextDecoder('utf-16be').decode(bytes);
+    } else {
+      // Word HTML ที่บันทึกเป็น UTF-16LE มักไม่มี BOM — ตรวจจากจำนวน byte 0x00
+      var sample = bytes.subarray(0, Math.min(bytes.length, 4000));
+      var zeros = 0;
+      for (var i = 0; i < sample.length; i++) if (sample[i] === 0) zeros++;
+      text = (zeros > sample.length * 0.12)
+        ? new TextDecoder('utf-16le').decode(bytes)
+        : new TextDecoder('utf-8').decode(bytes);
+    }
+    return text.replace(/\u0000/g, '');
+  }
+
+  function looksLikeWordHtml(text) {
+    return /<html|<body|<table|<p[\s>]|urn:schemas-microsoft-com|Word\.Document/i.test(text);
+  }
+
+  function extractReadableRuns(text) {
+    // สำหรับ .doc ไบนารีเก่า: ดึงช่วงข้อความไทย/อังกฤษที่อ่านได้
+    var cleaned = String(text || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]+/g, ' ');
+    var runs = cleaned.match(/[\u0E00-\u0E7F0-9A-Za-z\u0020-\u007E.,:;()\/\-+%'"“”‘’]{8,}/g) || [];
+    return runs.join('\n').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  async function extractDocText(file) {
+    var buffer = await file.arrayBuffer();
+    var text = decodeWordBuffer(buffer);
+    if (looksLikeWordHtml(text)) return stripOfficeMarkup(text);
+    return extractReadableRuns(text);
+  }
+
+  async function extractDocxText(file) {
+    if (!window.JSZip) return '';
+    var buffer = await file.arrayBuffer();
+    var zip = await JSZip.loadAsync(buffer);
+    var parts = [];
+    var doc = zip.file('word/document.xml');
+    if (doc) {
+      var xml = await doc.async('string');
+      var body = xml
+        .replace(/<w:tab\s*\/>/gi, '\t')
+        .replace(/<w:br\s*\/>/gi, '\n')
+        .replace(/<\/w:p>/gi, '\n')
+        .replace(/<\/w:tc>/gi, '\t')
+        .replace(/<\/w:tr>/gi, '\n')
+        .replace(/<[^>]+>/g, '');
+      parts.push(decodeXmlEntities(body));
+    }
+    // อ่าน header/footer เพิ่มเติม (ถ้ามี)
+    var extras = zip.file(/word\/(header|footer)\d*\.xml/);
+    for (var i = 0; i < extras.length; i++) {
+      var ex = await extras[i].async('string');
+      var t = decodeXmlEntities(ex.replace(/<\/w:p>/gi, '\n').replace(/<[^>]+>/g, ''));
+      if (t.trim()) parts.push(t);
+    }
+    return parts.join('\n').replace(/[ \t\u00a0]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  async function extractXlsxText(file) {
+    if (!window.JSZip) return '';
+    var buffer = await file.arrayBuffer();
+    var zip = await JSZip.loadAsync(buffer);
+    var shared = [];
+    var ssFile = zip.file('xl/sharedStrings.xml');
+    if (ssFile) {
+      var ssXml = await ssFile.async('string');
+      var siMatches = ssXml.match(/<si[\s\S]*?<\/si>/g) || [];
+      shared = siMatches.map(function (si) {
+        var ts = si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [];
+        return ts.map(function (t) {
+          return decodeXmlEntities(t.replace(/<[^>]+>/g, ''));
+        }).join('');
+      });
+    }
+    var sheets = zip.file(/xl\/worksheets\/sheet\d*\.xml/);
+    var out = [];
+    for (var s = 0; s < sheets.length; s++) {
+      var xml = await sheets[s].async('string');
+      out.push('--- ชีตที่ ' + (s + 1) + ' ---');
+      var rows = xml.match(/<row[\s\S]*?<\/row>/g) || [];
+      rows.forEach(function (row) {
+        var cells = row.match(/<c[\s\S]*?<\/c>/g) || [];
+        var line = cells.map(function (c) {
+          var typeMatch = c.match(/t="([^"]+)"/);
+          var type = typeMatch ? typeMatch[1] : '';
+          if (type === 's') {
+            var v = c.match(/<v>([\s\S]*?)<\/v>/);
+            return v ? (shared[Number(v[1])] || '') : '';
+          }
+          if (type === 'inlineStr') {
+            var its = c.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [];
+            return its.map(function (t) { return decodeXmlEntities(t.replace(/<[^>]+>/g, '')); }).join('');
+          }
+          var v2 = c.match(/<v>([\s\S]*?)<\/v>/);
+          return v2 ? decodeXmlEntities(v2[1]) : '';
+        });
+        if (line.join('').trim()) out.push(line.join('\t'));
+      });
+    }
+    return out.join('\n').trim();
+  }
+
   // ระบบอ่านและคัดกรองหน้าสำคัญอัจฉริยะ (Smart Fast-Read PDF) โดยไม่ต้องระบุเลขหน้า
   async function smartProcessFile(file, category, maxFallbackPages) {
     if (file.type.startsWith('image/')) {
       return await compressImageFile(file, category);
     }
-    if (!file.type.includes('pdf')) {
+    var fileName = String(file.name || '').toLowerCase();
+    var isPdf = file.type.includes('pdf') || fileName.endsWith('.pdf');
+
+    // Word .doc (Word HTML UTF-16LE / ไบนารีเก่า)
+    if (!isPdf && (fileName.endsWith('.doc') || file.type === 'application/msword')) {
+      try {
+        var docText = await extractDocText(file);
+        if (docText && docText.length > 40) {
+          return { name: file.name, category: category, extractedText: docText.substring(0, 40000) };
+        }
+      } catch (e) { console.warn('DOC extract fallback:', e); }
+      var docRaw = await fileToBase64(file);
+      docRaw.category = category;
+      docRaw.mimeType = 'application/msword';
+      return docRaw;
+    }
+
+    // Word .docx
+    if (!isPdf && (fileName.endsWith('.docx') || file.type.indexOf('wordprocessingml') !== -1)) {
+      try {
+        var docxText = await extractDocxText(file);
+        if (docxText && docxText.length > 40) {
+          return { name: file.name, category: category, extractedText: docxText.substring(0, 40000) };
+        }
+      } catch (e) { console.warn('DOCX extract fallback:', e); }
+      var docxRaw = await fileToBase64(file);
+      docxRaw.category = category;
+      docxRaw.mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      return docxRaw;
+    }
+
+    // Excel .xlsx
+    if (!isPdf && (fileName.endsWith('.xlsx') || file.type.indexOf('spreadsheetml') !== -1)) {
+      try {
+        var xlsxText = await extractXlsxText(file);
+        if (xlsxText && xlsxText.length > 20) {
+          return { name: file.name, category: category, extractedText: xlsxText.substring(0, 40000) };
+        }
+      } catch (e) { console.warn('XLSX extract fallback:', e); }
+      var xlsxRaw = await fileToBase64(file);
+      xlsxRaw.category = category;
+      xlsxRaw.mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      return xlsxRaw;
+    }
+
+    if (!isPdf) {
       const raw = await fileToBase64(file);
       raw.category = category;
       return raw;
@@ -705,6 +1037,52 @@
     return fallback;
   }
 
+  // Fallback Year N-1 ฝั่งเบราว์เซอร์: กรณี AI ส่งเฉพาะยอดปีล่าสุด + ข้อความ "เพิ่มขึ้น/ลดลง"
+  function applyClientDeltaFallback(res) {
+    if (!res || typeof res !== 'object') return res;
+    var changes = res.changes || {};
+    var pairs = [
+      ['wc', 'wcLatest', 'wcPrev'], ['coopCap', 'coopCapLatest', 'coopCapPrev'],
+      ['loan', 'loanLatest', 'loanPrev'], ['payable', 'payableLatest', 'payablePrev'],
+      ['cash', 'cashLatest', 'cashPrev'], ['inventory', 'inventoryLatest', 'inventoryPrev'],
+      ['ppe', 'ppeLatest', 'ppePrev'], ['receivable', 'receivableLatest', 'receivablePrev'],
+      ['otherAsset', 'otherAssetLatest', 'otherAssetPrev'], ['income', 'incomeLatest', 'incomePrev'],
+      ['expense', 'expenseLatest', 'expensePrev'], ['salesTrading', 'salesTradingLatest', 'salesTradingPrev'],
+      ['costTrading', 'costTradingLatest', 'costTradingPrev'], ['profitTrading', 'profitTradingLatest', 'profitTradingPrev'],
+      ['salesProcessing', 'salesProcessingLatest', 'salesProcessingPrev'],
+      ['costProcessing', 'costProcessingLatest', 'costProcessingPrev'],
+      ['profitProcessing', 'profitProcessingLatest', 'profitProcessingPrev'],
+      ['depositAmount', 'depositAmountLatest', 'depositAmountPrev'],
+      ['profitDeposit', 'profitDepositLatest', 'profitDepositPrev'],
+      ['assets', 'assetLatest', 'assetPrev'], ['debt', 'debtLatest', 'debtPrev'],
+      ['share', 'shareLatest', 'sharePrev'], ['reserve', 'reserveLatest', 'reservePrev'],
+      ['profit', 'profitLatest', 'profitPrev']
+    ];
+    function toNum(v) {
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      var s = String(v === undefined || v === null ? '' : v).replace(/,/g, '').replace(/[()]/g, '').replace(/บาท/g, '').trim();
+      if (!s || s === '-') return null;
+      var n = Number(s);
+      return isFinite(n) ? n : null;
+    }
+    function fmtNum(n) {
+      return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    pairs.forEach(function (p) {
+      var latest = toNum(res[p[1]]);
+      var prev = toNum(res[p[2]]);
+      if (latest === null || prev !== null) return;
+      var changeText = String(changes[p[0]] || res[p[0] + 'Change'] || '').trim();
+      if (!changeText) return;
+      var delta = toNum(changeText.replace(/เพิ่มขึ้น|ลดลง|จากปีก่อน|จากปีที่แล้ว/g, ''));
+      if (delta === null) return;
+      var isDecrease = (/ลดลง|ลด/.test(changeText) && !/เพิ่มขึ้น/.test(changeText)) || /^-/.test(changeText.trim());
+      var computed = isDecrease ? latest + Math.abs(delta) : latest - delta;
+      res[p[2]] = fmtNum(computed);
+    });
+    return res;
+  }
+
   async function runAIAnalysis() {
     if (currentCoopIndex < 0) { alert("กรุณาเลือกชื่อสหกรณ์ก่อนครับ"); return; }
     const c = masterCoops[currentCoopIndex];
@@ -752,6 +1130,9 @@
         if (res.inspectorCount) document.getElementById('inspector_count').value = res.inspectorCount;
         if (res.inspectorName) document.getElementById('inspector_name').value = res.inspectorName;
 
+        // คำนวณ Year N-1 จากข้อความ "เพิ่มขึ้น/ลดลง" ก่อนเติมลงช่องทั้งหมด
+        applyClientDeltaFallback(res);
+
         if (res.yrLatest) document.getElementById('yr_latest').value = res.yrLatest;
         if (res.yrPrev) document.getElementById('yr_prev').value = res.yrPrev;
         if (res.memLatest) document.getElementById('mem_latest').value = res.memLatest;
@@ -771,6 +1152,29 @@
         if (res.bizVolLatest) document.getElementById('biz_vol_latest').value = res.bizVolLatest;
         if (res.bizVolPrev) document.getElementById('biz_vol_prev').value = res.bizVolPrev;
         if (res.businessTypes) document.getElementById('business_types').value = res.businessTypes;
+
+        // ผลการดำเนินงานฉบับละเอียด Year N / Year N-1
+        const detailMap = [
+          ['agmAttendees', 'agm_attend'], ['membersDeposit', 'mem_biz_deposit'],
+          ['membersTrading', 'mem_biz_trading'], ['membersProcessing', 'mem_biz_processing'],
+          ['wc', 'wc'], ['coopCap', 'coopcap'], ['loan', 'loan'],
+          ['payable', 'payable'], ['cash', 'cash'], ['inventory', 'inventory'],
+          ['ppe', 'ppe'], ['receivable', 'receivable'], ['otherAsset', 'otherasset'],
+          ['income', 'income'], ['expense', 'expense'],
+          ['salesTrading', 'sales_trading'], ['costTrading', 'cost_trading'],
+          ['profitTrading', 'profit_biz_trading'], ['planTrading', 'plan_trading'],
+          ['salesProcessing', 'sales_processing'], ['costProcessing', 'cost_processing'],
+          ['profitProcessing', 'profit_biz_processing'], ['planProcessing', 'plan_processing'],
+          ['depositAmount', 'deposit_amount'], ['profitDeposit', 'profit_biz_deposit'],
+          ['avgProfit3', 'avgprofit3'], ['avgSaving', 'avgsaving'],
+          ['avgDebt', 'avgdebt'], ['staffCount', 'staff_count']
+        ];
+        detailMap.forEach(pair => {
+          const latestEl = document.getElementById(pair[1] + '_latest');
+          const prevEl = document.getElementById(pair[1] + '_prev');
+          if (latestEl && res[pair[0] + 'Latest'] !== undefined) latestEl.value = res[pair[0] + 'Latest'];
+          if (prevEl && res[pair[0] + 'Prev'] !== undefined) prevEl.value = res[pair[0] + 'Prev'];
+        });
         if (res.targetProjects) document.getElementById('target_projects').value = res.targetProjects;
 
         if (res.assetNumeric) currentAssetNumeric = Number(res.assetNumeric);
@@ -827,8 +1231,13 @@
       c69_d4: document.getElementById('c69_d4').value, issue_1: document.getElementById('issue_1').value,
       issue_2: document.getElementById('issue_2').value, issue_3: document.getElementById('issue_3').value,
       promotion_goals: document.getElementById('promotion_goals').value, planned_visits: document.getElementById('planned_visits').value,
-      visit_remark: document.getElementById('visit_remark').value
+      visit_remark: document.getElementById('visit_remark').value,
+      agm_date: document.getElementById('agm_date').value, certify_date: document.getElementById('certify_date').value
     };
+    CPD_DETAIL_IDS.forEach(prefix => {
+      formObj[prefix + '_latest'] = document.getElementById(prefix + '_latest').value;
+      formObj[prefix + '_prev'] = document.getElementById(prefix + '_prev').value;
+    });
     monthsOrder.forEach(m => {
       formObj[`coop_${m.key}`] = document.getElementById(`coop_${m.key}`).value;
       formObj[`cpd_${m.key}`] = document.getElementById(`cpd_${m.key}`).value;
@@ -840,8 +1249,15 @@
     if (!document.getElementById('coop_name').value) { alert("กรุณาเลือกสหกรณ์ก่อนครับ"); return; }
     const btn = document.getElementById('btnSaveDraft');
     const resDiv = document.getElementById('docResult');
-    btn.disabled = true; btn.textContent = "⏳ กำลังบันทึกร่าง...";
     const formObj = collectFormObject();
+
+    // ใช้ศูนย์กลางบันทึกร่างของ CPD_UI (State + localStorage + Database)
+    if (window.CPD_UI && typeof window.CPD_UI.saveDraft === 'function') {
+      window.CPD_UI.saveDraft({ form: formObj, silent: false, button: btn, resultBox: resDiv });
+      return;
+    }
+
+    btn.disabled = true; btn.textContent = "⏳ กำลังบันทึกร่าง...";
     google.script.run.withSuccessHandler(res => {
       btn.disabled = false; btn.textContent = "💾 บันทึกร่าง (Save Draft)";
       if (currentCoopIndex >= 0) { masterCoops[currentCoopIndex].savedDraft = { savedAt: res.savedAt, formData: formObj }; filterCoopDropdown(); }

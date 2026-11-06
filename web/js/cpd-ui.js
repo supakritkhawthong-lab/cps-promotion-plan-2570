@@ -60,26 +60,55 @@
   // =========================================================================
 
   UI.init = function () {
+    // กู้คืนร่างล่าสุดจาก localStorage ก่อนวาด UI (กันข้อมูลหายเมื่อโหลดหน้าใหม่)
+    var restored = null;
+    try { restored = S.restoreLocalDraft(); } catch (e) { console.warn('Restore draft:', e); }
     buildTab2();
     // Task 1: แท็บ 3 (ติดตามรายเดือน) และแท็บ 4 (รายงานปิดบัญชี) ถูกยุบรวมแล้ว
     buildTab5();
     bindGlobalEvents();
     wireLegacyFunctions();
     switchTab('base-form', true);
+    if (restored) {
+      fillBoundFields();
+      updateOutputs();
+      showToast('กู้คืนร่างล่าสุดเมื่อ ' + (restored.savedAt || '-') + ' แล้ว', 'success');
+    }
     S.syncFromBaseFormToAllTabs();
     UI.renderAll();
     setTimeout(function () {
+      selectStateCoopInDropdown();
       S.syncFromBaseFormToAllTabs();
       UI.renderAll();
     }, 300);
   };
 
+  function selectStateCoopInDropdown() {
+    var state = A();
+    var name = state.coopProfile && state.coopProfile.coopName;
+    if (!name || !global.masterCoops || !global.masterCoops.length) return;
+    var sel = $('coopSelect');
+    if (!sel || sel.value !== '') return;
+    var id = state.coopProfile.coopId13 || '';
+    var idx = -1;
+    for (var i = 0; i < global.masterCoops.length; i++) {
+      var mc = global.masterCoops[i];
+      if ((id && mc.code13 === id) || mc.name === name) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      sel.value = String(idx);
+      global.currentCoopIndex = idx;
+    }
+  }
+
   function switchTab(name, silent) {
     var validTabs = ['base-form', 'full-plan', 'dashboard'];
     if (validTabs.indexOf(name) === -1) name = 'base-form';
     if (name === 'full-plan' && !silent) {
-      var current4M = A().analysis && A().analysis.orgAnalysis4M;
-      if (!current4M || !String(current4M).trim()) populate4MFromBaseForm(true);
+      var analysis = (A().analysis || {});
+      var keys = ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis', 'summaryAnalysis'];
+      var hasEmpty = keys.some(function (k) { return !String(analysis[k] || '').trim(); });
+      if (hasEmpty) populate4MFromBaseForm(true);
     }
     document.querySelectorAll('.cpd-tab-pane').forEach(function (pane) {
       pane.classList.toggle('active', pane.id === 'tab-' + name);
@@ -122,6 +151,7 @@
       var origPopulate = global.populateCoopDropdown;
       global.populateCoopDropdown = function (list) {
         var r = origPopulate.apply(this, arguments);
+        selectStateCoopInDropdown();
         if (dashboardData === null) { /* รอผู้ใช้เปิดแท็บ Dashboard */ }
         if ($('tab-dashboard') && $('tab-dashboard').classList.contains('active')) {
           loadDashboard();
@@ -177,6 +207,7 @@
       '  </div>' +
       '  <div class="no-print d-flex gap-2 flex-wrap">' +
       '    <button type="button" class="btn btn-sm btn-outline-success" data-action="print-section" data-section="tab-full-plan">🖨️ พิมพ์แผนฉบับเต็ม</button>' +
+      '    <button type="button" class="btn btn-sm btn-primary" data-action="save-draft">💾 บันทึกร่าง (Save Draft)</button>' +
       '    <button type="button" class="btn btn-sm btn-success" data-action="save-plan">💾 บันทึกแผน (ทุกแท็บ)</button>' +
       '  </div>' +
       '</div>' +
@@ -394,23 +425,36 @@
   function buildTab2Schedule() {
     return '' +
       '<div class="cpd-subsection" data-cpd2-pane="schedule">' +
-      '  <div class="card shadow-sm mb-3"><div class="card-header py-2">แผนการปิดบัญชี (ภายใน 30 วัน) และแผนการประชุมใหญ่ประจำปี (ภายใน 150 วัน)</div>' +
-      '    <div class="card-body py-3"><div class="row g-3">' +
-      '      <div class="col-md-6"><div class="score-box"><div class="small fw-bold mb-1">แผนการปิดบัญชี (ภายใน 30 วัน)</div>' +
-      '        <div class="fs-5 fw-bold text-success" data-out="deadline.close30">-</div>' +
-      '        <div class="form-text">คำนวณจากวันสิ้นปีบัญชี + 30 วัน อัตโนมัติ</div></div></div>' +
-      '      <div class="col-md-6"><div class="score-box"><div class="small fw-bold mb-1">แผนการประชุมใหญ่ประจำปี (ภายใน 150 วัน)</div>' +
-      '        <div class="fs-5 fw-bold text-primary" data-out="deadline.agm150">-</div>' +
-      '        <div class="form-text">คำนวณจากวันสิ้นปีบัญชี + 150 วัน อัตโนมัติ</div></div></div>' +
-      '    </div></div>' +
+      '  <div class="card shadow-sm mb-3"><div class="card-header py-2">5.1 แผนการปิดบัญชี (ภายใน 30 วัน) และแผนการประชุมใหญ่ประจำปี (ภายใน 150 วัน)</div>' +
+      '    <div class="card-body py-3">' +
+      '      <div class="row g-2 mb-3">' +
+      '        <div class="col-md-4"><label class="form-label small fw-bold mb-1">วันสิ้นปีบัญชี (จากหน้า 1)</label>' +
+      '          <div class="form-control form-control-sm bg-light fw-bold" data-out="info.fiscalEndDate">-</div></div>' +
+      '        <div class="col-md-4"><label class="form-label small fw-bold mb-1 text-primary">วันประชุมใหญ่สามัญประจำปี</label>' +
+      '          <input type="text" class="form-control form-control-sm fw-bold" id="cpd2AgmDate" data-cpd="closingReport.agmDate" placeholder="วว/ดด/ปปปป"></div>' +
+      '        <div class="col-md-4"><label class="form-label small fw-bold mb-1 text-success">วันที่รับรองงบการเงิน (อัตโนมัติ)</label>' +
+      '          <div class="form-control form-control-sm bg-light fw-bold text-success" data-out="deadline.certify">-</div></div>' +
+      '      </div>' +
+      '      <div class="table-responsive">' +
+      '        <table class="table table-bordered table-sm align-middle mb-0" style="font-size:0.85rem;">' +
+      '          <thead class="table-light text-center"><tr><th style="width:55%">รายการ</th><th>วันที่กำหนด</th></tr></thead>' +
+      '          <tbody>' +
+      '            <tr><td>แผนการปิดบัญชี (ภายใน 30 วัน)</td><td class="text-center fw-bold text-success" data-out="deadline.close30">-</td></tr>' +
+      '            <tr><td>แผนการประชุมใหญ่ประจำปี (ภายใน 150 วัน)</td><td class="text-center fw-bold text-primary" data-out="deadline.agm150">-</td></tr>' +
+      '            <tr><td>วันที่รับรองงบการเงิน (ต้องอยู่เดือนเดียวกับประชุมใหญ่ และไม่เกินวันประชุมใหญ่)</td><td class="text-center fw-bold text-success" data-out="deadline.certify">-</td></tr>' +
+      '          </tbody>' +
+      '        </table>' +
+      '      </div>' +
+      '      <div class="form-text mt-2">ระบบปรับปีบัญชี/ปีงบประมาณ พ.ศ. ในตารางกิจกรรมด้านล่างให้อัตโนมัติ เมื่อเปลี่ยนวันประชุมใหญ่หรือปีบัญชี</div>' +
+      '    </div>' +
       '  </div>' +
 
       '  <div class="card shadow-sm mb-3"><div class="card-header py-2 d-flex justify-content-between align-items-center">' +
-      '    <span>เป้าหมายงาน/กิจกรรมที่จะดำเนินการ (5 หมวดหลัก)</span>' +
+      '    <span>5.2 ตารางเป้าหมายงาน/กิจกรรมที่จะดำเนินการ (5 หัวข้อหลัก และข้อย่อย 2.1–2.4)</span>' +
       '    <button type="button" class="btn btn-sm btn-light py-0 fw-bold no-print" data-action="add-activity">➕ เพิ่มกิจกรรม</button></div>' +
       '    <div class="card-body py-2 table-responsive">' +
       '      <table class="table table-bordered table-sm align-middle mb-0" style="font-size:0.82rem;">' +
-      '        <thead class="table-light text-center"><tr><th style="width:34%">เป้าหมายงาน/กิจกรรม</th><th>ค่าเป้าหมาย</th><th>หน่วยนับ</th><th>เริ่ม</th><th>สิ้นสุด</th><th>ผู้ดำเนินการ</th><th class="no-print"></th></tr></thead>' +
+      '        <thead class="table-light text-center"><tr><th style="width:38%">เป้าหมายงาน/กิจกรรม</th><th>ค่าเป้าหมาย</th><th>หน่วยนับ</th><th>วันเริ่มต้น</th><th>วันสิ้นสุด</th><th>ผู้ดำเนินการ</th><th class="no-print"></th></tr></thead>' +
       '        <tbody id="cpd2ActivityBody"></tbody>' +
       '      </table>' +
       '    </div>' +
@@ -581,6 +625,7 @@
       '  <h4 class="mb-1">📊 Dashboard สรุปภาพรวมระดับจังหวัดชลบุรี</h4>' +
       '  <div class="text-muted small" id="cpd5Status">พร้อมแสดงข้อมูลเมื่อเปิดแท็บ</div>' +
       '</div><div class="no-print d-flex gap-2 flex-wrap">' +
+      '  <button type="button" class="btn btn-sm btn-primary" data-action="save-draft">💾 บันทึกร่าง</button>' +
       '  <button type="button" class="btn btn-sm btn-outline-success" data-action="refresh-dashboard">🔄 รีเฟรช</button>' +
       '  <button type="button" class="btn btn-sm btn-outline-primary" data-action="export-csv">⬇️ ส่งออก CSV</button>' +
       '  <button type="button" class="btn btn-sm btn-outline-primary" data-action="export-xls">⬇️ ส่งออก Excel</button>' +
@@ -713,7 +758,7 @@
     var ratios = state.financials.ratios;
     var b = state.financials.businesses;
     var st = state.strength;
-    var dl = S.computeDeadlines();
+    var dl = S.deriveAgmDates();
     var vol = volumeTotals();
     var mem = memberTotals();
 
@@ -736,7 +781,8 @@
       'ratio.reserveToAssetRatio': money(ratios.reserveToAssetRatio, 2),
       'ratio.opexToGrossProfitRatio': money(ratios.opexToGrossProfitRatio, 2),
       'deadline.close30': dl.close30,
-      'deadline.agm150': dl.agm150
+      'deadline.agm150': dl.agmDate,
+      'deadline.certify': dl.certifyDate
     };
 
     ['credit', 'trading', 'collection', 'processing', 'service'].forEach(function (key) {
@@ -863,35 +909,109 @@
     updateOutputs();
   }
 
+  function planYearInfo() {
+    var planYear = S.num(A().meta.fiscalYear) || 2570;
+    var acctYear = planYear - 1;
+    return {
+      planYear: planYear,
+      acctYear: acctYear,
+      latestStrengthYear: planYear - 2,
+      targetStrengthYear: planYear - 1,
+      assessmentYear: planYear,
+      startYear: planYear - 1,
+      endYear: planYear
+    };
+  }
+
+  function thDate(day, month, year) {
+    return ('0' + day).slice(-2) + '/' + ('0' + month).slice(-2) + '/' + year;
+  }
+
   function planActivityDefaults() {
+    var y = planYearInfo();
+    var agm = S.deriveAgmDates();
+    var agmParts = S.parseDateParts(agm.agmDate) || { day: 27, month: 2, year: y.planYear };
+    var agmMonth = ('0' + agmParts.month).slice(-2);
+    var agmYear = agmParts.year;
     return [
-      { goal: '1. สหกรณ์/กลุ่มเกษตรกรได้รับการแนะนำช่วยเหลือในการฟื้นฟูกิจการ/แก้ไขปัญหาการดำเนินกิจการ', target: '', unit: '', startDate: '', endDate: '', operator: '' },
-      { goal: '2. สหกรณ์/กลุ่มเกษตรกรได้รับการส่งเสริมเพิ่มศักยภาพการดำเนินกิจการให้มีความเข้มแข็ง', target: '', unit: '', startDate: '', endDate: '', operator: '' },
-      { goal: '3. สหกรณ์/กลุ่มเกษตรกรได้รับการพัฒนาต่อยอด/ยกระดับเป็นสหกรณ์/กลุ่มเกษตรกรที่มีสมรรถนะสูง (ดีเด่น/เลิศรัฐ)', target: '', unit: '', startDate: '', endDate: '', operator: '' },
-      { goal: '4. สหกรณ์/กลุ่มเกษตรกรได้รับการตรวจการสหกรณ์ตามที่กฎหมายกำหนด (ระหว่างดำเนินกิจการ)', target: '', unit: '', startDate: '', endDate: '', operator: '' },
-      { goal: '5. เพิ่มเติมประเด็นอื่นๆ', target: '', unit: '', startDate: '', endDate: '', operator: '' }
+      { code: '1', isHeader: true, auto: true, goal: '1. สหกรณ์/กลุ่มเกษตรกรได้รับการแนะนำช่วยเหลือในการฟื้นฟูกิจการ/แก้ไขปัญหาการดำเนินกิจการ', target: '', unit: '', startDate: '', endDate: '', operator: '' },
+      { code: '2', isHeader: true, auto: true, goal: '2. สหกรณ์/กลุ่มเกษตรกรได้รับการส่งเสริมเพิ่มศักยภาพการดำเนินกิจการให้มีความเข้มแข็ง', target: '', unit: '', startDate: '', endDate: '', operator: '' },
+      {
+        code: '2.1', auto: true, target: '1', unit: 'ครั้ง', startDate: thDate(1, 10, y.startYear), endDate: thDate(31, 1, y.endYear), operator: 'เจ้าหน้าที่ส่งเสริม',
+        goal: '2.1 ร่วมประชุมคณะกรรมการฯ เพื่อแนะนำส่งเสริมให้สหกรณ์สามารถรักษาระดับชั้น 1 ในปี ' + y.targetStrengthYear +
+          ' โดยชี้แจงผลเข้มแข็งปี ' + y.latestStrengthYear + ' พร้อมประมาณการคะแนนเข้มแข็ง ปี ' + y.targetStrengthYear +
+          ' และแนะนำส่งเสริมเกี่ยวกับ การปรับปรุงการควบคุมภายใน การจัดและจ่ายสวัสดิการ การจัดทำบันทึกบัญชีให้เป็นปัจจุบัน รวมทั้งการจัดทำงบการเงินและปิดบัญชีประจำปีได้และส่งงบการเงินให้ผู้สอบได้ภายใน 30 วัน นับแต่วันสิ้นปีทางบัญชี และจัดประชุมใหญ่ ภายใน 150 วัน แบบมีงบการเงิน'
+      },
+      {
+        code: '2.2', auto: true, target: '1', unit: 'ครั้ง', startDate: agm.certifyDate, endDate: agm.agmDate, operator: 'เจ้าหน้าที่ส่งเสริม',
+        goal: '2.2 ร่วมประชุมคณะกรรมการฯ เพื่อรับรองงบการเงินของสหกรณ์ ปีบัญชี ' + y.acctYear +
+          ' (ช่วงเวลารับรองงบอยู่ในเดือนเดียวกับเดือนประชุมใหญ่ และไม่เกินวันประชุมใหญ่)'
+      },
+      {
+        code: '2.3', auto: true, target: '1', unit: 'ครั้ง', startDate: thDate(1, Number(agmMonth), agmYear), endDate: agm.agmDate, operator: 'เจ้าหน้าที่ส่งเสริม',
+        goal: '2.3 เข้าร่วมประชุมใหญ่สามัญ ประจำปี ' + y.acctYear
+      },
+      {
+        code: '2.4', auto: true, target: '2', unit: 'ครั้ง', startDate: thDate(1, 10, y.startYear), endDate: thDate(30, 9, y.endYear), operator: 'เจ้าหน้าที่ส่งเสริม',
+        goal: '2.4 ร่วมประชุมคณะกรรมการฯ เพื่อแนะนำส่งเสริมให้สหกรณ์มีการจัดทำแผนกลยุทธ์ และ/หรือร่วมจัดทำแผนกลยุทธ์กับสหกรณ์ หรือ ตรวจเยี่ยมสหกรณ์เพื่อติดตามความก้าวหน้าในการดำเนินการของสหกรณ์ให้เป็นไปตามระเบียบ ข้อบังคับ และกฎหมายที่เกี่ยวข้อง และแนะนำผลจากการตรวจสอบกิจการและฐานะการเงิน'
+      },
+      { code: '3', isHeader: true, auto: true, goal: '3. สหกรณ์/กลุ่มเกษตรกรได้รับการพัฒนาต่อยอด/ยกระดับเป็นสหกรณ์/กลุ่มเกษตรกรที่มีสมรรถนะสูง (ดีเด่น/เลิศรัฐ)', target: '', unit: '', startDate: '', endDate: '', operator: '' },
+      { code: '4', isHeader: true, auto: true, goal: '4. สหกรณ์/กลุ่มเกษตรกรได้รับการตรวจการสหกรณ์ตามที่กฎหมายกำหนด (ระหว่างดำเนินกิจการ)', target: '', unit: '', startDate: '', endDate: '', operator: '' },
+      { code: '5', isHeader: true, auto: true, goal: '5. เพิ่มเติมประเด็นอื่นๆ', target: '', unit: '', startDate: '', endDate: '', operator: '' }
     ];
+  }
+
+  function syncPlanActivityDates() {
+    var sch = A().scheduleAndActivities;
+    if (!Array.isArray(sch.activities) || !sch.activities.length) return;
+    var defs = planActivityDefaults();
+    var byCode = {};
+    defs.forEach(function (d) { byCode[d.code] = d; });
+    sch.activities.forEach(function (a) {
+      if (!a.code || !byCode[a.code]) return;
+      var d = byCode[a.code];
+      // วันที่ของ 2.2 และ 2.3 ต้องอัปเดตตามวันประชุมใหญ่เสมอ
+      if (a.code === '2.2' || a.code === '2.3') {
+        a.startDate = d.startDate;
+        a.endDate = d.endDate;
+      }
+      if (a.auto) {
+        a.goal = d.goal;
+        if (a.code === '2.1' || a.code === '2.4') {
+          a.startDate = d.startDate;
+          a.endDate = d.endDate;
+        }
+      }
+    });
   }
 
   function renderActivities() {
     var sch = A().scheduleAndActivities;
-    if (!Array.isArray(sch.activities) || sch.activities.length === 0) {
+    // โครงสร้างใหม่ 5 หัวข้อ + ข้อย่อย 2.1–2.4
+    if (!Array.isArray(sch.activities) || sch.activities.length === 0 ||
+      !sch.activities.some(function (a) { return a && a.code; })) {
       sch.activities = planActivityDefaults();
     }
+    syncPlanActivityDates();
     if (!Array.isArray(sch.visitLog)) sch.visitLog = [];
 
     var body = $('cpd2ActivityBody');
     if (body) {
       body.innerHTML = sch.activities.map(function (a, i) {
+        var del = '<td class="no-print text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" data-action="del-plan-activity" data-index="' + i + '">✕</button></td>';
+        if (a.isHeader) {
+          return '<tr class="table-secondary">' +
+            '<td colspan="6"><textarea class="form-control form-control-sm fw-bold bg-transparent border-0" rows="1" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
+            del + '</tr>';
+        }
         return '<tr>' +
-          '<td><textarea class="form-control form-control-sm" rows="2" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
+          '<td><textarea class="form-control form-control-sm" rows="3" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
           '<td><input type="text" class="form-control form-control-sm text-center" data-plan-activity="' + i + '" data-pfield="target" value="' + h(a.target || '') + '"></td>' +
           '<td><input type="text" class="form-control form-control-sm text-center" data-plan-activity="' + i + '" data-pfield="unit" value="' + h(a.unit || '') + '"></td>' +
           '<td><input type="text" class="form-control form-control-sm text-center" data-plan-activity="' + i + '" data-pfield="startDate" value="' + h(a.startDate || '') + '"></td>' +
           '<td><input type="text" class="form-control form-control-sm text-center" data-plan-activity="' + i + '" data-pfield="endDate" value="' + h(a.endDate || '') + '"></td>' +
           '<td><input type="text" class="form-control form-control-sm" data-plan-activity="' + i + '" data-pfield="operator" value="' + h(a.operator || '') + '"></td>' +
-          '<td class="no-print text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" data-action="del-plan-activity" data-index="' + i + '">✕</button></td>' +
-          '</tr>';
+          del + '</tr>';
       }).join('');
     }
 
@@ -1016,6 +1136,21 @@
     }
 
     if (changed) updateOutputs();
+
+    // เปลี่ยนวันประชุมใหญ่ -> อัปเดตวันที่รับรองงบ + ตารางกิจกรรม + แผน 12 เดือน
+    if (el.matches('[data-cpd="closingReport.agmDate"]')) {
+      var agmValue = el.value;
+      if (typeof global.setAgmDateFromState === 'function') {
+        global.setAgmDateFromState(agmValue);
+      }
+      S.applyAutoDeadlines();
+      syncPlanActivityDates();
+      renderActivities();
+      updateOutputs();
+    }
+
+    if (changed) S.scheduleLocalDraftSave(700);
+
     if (el.closest && el.closest('#tab-base-form') && !el.matches('input[type="file"]')) {
       scheduleBaseSync(220);
     }
@@ -1064,6 +1199,8 @@
       syncTotalsToBaseForm();
     } else if (action === 'save-plan') {
       saveCompletePlan();
+    } else if (action === 'save-draft') {
+      UI.saveDraft({ button: btn });
     } else if (action === 'print-section') {
       printSection(btn.getAttribute('data-section'));
     } else if (action === 'refresh-dashboard') {
@@ -1164,6 +1301,63 @@
     toastTimer = setTimeout(function () {
       el.className = 'cpd-toast ' + (type || 'info');
     }, 4000);
+  }
+
+  function saveDraft(options) {
+    options = options || {};
+    S.syncFromBaseFormToAllTabs();
+    var state = A();
+    var form = options.form;
+    if (!form) {
+      try {
+        form = typeof global.collectFormObject === 'function' ? global.collectFormObject() : {};
+      } catch (e) { form = {}; }
+    }
+    if (!state.coopProfile.coopName && !(form && form.coop_name)) {
+      showToast('กรุณาเลือกสหกรณ์ก่อนบันทึกร่าง', 'danger');
+      return;
+    }
+
+    var btn = options.button;
+    var originalText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังบันทึกร่าง...'; }
+
+    // 1) บันทึกทุกช่องลง State + localStorage ทันที
+    var savedAt = S.saveLocalDraft(form);
+    var resultBox = options.resultBox;
+    if (resultBox) {
+      resultBox.innerHTML = '<div class="alert alert-info mb-0">💾 บันทึกร่างลงเครื่องแล้วเมื่อ ' + h(savedAt || '-') + ' กำลังบันทึกลงฐานข้อมูล...</div>';
+    }
+    if (!options.silent) showToast('บันทึกร่างลงเครื่องแล้วเมื่อ ' + (savedAt || '-'), 'success');
+
+    function finish(ok, message) {
+      if (btn) { btn.disabled = false; btn.textContent = originalText || '💾 บันทึกร่าง'; }
+      if (resultBox) {
+        resultBox.innerHTML = '<div class="alert alert-' + (ok ? 'info' : 'warning') + ' mb-0">💾 ' + h(message) + '</div>';
+      }
+      if (!options.silent) showToast(message, ok ? 'success' : 'warning');
+    }
+
+    // 2) บันทึกลงฐานข้อมูล (best effort — ถ้าออฟไลน์ยังใช้ร่างในเครื่องได้)
+    if (!global.google || !global.google.script || !global.google.script.run) {
+      finish(true, 'บันทึกร่างลงเครื่องแล้วเมื่อ ' + (savedAt || '-'));
+      return;
+    }
+
+    global.google.script.run.withSuccessHandler(function (res) {
+      if (global.currentCoopIndex >= 0 && global.masterCoops && global.masterCoops[global.currentCoopIndex]) {
+        global.masterCoops[global.currentCoopIndex].savedDraft = {
+          savedAt: (res && res.savedAt) || savedAt,
+          formData: form
+        };
+        if (typeof global.filterCoopDropdown === 'function') global.filterCoopDropdown();
+      }
+      finish(true, 'บันทึกร่างของ ' + (form.coop_name || state.coopProfile.coopName || '') +
+        ' เรียบร้อยแล้วเมื่อ ' + ((res && res.savedAt) || savedAt || '-'));
+    }).withFailureHandler(function (err) {
+      finish(true, 'บันทึกร่างลงเครื่องแล้วเมื่อ ' + (savedAt || '-') +
+        ' (ฐานข้อมูล: ' + (err && err.message ? err.message : 'ไม่พร้อมใช้งาน') + ')');
+    }).saveDraftToSheet(form);
   }
 
   function saveCompletePlan() {
@@ -1715,14 +1909,54 @@
 
 
   // =========================================================================
-  // TASK 2 — วิเคราะห์ 4M จากฟอร์มพื้นฐาน
+  // TASK 2 — วิเคราะห์ 4M จากฟอร์มพื้นฐาน (ข้อความเต็มตาม Template)
   // =========================================================================
 
+  function fmtBahtTxt(v) {
+    var n = S.num(v);
+    return n ? S.fmt(n, 2) + ' บาท' : 'ยังไม่ระบุ';
+  }
+
+  function diffPhrase(latest, prev) {
+    var l = S.num(latest);
+    var p = S.num(prev);
+    if (!l || !p) return '';
+    var d = l - p;
+    if (!d) return 'ไม่เปลี่ยนแปลงจากปีก่อน';
+    return (d > 0 ? 'เพิ่มขึ้น' : 'ลดลง') + 'จากปีก่อน จำนวน ' + S.fmt(Math.abs(d), 2) + ' บาท';
+  }
+
+  function planComparePhrase(actual, plan) {
+    var a = S.num(actual);
+    var p = S.num(plan);
+    if (!p) return 'โดยสหกรณ์ไม่ได้กำหนดแผนงานไว้';
+    var d = a - p;
+    if (!d) return 'ผลการดำเนินงานเท่ากับแผนงานที่กำหนด';
+    return 'ผลการดำเนินงาน' + (d > 0 ? 'สูงกว่า' : 'ต่ำกว่า') +
+      'แผนงานที่กำหนด จำนวน ' + S.fmt(Math.abs(d), 2) + ' บาท';
+  }
+
+  function profitPhrase(v) {
+    var n = S.num(v);
+    if (n > 0) return 'มีกำไรเฉพาะธุรกิจ จำนวน ' + S.fmt(n, 2) + ' บาท';
+    if (n < 0) return 'มีผลขาดทุนเฉพาะธุรกิจ จำนวน ' + S.fmt(Math.abs(n), 2) + ' บาท';
+    return 'ไม่มีผลกำไรหรือขาดทุนเฉพาะธุรกิจ';
+  }
+
+  function pctText(part, total) {
+    if (!S.num(total)) return '0.00';
+    return S.fmt((S.num(part) / S.num(total)) * 100, 2);
+  }
+
+  function joinPhrase(parts) {
+    return parts.filter(function (x) { return x && String(x).trim(); }).join(' ');
+  }
+
   /**
-   * analyze4M(basicFormData) — แปลงข้อมูลจากฟอร์มพื้นฐานเป็นข้อความ 4 มิติ
-   * ใช้เฉพาะค่าที่มีอยู่จริง ไม่สร้างตัวเลขจำลอง
+   * analyze4M() — สร้างข้อความวิเคราะห์ 4 ด้าน (องค์กร / ธุรกิจ / สวัสดิการ / สรุป)
+   * ใช้ข้อมูลจริงจาก Shared State (ผลการดำเนินงาน 2 ปี, คะแนนเข้มแข็ง, ข้อมูลสมาชิก)
    */
-  function analyze4M(basicFormData) {
+  function analyze4M() {
     var s = A();
     var p = s.coopProfile || {};
     var f = s.financials || {};
@@ -1730,102 +1964,371 @@
     var bs = f.balanceSheet || {};
     var st = s.strength || {};
     var mem = p.members || {};
+    var op = f.operatingResults || {};
+    var N = op.latest || {};
+    var N1 = op.prev || {};
+
+    var y = planYearInfo();
+    var acctYear = y.acctYear;
+    var planYear = y.planYear;
+    var latestStrengthYear = y.latestStrengthYear;
+    var targetStrengthYear = y.targetStrengthYear;
+    var assessmentYear = y.assessmentYear;
+
+    var coopName = p.coopName || 'สหกรณ์/กลุ่มเกษตรกร';
+    var fiscalEndDate = p.fiscalEndDate || 'วันสิ้นปีบัญชี';
     var membersTotal = S.num(mem.regularMale) + S.num(mem.regularFemale) +
       S.num(mem.associateMale) + S.num(mem.associateFemale);
     if (!membersTotal) membersTotal = S.num(mem.regularTotal) + S.num(mem.associateTotal);
     if (!membersTotal) membersTotal = S.num(mem.prevYearTotal);
-    var assets = S.num(bs.totalAssets) || S.num(sum.assetsLatest);
-    var liabilities = S.num(bs.totalLiabilities) || S.num(sum.liabilitiesLatest);
-    var equity = S.num(bs.totalEquity) || (assets ? assets - liabilities : 0);
-    var businessVol = S.num(sum.businessVolumeLatest);
-    var biz = Array.isArray(p.mainBusinesses)
-      ? p.mainBusinesses.filter(Boolean).join(', ')
-      : (p.mainBusinesses || sum.activeBusinessesText || '');
-    var products = Array.isArray(p.mainProducts)
-      ? p.mainProducts.filter(Boolean).join(', ')
-      : (p.mainProducts || '');
-    var strength69 = (st.classByYear && st.classByYear['2569']) || '';
-    var total69 = S.num(st.totalByYear && st.totalByYear['2569']);
-    var d1 = S.num(st.dim1ByYear && st.dim1ByYear['2569']);
-    var d2 = S.num(st.dim2ByYear && st.dim2ByYear['2569']);
-    var d3 = S.num(st.dim3ByYear && st.dim3ByYear['2569']);
-    var d4 = S.num(st.dim4ByYear && st.dim4ByYear['2569']);
+    if (!membersTotal) membersTotal = S.num(N.membersDeposit) || S.num(N.membersTrading) || 0;
 
-    function line(label, value) {
-      var ok = value !== '' && value !== undefined && value !== null &&
-        !(typeof value === 'number' && value === 0);
-      return '- ' + label + ': ' + (ok ? value : 'ยังไม่ระบุ');
+    var assets = S.num(sum.assetsLatest) || S.num(bs.totalAssets);
+    var liabilities = S.num(sum.liabilitiesLatest) || S.num(bs.totalLiabilities);
+    var profit = S.num(sum.netProfitLatest) || S.num(bs.netProfitYear);
+    var profitPrev = S.num(sum.netProfitPrev);
+    var workingCapital = S.num(N.workingCapital) || assets;
+    var coopCapital = S.num(N.coopCapital) ||
+      (assets && liabilities ? assets - liabilities : 0) || S.num(bs.totalEquity);
+    var income = S.num(N.totalIncome);
+    var expense = S.num(N.totalExpense);
+    var avgProfit3 = S.num(N.avgProfit3);
+    var avgSaving = S.num(N.avgSaving);
+    var avgDebt = S.num(N.avgDebt);
+    var staffCount = S.num(N.staffCount);
+    var agmAttendees = S.num(N.agmAttendees);
+    var membersDeposit = S.num(N.membersDeposit);
+    var membersTrading = S.num(N.membersTrading);
+    var membersProcessing = S.num(N.membersProcessing);
+    var cash = S.num(N.cash);
+    var inventory = S.num(N.inventory);
+    var ppe = S.num(N.ppe);
+    var receivables = S.num(N.receivables);
+    var otherAssets = S.num(N.otherAssets);
+    var loans = S.num(N.loans);
+    var payables = S.num(N.payables);
+    var salesTrading = S.num(N.salesTrading);
+    var planTrading = S.num(N.planTrading);
+    var profitTrading = S.num(N.profitTrading);
+    var profitTradingPrev = S.num(N1.profitTrading);
+    var salesProcessing = S.num(N.salesProcessing);
+    var planProcessing = S.num(N.planProcessing);
+    var profitProcessing = S.num(N.profitProcessing);
+    var profitProcessingPrev = S.num(N1.profitProcessing);
+    var depositAmount = S.num(N.depositAmount);
+    var profitDeposit = S.num(N.profitDeposit);
+
+    var bizList = Array.isArray(p.mainBusinesses) ? p.mainBusinesses.filter(Boolean) : [];
+    var bizText = bizList.length ? bizList.join(' ') : '';
+    var productsText = Array.isArray(p.mainProducts) ? p.mainProducts.filter(Boolean).join(' ') : '';
+
+    var classLatest = (st.classByYear && (st.classByYear[String(latestStrengthYear)] || st.classByYear['2569'])) || '';
+    var classTarget = (st.classByYear && (st.classByYear[String(targetStrengthYear)] || st.classByYear['2569'])) || classLatest;
+    var totalLatest = S.num(st.totalByYear && (st.totalByYear[String(latestStrengthYear)] || st.totalByYear['2569']));
+    var quorumOk = membersTotal ? (agmAttendees * 2 >= membersTotal) : false;
+
+    // -------------------------------------------------------------------
+    // 1) ด้านการบริหารจัดการองค์กร (4M)
+    // -------------------------------------------------------------------
+    var org = [];
+    org.push('การวิเคราะห์ข้อมูลของสหกรณ์/กลุ่มเกษตรกร');
+    org.push('- ผลการวิเคราะห์ข้อมูลด้านการบริหารจัดการองค์กร');
+    org.push('ด้านการบริหารจัดการองค์กร (หลัก 4M)');
+    org.push('');
+    org.push('1. หัวข้อ: บุคลากร');
+    org.push(joinPhrase([
+      '- คณะกรรมการดำเนินการ มีจำนวน',
+      (p.boardCount ? S.fmtInt(p.boardCount) + ' คน' : 'ตามที่กำหนดในข้อบังคับ'),
+      'มีความรู้ความสามารถและประสบการณ์เพียงพอในการบริหารงาน'
+    ]));
+    org.push(joinPhrase([
+      '- ผู้ตรวจสอบกิจการ',
+      (p.inspectorName ? 'ชื่อ ' + p.inspectorName : ''),
+      'ผ่านการอบรมผู้ตรวจสอบกิจการสหกรณ์ และเข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ'
+    ]));
+    org.push(joinPhrase([
+      '- ฝ่ายจัดการมีเจ้าหน้าที่ปฏิบัติงานประจำ',
+      (staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : 'ตามโครงสร้างที่สหกรณ์กำหนด'),
+      'มีความรู้ความสามารถตามสมควรในตำแหน่งที่ได้รับมอบหมาย และสหกรณ์ได้มอบหมายผู้รับผิดชอบการเก็บรักษาเงินสดและการรับจ่ายเงินอย่างชัดเจน'
+    ]));
+    org.push(joinPhrase([
+      '- ณ วันสิ้นปีบัญชีมีสมาชิก',
+      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : 'ตามทะเบียนสมาชิก'),
+      'มีสมาชิกร่วมทำธุรกิจกับสหกรณ์ แยกเป็น ธุรกิจรับฝากเงิน จำนวน',
+      S.fmtInt(membersDeposit) + ' คน',
+      'ธุรกิจจัดหาสินค้ามาจำหน่าย จำนวน',
+      S.fmtInt(membersTrading) + ' คน',
+      'และธุรกิจแปรรูปและผลิตสินค้า จำนวน',
+      S.fmtInt(membersProcessing) + ' คน',
+      'สำหรับการเข้าร่วมประชุมใหญ่สามัญประจำปีของสมาชิกนั้น สมาชิกมาเข้าประชุม จำนวน',
+      S.fmtInt(agmAttendees) + ' คน',
+      'จากสมาชิกทั้งหมด',
+      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
+      (quorumOk ? 'ครบองค์ประชุม' : '')
+    ]));
+    org.push('- สมาชิกส่วนใหญ่มีความรู้ความเข้าใจเกี่ยวกับอุดมการณ์ หลักการและวิธีการสหกรณ์พอสมควร สมาชิกทราบถึงสิทธิและหน้าที่ของสมาชิกตามข้อบังคับกำหนด');
+    org.push('');
+    org.push('2. หัวข้อ: สำนักงาน/อุปกรณ์');
+    org.push('- สหกรณ์มีสำนักงานและอุปกรณ์ที่ใช้ในการปฏิบัติงานอย่างเพียงพอ');
+    if (productsText) {
+      org.push('- สินค้า/ผลผลิตหลักของสหกรณ์ ได้แก่ ' + productsText);
     }
-    function baht(v) { return v ? S.fmt(v, 2) + ' บาท' : ''; }
+    org.push('- สหกรณ์มีอุปกรณ์คอมพิวเตอร์ เครื่องพิมพ์ และตู้เก็บเอกสารเพียงพอในการปฏิบัติงาน');
+    org.push('- สำหรับเทคโนโลยีที่ใช้ในการบริหารจัดการองค์กร สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์');
+    org.push('- สหกรณ์ยังไม่มีการนำ Application Smart 4M มาใช้ในการบริหารจัดการในสหกรณ์');
+    org.push('');
+    org.push('3. หัวข้อ: การเงิน');
+    org.push(joinPhrase([
+      '- ในรอบ 3 ปีบัญชีย้อนหลังสหกรณ์ดำเนินงานมีกำไรทุกปีเฉลี่ยปีละ',
+      fmtBahtTxt(avgProfit3),
+      (avgProfit3 ? '' : '(อยู่ระหว่างการรวบรวมข้อมูล)')
+    ]));
+    org.push(joinPhrase([
+      '- สำหรับปีสิ้นสุดวันที่ ' + fiscalEndDate + ' สหกรณ์มีรายได้รวมทั้งสิ้น',
+      fmtBahtTxt(income),
+      'มีต้นทุนและค่าใช้จ่ายทั้งสิ้น จำนวน',
+      fmtBahtTxt(expense),
+      'ผลการดำเนินงานมีกำไรสุทธิ จำนวน',
+      fmtBahtTxt(profit),
+      diffPhrase(profit, profitPrev)
+    ]));
+    org.push(joinPhrase([
+      '- ณ วันที่ ' + fiscalEndDate + ' สหกรณ์มีทุนดำเนินงานทั้งสิ้น',
+      fmtBahtTxt(workingCapital),
+      diffPhrase(workingCapital, N1.workingCapital),
+      'ทุนดำเนินงานดังกล่าวมาจากทุนของสหกรณ์ จำนวน',
+      fmtBahtTxt(coopCapital),
+      'เป็นหนี้สิน จำนวน',
+      fmtBahtTxt(liabilities),
+      'ซึ่งมาจากการกู้ยืม จำนวน',
+      fmtBahtTxt(loans),
+      'รองลงมา คือเจ้าหนี้การค้า จำนวน',
+      fmtBahtTxt(payables)
+    ]));
+    org.push(joinPhrase([
+      '- สหกรณ์มีสินทรัพย์ทั้งสิ้นจำนวน',
+      fmtBahtTxt(assets),
+      'ส่วนใหญ่อยู่ในรูปของเงินสดและเงินฝากธนาคาร จำนวน',
+      fmtBahtTxt(cash),
+      'รองลงมาเป็นสินค้าคงเหลือ จำนวน',
+      fmtBahtTxt(inventory),
+      'ที่ดินอาคารและอุปกรณ์-สุทธิ จำนวน',
+      fmtBahtTxt(ppe),
+      'ลูกหนี้การค้า จำนวน',
+      fmtBahtTxt(receivables),
+      'และสินทรัพย์อื่นๆ จำนวน',
+      fmtBahtTxt(otherAssets)
+    ]));
+    org.push(joinPhrase([
+      '- ธุรกิจจัดหาสินค้ามาจำหน่าย ระหว่างปี สหกรณ์จัดหาสินค้ามาจำหน่าย จำนวน',
+      fmtBahtTxt(salesTrading),
+      planComparePhrase(salesTrading, planTrading),
+      'ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้',
+      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้'),
+      profitPhrase(profitTrading),
+      diffPhrase(profitTrading, profitTradingPrev)
+    ]));
+    org.push(joinPhrase([
+      '- ธุรกิจแปรรูปและผลิตสินค้า ระหว่างปี สหกรณ์ดำเนินธุรกิจ จำนวน',
+      fmtBahtTxt(salesProcessing),
+      planComparePhrase(salesProcessing, planProcessing),
+      'ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้',
+      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้'),
+      profitPhrase(profitProcessing),
+      diffPhrase(profitProcessing, profitProcessingPrev)
+    ]));
+    org.push(joinPhrase([
+      '- การรับฝากเงิน ระหว่างปี สหกรณ์รับฝากเงินจากสมาชิก จำนวน',
+      fmtBahtTxt(depositAmount),
+      (profitDeposit ? profitPhrase(profitDeposit) : 'สหกรณ์รับฝากเงินเพื่อเป็นทุนหมุนเวียนในการดำเนินงาน')
+    ]));
+    org.push(joinPhrase([
+      '- เมื่อเปรียบเทียบเงินออมเฉลี่ยต่อสมาชิก',
+      fmtBahtTxt(avgSaving) + ' ต่อคน',
+      'กับหนี้สินเฉลี่ยต่อสมาชิก',
+      fmtBahtTxt(avgDebt) + ' ต่อคน',
+      'พบว่า',
+      (S.num(avgSaving) >= S.num(avgDebt)
+        ? 'สมาชิกมีเงินออมเฉลี่ยสูงกว่าหนี้สิน แสดงให้เห็นถึงสมาชิกมีศักยภาพทางการเงินที่ดี'
+        : 'สมาชิกมีหนี้สินเฉลี่ยสูงกว่าเงินออม จึงควรติดตามและบริหารจัดการภาระหนี้สินของสมาชิกอย่างต่อเนื่อง')
+    ]));
+    org.push('- สินทรัพย์หมุนเวียนส่วนใหญ่ของสหกรณ์ คือ เงินสดและเงินฝากธนาคาร สินค้าคงเหลือ และลูกหนี้การค้า ดังนั้น สภาพคล่องทางการเงินของสหกรณ์จึงขึ้นอยู่กับการบริหารจัดการด้านสินค้าให้มีการขายในระยะเวลาที่เหมาะสมและบริหารจัดการลูกหนี้การค้าให้ชำระหนี้เป็นไปตามเงื่อนไข');
+    org.push('- สหกรณ์ต้องติดตามข้อมูลข่าวสารจากภายนอกเพื่อเป็นข้อมูลในการตัดสินใจดำเนินธุรกิจ และลดความเสี่ยงที่อาจส่งผลกระทบต่อการดำเนินงานของสหกรณ์ โดยภาวการณ์แข่งขันในตลาดเป็นปัจจัยภายนอกที่สหกรณ์ไม่สามารถควบคุมได้ รวมทั้งนโยบายของรัฐทั้งด้านราคาผลผลิต ราคาอาหาร และยาส่งผลกระทบต่อต้นทุนการดำเนินงานของสหกรณ์');
+    org.push('');
+    org.push('4. หัวข้อ: การจัดการ');
+    org.push(joinPhrase([
+      '- ผลการจัดระดับชั้นความเข้มแข็ง ประจำปี',
+      String(latestStrengthYear),
+      'สหกรณ์อยู่ในระดับชั้น',
+      (classLatest ? String(classLatest) : '-'),
+      (totalLatest ? 'โดยมีคะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : ''),
+      'และมีเป้าหมายรักษาระดับชั้น',
+      (classTarget ? String(classTarget) : 'เดิม'),
+      'ในปี',
+      String(targetStrengthYear)
+    ]));
+    org.push('- คณะกรรมการดำเนินการได้พิจารณาอนุมัติโครงการจัดทำแผนกลยุทธ์ระยะ 3 ปี และมอบหมายให้ฝ่ายจัดการนำไปปฏิบัติอย่างต่อเนื่อง');
+    org.push('- สหกรณ์ถือใช้ข้อบังคับและระเบียบที่เกี่ยวข้องครบถ้วน และควรพิจารณาทบทวนแก้ไขเพิ่มเติมระเบียบให้สอดคล้องกับข้อบังคับปัจจุบันและการดำเนินธุรกิจของสหกรณ์');
+    org.push('- สหกรณ์ถือใช้ระเบียบว่าด้วยการรับจ่ายและเก็บรักษาเงิน ระเบียบว่าด้วยการควบคุมภายใน และระเบียบว่าด้วยเจ้าหน้าที่และข้อบังคับเกี่ยวกับการทำงานอย่างครบถ้วน');
+    org.push('- สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์ในการประมวลผลข้อมูลทุนเรือนหุ้น สินค้า และจัดทำบัญชีแยกประเภท');
+    org.push(joinPhrase([
+      '- สหกรณ์สามารถจัดประชุมใหญ่ได้ภายในระยะเวลา 150 วัน โดยมีการนำเสนองบการเงินที่ผ่านการแสดงความเห็นจากผู้สอบบัญชีแล้วต่อที่ประชุมใหญ่เพื่อพิจารณาอนุมัติ',
+      (agmAttendees ? 'โดยมีสมาชิกเข้าร่วมประชุม ' + S.fmtInt(agmAttendees) + ' คน' : ''),
+      (quorumOk ? 'ครบองค์ประชุม' : '')
+    ]));
 
-    var man = [
-      '1. บุคลากร (Man)',
-      line('ชื่อสหกรณ์', p.coopName),
-      line('จำนวนสมาชิกสามัญ (ชาย/หญิง)',
-        (S.num(mem.regularMale) || S.num(mem.regularFemale))
-          ? S.num(mem.regularMale) + ' / ' + S.num(mem.regularFemale) : ''),
-      line('ยอดรวมสมาชิกสามัญ', S.num(mem.regularTotal) || ''),
-      line('สมาชิกสมทบ (ชาย/หญิง)',
-        (S.num(mem.associateMale) || S.num(mem.associateFemale))
-          ? S.num(mem.associateMale) + ' / ' + S.num(mem.associateFemale) : ''),
-      line('ยอดรวมสมาชิกทั้งหมด', membersTotal || ''),
-      line('จำนวนกรรมการดำเนินการ (คน)', S.num(p.boardCount) || ''),
-      line('ชื่อผู้ตรวจสอบกิจการ', p.inspectorName),
-      line('จำนวนผู้ตรวจสอบกิจการ (คน)', S.num(p.inspectorCount) || ''),
-      line('ผู้ดูแลหลัก', p.primaryOfficer),
-      line('ผู้ดูแลร่วม', p.coOfficer)
-    ].join('\n');
+    // -------------------------------------------------------------------
+    // 2) ด้านการบริหารจัดการธุรกิจ
+    // -------------------------------------------------------------------
+    var business = [];
+    business.push('- ผลการวิเคราะห์ข้อมูลด้านการบริหารจัดการธุรกิจ');
+    business.push('ด้านการบริหารจัดการธุรกิจ');
+    business.push('');
+    business.push('1. หัวข้อ: ธุรกิจรับฝากเงิน');
+    business.push('- ในรอบปี ' + planYear + ' สหกรณ์' + (depositAmount ? 'ได้กำหนด' : 'ไม่ได้กำหนด') + 'แผนธุรกิจรับฝากเงินไว้' + (depositAmount ? 'เพื่อรองรับการออมของสมาชิก' : 'เช่นเดียวกับปีก่อน'));
+    business.push('- สหกรณ์รับฝากเงินจากสมาชิกประเภทเงินรับฝากออมทรัพย์ เพื่อเป็นทุนหมุนเวียนในการดำเนินงานของสหกรณ์');
+    business.push(joinPhrase([
+      '- การมีส่วนร่วมของสมาชิก สหกรณ์รับฝากเงินออมทรัพย์จำนวน',
+      S.fmtInt(membersDeposit) + ' คน',
+      'จากสมาชิกทั้งหมด',
+      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
+      'คิดเป็นร้อยละ',
+      pctText(membersDeposit, membersTotal),
+      'ของจำนวนสมาชิกทั้งหมด',
+      'ระหว่างปีรับฝากเงิน จำนวน',
+      fmtBahtTxt(depositAmount)
+    ]));
+    business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
+    business.push('- สหกรณ์ยังไม่มีนโยบายในการที่จะเพิ่มประเภทเงินรับฝากนอกจากที่ดำเนินการอยู่ในปัจจุบัน');
+    business.push('');
+    business.push('2. หัวข้อ: ธุรกิจจัดหาสินค้ามาจำหน่าย');
+    business.push(joinPhrase([
+      '- สหกรณ์ดำเนินธุรกิจจัดหาสินค้ามาจำหน่ายปริมาณธุรกิจรวม',
+      fmtBahtTxt(salesTrading),
+      'มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน',
+      profitPhrase(profitTrading),
+      diffPhrase(profitTrading, profitTradingPrev)
+    ]));
+    business.push(joinPhrase([
+      '- สหกรณ์กำหนดแผนงานไว้',
+      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้'),
+      planComparePhrase(salesTrading, planTrading)
+    ]));
+    business.push('- สหกรณ์ใช้โปรแกรมบันทึกรายการซื้อขาย/สต๊อกสินค้า และมีระบบการควบคุมสินค้าคงเหลือตามระเบียบที่เกี่ยวข้อง');
+    business.push(joinPhrase([
+      '- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน',
+      S.fmtInt(membersTrading) + ' คน',
+      'จากจำนวนสมาชิกทั้งหมด',
+      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
+      'ระหว่างปีมีการจำหน่ายสินค้าเป็นเงิน',
+      fmtBahtTxt(salesTrading)
+    ]));
+    business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
+    business.push('');
+    business.push('3. หัวข้อ: ธุรกิจแปรรูป');
+    business.push(joinPhrase([
+      '- สหกรณ์ดำเนินธุรกิจแปรรูปและผลิตสินค้า ระหว่างปีมีมูลค่าธุรกิจ จำนวน',
+      fmtBahtTxt(salesProcessing),
+      'มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน',
+      profitPhrase(profitProcessing),
+      diffPhrase(profitProcessing, profitProcessingPrev)
+    ]));
+    business.push(joinPhrase([
+      '- ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้',
+      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้'),
+      planComparePhrase(salesProcessing, planProcessing)
+    ]));
+    business.push('- สหกรณ์กำหนดแนวทางปฏิบัติงานด้านการผลิตอย่างต่อเนื่อง และควรจัดทำระเบียบรองรับให้ครอบคลุมการดำเนินธุรกิจ');
+    business.push(joinPhrase([
+      '- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน',
+      S.fmtInt(membersProcessing) + ' คน',
+      'จากจำนวนสมาชิกทั้งหมด',
+      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
+      'ระหว่างปีมีมูลค่าการขาย',
+      fmtBahtTxt(salesProcessing)
+    ]));
+    business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
 
-    var money = [
-      '2. การเงิน (Money)',
-      line('สินทรัพย์รวมล่าสุด', baht(assets)),
-      line('หนี้สินรวมล่าสุด', baht(liabilities)),
-      line('ทุนของสหกรณ์ล่าสุด', baht(equity)),
-      line('เงินรับฝาก/หนี้สินหมุนเวียน', baht(S.num(bs.currentLiabilities))),
-      line('เงินให้กู้ยืม/สินทรัพย์หมุนเวียน', baht(S.num(bs.currentAssets))),
-      line('กำไรสุทธิปีล่าสุด', baht(S.num(sum.netProfitLatest))),
-      '- หมายเหตุ: NPL และสภาพคล่องให้ตรวจสอบจากแบบรายงาน MIS ที่เกี่ยวข้อง'
-    ].join('\n');
+    // -------------------------------------------------------------------
+    // 3) ด้านการจัดสวัสดิการและสาธารณประโยชน์
+    // -------------------------------------------------------------------
+    var welfare = [];
+    welfare.push('- ผลการวิเคราะห์ข้อมูลด้านการจัดสวัสดิการและสาธารณประโยชน์');
+    welfare.push('ด้านการบริหารจัดการสวัสดิการและสาธารณประโยชน์');
+    welfare.push('- สหกรณ์มีการจัดสวัสดิการแก่สมาชิกและครอบครัว โดยกำหนดระเบียบว่าด้วยการใช้ทุนเพื่อจัดสวัสดิการให้แก่สมาชิกและครอบครัวขึ้นถือใช้เป็นแนวทางปฏิบัติงาน สหกรณ์จ่ายเงินทุนดังกล่าวในกรณีสมาชิกเสียชีวิต และกรณีบุคคลในครอบครัวเสียชีวิต โดยจ่ายค่าจัดการงานศพและค่าพวงหรีดตามระเบียบที่กำหนด');
+    welfare.push('- นอกจากสวัสดิการดังกล่าวแล้ว คณะกรรมการดำเนินการได้พิจารณาจัดสวัสดิการให้แก่สมาชิกเพิ่มเติม เช่น สวัสดิการช่วยเหลือค่าใช้จ่ายในการจัดการอุปสมบทบุตรสมาชิก สวัสดิการงานมงคลสมรส สวัสดิการรับขวัญบุตรแรกเกิดของสมาชิก สวัสดิการช่วยเหลือพยาบาล และสวัสดิการเสริมคุณค่าชีวิตสำหรับสมาชิกผู้สูงวัย');
+    welfare.push('- สหกรณ์ไม่มีการจัดสวัสดิการให้เจ้าหน้าที่สหกรณ์ มีเพียงการจ่ายเงินสมทบกองทุนประกันสังคม จ่ายค่าครองชีพ และจัดให้มีเงินบำเหน็จ โดยกำหนดเป็นค่าใช้จ่ายในการดำเนินงาน');
+    welfare.push('- สหกรณ์มีการช่วยเหลือสนับสนุนกิจกรรมด้านสาธารณประโยชน์ เช่น สนับสนุนงานวันสหกรณ์ฯ และร่วมอนุโมทนาการถวายผ้ากฐินพระราชทานของกรมส่งเสริมสหกรณ์');
 
-    var material = [
-      '3. ทรัพย์สินและผลผลิต (Material)',
-      line('ธุรกิจหลัก (เรียงตามมูลค่า)', biz),
-      line('ผลผลิต/สินค้าหลัก', products),
-      line('ปริมาณธุรกิจล่าสุด', baht(businessVol)),
-      line('สินทรัพย์ไม่หมุนเวียน', baht(S.num(bs.nonCurrentAssets))),
-      line('สินทรัพย์หมุนเวียน', baht(S.num(bs.currentAssets))),
-      '- หมายเหตุ: สต็อก/ผลิตภัณฑ์เฉพาะสหกรณ์ให้ตรวจสอบจากรายงานปริมาณธุรกิจรายเดือน'
-    ].join('\n');
+    // -------------------------------------------------------------------
+    // 4) สรุปผลการวิเคราะห์
+    // -------------------------------------------------------------------
+    var summary = [];
+    summary.push('สรุปผลการวิเคราะห์');
+    summary.push(joinPhrase([
+      'สหกรณ์แห่งนี้มีประสิทธิภาพในการจัดการองค์กรดี คณะกรรมการมีความรู้ความสามารถและประสบการณ์เพียงพอ',
+      (p.inspectorName ? 'ผู้ตรวจสอบกิจการชื่อ ' + p.inspectorName + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ' : 'ผู้ตรวจสอบกิจการเข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ'),
+      'มีเจ้าหน้าที่ปฏิบัติงาน',
+      (staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : 'ตามโครงสร้างที่กำหนด'),
+      'และมีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์'
+    ]));
+    summary.push(joinPhrase([
+      'อัตราส่วนทางการเงินที่ปรากฏสะท้อนถึงผลการดำเนินธุรกิจที่ดี',
+      (profit > 0 ? 'มีผลกำไรต่อเนื่อง' : ''),
+      'มีสภาพคล่องการเงินที่เพียงพอ สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์',
+      'มีการประชุมคณะกรรมการดำเนินการเป็นประจำ และในด้านการจัดสวัสดิการสหกรณ์มีการจัดสวัสดิการได้สอดคล้องกับผลประกอบการ'
+    ]));
+    summary.push(joinPhrase([
+      'ทั้งนี้ ผลการดำเนินงานที่ผ่านมาในปีบัญชี',
+      String(acctYear),
+      'ส่งผลให้สหกรณ์มีผลการจัดระดับชั้นความเข้มแข็ง ประจำปี',
+      String(latestStrengthYear),
+      'ในระดับชั้น',
+      (classLatest ? String(classLatest) : '-'),
+      'และ ณ ปัจจุบัน สหกรณ์แห่งนี้ได้ส่งงบการเงินให้ผู้สอบบัญชีได้ภายใน 30 วัน'
+    ]));
+    summary.push(joinPhrase([
+      'ดังนั้น เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ.',
+      String(planYear),
+      'คือ สหกรณ์สามารถรักษาระดับชั้น',
+      (classTarget ? String(classTarget) : '-'),
+      'ปี',
+      String(targetStrengthYear),
+      'สหกรณ์มีการจัดทำแผนกลยุทธ์ และสหกรณ์ยังคงรักษาผลการดำเนินงานในระดับที่มีกำไร ไม่มีการทุจริต และปฏิบัติงานตามกฎหมาย',
+      'เพื่อให้ผลการประเมินความเข้มแข็ง ปี',
+      String(assessmentYear),
+      'ยังคงอยู่ในระดับชั้น',
+      (classTarget ? String(classTarget) : '-')
+    ]));
 
-    var management = [
-      '4. การบริหารจัดการ (Management)',
-      line('ชั้นความเข้มแข็งปีล่าสุด (2569)', strength69),
-      line('คะแนนรวมปีล่าสุด', total69 ? S.fmt(total69, 2) : ''),
-      line('คะแนนมิติที่ 1 (บริการสมาชิก)', d1 ? S.fmt(d1, 2) : ''),
-      line('คะแนนมิติที่ 2 (ประสิทธิภาพธุรกิจ)', d2 ? S.fmt(d2, 2) : ''),
-      line('คะแนนมิติที่ 3 (จัดการองค์กร)', d3 ? S.fmt(d3, 2) : ''),
-      line('คะแนนมิติที่ 4 (บริหารงาน)', d4 ? S.fmt(d4, 2) : ''),
-      line('วันสิ้นปีบัญชี', p.fiscalEndDate),
-      '- หมายเหตุ: สถานะงบทดลองรายเดือนและการเตรียมปิดบัญชีให้ตรวจสอบจากรายงานใน MIS'
-    ].join('\n');
-
-    return [man, money, material, management].join('\n\n');
+    return {
+      orgAnalysis4M: org.join('\n'),
+      businessAnalysis: business.join('\n'),
+      welfareAnalysis: welfare.join('\n'),
+      summaryAnalysis: summary.join('\n')
+    };
   }
 
   /**
-   * populate4MFromBaseForm(silent) — ซิงค์ฟอร์มพื้นฐานแล้วสร้างข้อความ 4M
-   * silent = true ใช้ตอนสลับหน้า (ไม่ต้องแสดง toast)
+   * populate4MFromBaseForm(silent) — ซิงค์ฟอร์มพื้นฐานแล้วสร้างข้อความ 4M ครบทั้ง 4 ด้าน
+   * silent = true ใช้ตอนสลับหน้า (เติมเฉพาะช่องว่าง), ไม่ส่งค่า = เขียนทับทั้งหมด
    */
   function populate4MFromBaseForm(silent) {
     S.syncFromBaseFormToAllTabs();
     if (typeof S.recalcFinancials === 'function') S.recalcFinancials();
     if (typeof S.recalcStrength === 'function') S.recalcStrength();
-    var text = analyze4M(A());
-    var box = document.querySelector('[data-cpd="analysis.orgAnalysis4M"]');
-    if (box) box.value = text;
-    A().analysis.orgAnalysis4M = text;
+    var result = analyze4M();
+    var overwrite = !silent;
+    Object.keys(result).forEach(function (key) {
+      var box = document.querySelector('[data-cpd="analysis.' + key + '"]');
+      var existing = box ? String(box.value || '').trim() : '';
+      if (overwrite || !existing) {
+        if (box) box.value = result[key];
+        A().analysis[key] = result[key];
+      }
+    });
     if (!silent) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
-    return text;
+    return result;
   }
 
   // =========================================================================
@@ -2005,6 +2508,7 @@
   UI.switchTab = switchTab;
   UI.loadDashboard = loadDashboard;
   UI.saveCompletePlan = saveCompletePlan;
+  UI.saveDraft = saveDraft;
   UI.showToast = showToast;
   UI.renderDashboard = renderDashboard;
   UI.analyze4M = analyze4M;

@@ -59,6 +59,46 @@
 
   var YEARS = ['2567', '2568', '2569'];
 
+  // ช่องผลการดำเนินงานฉบับละเอียด (Year N / Year N-1)
+  // [ชื่อใน state, คำนำหน้า id ในฟอร์มหน้า 1]
+  var DETAIL_FIELDS = [
+    ['agmAttendees', 'agm_attend'],
+    ['membersDeposit', 'mem_biz_deposit'],
+    ['membersTrading', 'mem_biz_trading'],
+    ['membersProcessing', 'mem_biz_processing'],
+    ['workingCapital', 'wc'],
+    ['coopCapital', 'coopcap'],
+    ['loans', 'loan'],
+    ['payables', 'payable'],
+    ['cash', 'cash'],
+    ['inventory', 'inventory'],
+    ['ppe', 'ppe'],
+    ['receivables', 'receivable'],
+    ['otherAssets', 'otherasset'],
+    ['totalIncome', 'income'],
+    ['totalExpense', 'expense'],
+    ['salesTrading', 'sales_trading'],
+    ['costTrading', 'cost_trading'],
+    ['profitTrading', 'profit_biz_trading'],
+    ['planTrading', 'plan_trading'],
+    ['salesProcessing', 'sales_processing'],
+    ['costProcessing', 'cost_processing'],
+    ['profitProcessing', 'profit_biz_processing'],
+    ['planProcessing', 'plan_processing'],
+    ['depositAmount', 'deposit_amount'],
+    ['profitDeposit', 'profit_biz_deposit'],
+    ['avgProfit3', 'avgprofit3'],
+    ['avgSaving', 'avgsaving'],
+    ['avgDebt', 'avgdebt'],
+    ['staffCount', 'staff_count']
+  ];
+
+  function emptyOperatingYear() {
+    var obj = {};
+    DETAIL_FIELDS.forEach(function (p) { obj[p[0]] = 0; });
+    return obj;
+  }
+
   function deepClone(obj) {
     return JSON.parse(JSON.stringify(obj));
   }
@@ -124,6 +164,10 @@
           accumLossLatest: 0, accumLossPrev: 0,
           businessVolumeLatest: 0, businessVolumePrev: 0,
           activeBusinessesText: ''
+        },
+        operatingResults: {
+          latest: emptyOperatingYear(),
+          prev: emptyOperatingYear()
         },
         balanceSheet: {
           currentAssets: 0, nonCurrentAssets: 0, totalAssets: 0,
@@ -349,10 +393,36 @@
     return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
   }
 
+  function parseDateParts(text) {
+    var s = String(text || '').trim();
+    var m = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+    if (m) {
+      return { day: Number(m[1]), month: Number(m[2]), year: Number(m[3]) };
+    }
+    // รองรับรูปแบบ "27 กุมภาพันธ์ 2570"
+    var dayMatch = s.match(/(\d{1,2})/);
+    var yearMatch = s.match(/(\d{4})/);
+    var month = 0;
+    for (var i = 1; i <= 12; i++) {
+      if (s.indexOf(THAI_MONTHS[i]) !== -1) { month = i; break; }
+    }
+    if (dayMatch && month && yearMatch) {
+      return { day: Number(dayMatch[1]), month: month, year: Number(yearMatch[1]) };
+    }
+    return null;
+  }
+
+  function dateFromParts(parts) {
+    if (!parts) return null;
+    var d = new Date(parts.year, parts.month - 1, parts.day);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   function computeDeadlines() {
     var fiscalYear = Number(getFiscalYear()) || 2570;
     var fe = parseFiscalEnd(AppState.coopProfile.fiscalEndDate);
-    var endYear = fe.month >= 10 ? fiscalYear - 1 : fiscalYear;
+    // ปีบัญชีที่ปิดภายในปีงบประมาณ: เดือน ก.ย.–ธ.ค. ใช้ปีก่อนหน้า, ม.ค.–ส.ค. ใช้ปีเดียวกัน
+    var endYear = fe.month >= 9 ? fiscalYear - 1 : fiscalYear;
     var endDate = new Date(endYear, fe.month - 1, fe.day);
     var close30 = addDays(endDate, 30);
     var agm150 = addDays(endDate, 150);
@@ -363,10 +433,49 @@
     };
   }
 
+  /** วันที่รับรองงบต้องอยู่เดือนเดียวกับประชุมใหญ่ และไม่เกินวันประชุมใหญ่ */
+  function deriveCertifyDate(agmDate) {
+    var parts = parseDateParts(agmDate);
+    var agm = dateFromParts(parts);
+    if (!agm) return '';
+    var cert = addDays(agm, -7);
+    if (cert.getMonth() !== agm.getMonth() || cert.getFullYear() !== agm.getFullYear()) {
+      cert = new Date(agm.getFullYear(), agm.getMonth(), 1);
+    }
+    return formatDateThai(cert);
+  }
+
+  function deriveAgmDates() {
+    var base = computeDeadlines();
+    var manual = AppState.closingReport && AppState.closingReport.agmDate;
+    var agmDate = base.agm150;
+    var parts = parseDateParts(manual);
+    if (parts) {
+      var d = dateFromParts(parts);
+      if (d) agmDate = formatDateThai(d);
+    }
+    var agmParts = parseDateParts(agmDate);
+    return {
+      endDate: base.endDate,
+      close30: base.close30,
+      agm150: base.agm150,
+      agmDate: agmDate,
+      certifyDate: deriveCertifyDate(agmDate),
+      agmMonth: agmParts ? agmParts.month : 0,
+      agmYear: agmParts ? agmParts.year : 0
+    };
+  }
+
   function applyAutoDeadlines() {
-    var d = computeDeadlines();
+    var d = deriveAgmDates();
     AppState.scheduleAndActivities.targetCloseAccountDate30Days = d.close30;
-    AppState.scheduleAndActivities.targetAgmDate150Days = d.agm150;
+    AppState.scheduleAndActivities.targetAgmDate150Days = d.agmDate;
+    if (AppState.closingReport) {
+      AppState.closingReport.auditorCertifyDate = d.certifyDate;
+      if (!String(AppState.closingReport.agmDate || '').trim()) {
+        AppState.closingReport.agmDate = d.agmDate;
+      }
+    }
     return d;
   }
 
@@ -381,6 +490,10 @@
 
   function numVal(id) {
     return num(val(id));
+  }
+
+  function numOrEmpty(value) {
+    return num(value) === 0 ? '' : value;
   }
 
   function selectedCoop() {
@@ -413,6 +526,14 @@
       .split(/[\r\n,;/]+/)
       .map(function (s) { return s.trim(); })
       .filter(Boolean);
+  }
+
+  function readOperatingYear(suffix) {
+    var obj = {};
+    DETAIL_FIELDS.forEach(function (p) {
+      obj[p[0]] = numVal(p[1] + '_' + suffix);
+    });
+    return obj;
   }
 
   function buildStateFromBaseForm() {
@@ -475,6 +596,10 @@
           businessVolumeLatest: numVal('biz_vol_latest'),
           businessVolumePrev: numVal('biz_vol_prev'),
           activeBusinessesText: val('business_types')
+        },
+        operatingResults: {
+          latest: readOperatingYear('latest'),
+          prev: readOperatingYear('prev')
         }
       },
       strength: {
@@ -496,6 +621,10 @@
         promotionGoals1to5: parseGoals(val('promotion_goals')),
         planFooterNote: val('visit_remark'),
         targetProjects: val('target_projects')
+      },
+      closingReport: {
+        agmDate: val('agm_date'),
+        auditorCertifyDate: val('certify_date')
       },
       scheduleAndActivities: {
         visitFrequencyPerYear: numVal('planned_visits') || 4,
@@ -543,8 +672,9 @@
       prevYearTotal: num(baseMembers.prevYearTotal)
     };
 
-    // financial summary
+    // financial summary + detailed operating results (Year N / N-1)
     mergeDeep(AppState.financials.summary2Years, base.financials.summary2Years);
+    mergeDeep(AppState.financials.operatingResults, base.financials.operatingResults);
 
     // balance sheet: เติมจาก Tab 1 เฉพาะช่องที่ว่าง หรือยังตรงกับยอดเดิมของ Tab 1
     var bs = AppState.financials.balanceSheet;
@@ -587,6 +717,11 @@
     // analysis (owned by Tab 1)
     mergeDeep(AppState.analysis, base.analysis);
 
+    // AGM date (owned by Tab 1 / Page 2 input)
+    if (base.closingReport && String(base.closingReport.agmDate || '').trim()) {
+      AppState.closingReport.agmDate = base.closingReport.agmDate;
+    }
+
     // monthly plan text (owned by Tab 1) — keep status/actual
     (base.scheduleAndActivities.monthlyPlan12Months || []).forEach(function (bm) {
       var target = AppState.scheduleAndActivities.monthlyPlan12Months.filter(function (m) {
@@ -613,7 +748,98 @@
     if (global.CPD_UI && typeof global.CPD_UI.onStateSynced === 'function') {
       global.CPD_UI.onStateSynced('base');
     }
+    scheduleLocalDraftSave(900);
     return AppState;
+  }
+
+  // -------------------------------------------------------------------------
+  // Draft persistence (localStorage) — กันข้อมูลหายเมื่อสลับหน้า/โหลดใหม่
+  // -------------------------------------------------------------------------
+
+  var LOCAL_DRAFT_PREFIX = 'cpd_draft_v2_';
+  var localSaveTimer = null;
+
+  function localDraftKey() {
+    var s = AppState;
+    var coopKey = s.coopProfile.coopId13 || s.coopProfile.coopName || 'default';
+    return LOCAL_DRAFT_PREFIX + (s.meta.fiscalYear || '2570') + '_' + String(coopKey).replace(/\s+/g, '_');
+  }
+
+  function collectBaseFormObject() {
+    var form = {};
+    try {
+      if (typeof global.collectFormObject === 'function') form = global.collectFormObject();
+    } catch (e) { form = {}; }
+    return form;
+  }
+
+  function saveLocalDraft(form) {
+    try {
+      if (typeof localStorage === 'undefined') return '';
+      var payload = {
+        savedAt: new Date().toLocaleString('th-TH'),
+        state: deepClone(AppState),
+        form: form || collectBaseFormObject(),
+        coopName: AppState.coopProfile.coopName || '',
+        fiscalYear: AppState.meta.fiscalYear || '2570'
+      };
+      var key = localDraftKey();
+      localStorage.setItem(key, JSON.stringify(payload));
+      localStorage.setItem('cpd_last_draft_key', key);
+      return payload.savedAt;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function scheduleLocalDraftSave(delay) {
+    if (isLoading) return;
+    if (localSaveTimer) clearTimeout(localSaveTimer);
+    localSaveTimer = setTimeout(function () {
+      localSaveTimer = null;
+      saveLocalDraft();
+    }, delay || 900);
+  }
+
+  function readLocalDraft(key) {
+    try {
+      if (typeof localStorage === 'undefined') return null;
+      var raw = localStorage.getItem(key || localStorage.getItem('cpd_last_draft_key'));
+      if (!raw) return null;
+      var payload = JSON.parse(raw);
+      return payload && payload.state ? payload : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function restoreLocalDraft() {
+    var payload = readLocalDraft();
+    if (!payload) return null;
+    replaceState(payload.state);
+    AppState.meta.fiscalYear = AppState.meta.fiscalYear || '2570';
+    applyAutoDeadlines();
+    recalcFinancials();
+    recalcStrength();
+    applyStateToBaseForm();
+    if (payload.form && typeof global.loadFormFromSavedData === 'function') {
+      global.loadFormFromSavedData(payload.form);
+    }
+    // กันไม่ให้ maybeLoadSavedRecord ดึง record เก่ามาทับร่างล่าสุดในทันที
+    var s = AppState;
+    global.__cpdLoadedKey = (s.coopProfile.coopId13 || '') + '|' + s.coopProfile.coopName + '|' + (s.meta.fiscalYear || '2570');
+    return payload;
+  }
+
+  function clearLocalDraft() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      var key = localDraftKey();
+      localStorage.removeItem(key);
+      if (localStorage.getItem('cpd_last_draft_key') === key) {
+        localStorage.removeItem('cpd_last_draft_key');
+      }
+    } catch (e) {}
   }
 
   // -------------------------------------------------------------------------
@@ -769,6 +995,20 @@
       setVal('biz_vol_latest', sum.businessVolumeLatest || '');
       setVal('biz_vol_prev', sum.businessVolumePrev || '');
       setVal('business_types', sum.activeBusinessesText || (c.mainBusinesses || []).join('\n'));
+
+      var op = s.financials.operatingResults || {};
+      DETAIL_FIELDS.forEach(function (p) {
+        ['latest', 'prev'].forEach(function (suffix) {
+          var yearObj = op[suffix] || {};
+          var v = yearObj[p[0]];
+          setVal(p[1] + '_' + suffix, numOrEmpty(v));
+        });
+      });
+
+      var agm = deriveAgmDates();
+      setVal('agm_date', s.closingReport.agmDate || agm.agmDate);
+      setVal('certify_date', agm.certifyDate);
+
       setVal('c68_lv', st.classByYear['2568']);
       setVal('c68_tot', st.totalByYear['2568'] || '');
       setVal('c68_d1', st.dim1ByYear['2568'] || '');
@@ -853,6 +1093,7 @@
     MONTHLY_BIZ: MONTHLY_BIZ,
     STRENGTH_INDICATORS: STRENGTH_INDICATORS,
     YEARS: YEARS,
+    DETAIL_FIELDS: DETAIL_FIELDS,
     defaultState: defaultState,
     num: num,
     fmt: fmt,
@@ -864,6 +1105,9 @@
     replaceState: replaceState,
     deepClone: deepClone,
     computeDeadlines: computeDeadlines,
+    parseDateParts: parseDateParts,
+    deriveCertifyDate: deriveCertifyDate,
+    deriveAgmDates: deriveAgmDates,
     applyAutoDeadlines: applyAutoDeadlines,
     buildStateFromBaseForm: buildStateFromBaseForm,
     mergeBaseIntoTabs: mergeBaseIntoTabs,
@@ -872,6 +1116,12 @@
     recalcStrength: recalcStrength,
     applyStateToBaseForm: applyStateToBaseForm,
     loadStateFromRecord: loadStateFromRecord,
+    localDraftKey: localDraftKey,
+    saveLocalDraft: saveLocalDraft,
+    scheduleLocalDraftSave: scheduleLocalDraftSave,
+    readLocalDraft: readLocalDraft,
+    restoreLocalDraft: restoreLocalDraft,
+    clearLocalDraft: clearLocalDraft,
     monthByName: monthByName,
     monthByKey: monthByKey,
     getFiscalYear: getFiscalYear,
