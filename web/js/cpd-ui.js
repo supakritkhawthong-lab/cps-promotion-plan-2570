@@ -1794,6 +1794,8 @@ function maybeLoadSavedRecord() {
   UI.saveCompletePlan = saveCompletePlan;
   UI.showToast = showToast;
   UI.renderDashboard = renderDashboard;
+  UI.analyze4M = analyze4M;
+  UI.populate4MFromBaseForm = populate4MFromBaseForm;
   global.CPD_UI = UI;
 
   if (document.readyState === 'loading') {
