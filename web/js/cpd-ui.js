@@ -1,5 +1,5 @@
 /**
- * cpd-ui.js — UI ของ 5 แท็บ + Dashboard + บันทึก/โหลด + พิมพ์/ส่งออก
+ * cpd-ui.js — UI ของ 3 หน้า (ฟอร์มพื้นฐาน / แผนฉบับเต็ม+4M / Dashboard+ติดตามเอกสาร)
  * ใช้ร่วมกับ cpd-state.js (window.CPD_STATE / window.CPD_AppState)
  */
 (function (global) {
@@ -61,6 +61,7 @@
 
   UI.init = function () {
     buildTab2();
+    // Task 1: แท็บ 3 (ติดตามรายเดือน) และแท็บ 4 (รายงานปิดบัญชี) ถูกยุบรวมแล้ว
     buildTab5();
     bindGlobalEvents();
     wireLegacyFunctions();
@@ -74,13 +75,11 @@
   };
 
   function switchTab(name, silent) {
-    var valid = ['base-form', 'full-plan', 'dashboard'];
-    if (valid.indexOf(name) === -1) name = 'base-form';
+    var validTabs = ['base-form', 'full-plan', 'dashboard'];
+    if (validTabs.indexOf(name) === -1) name = 'base-form';
     if (name === 'full-plan' && !silent) {
       var current4M = A().analysis && A().analysis.orgAnalysis4M;
-      if (!current4M || !current4M.trim()) {
-        populate4MFromBaseForm();
-      }
+      if (!current4M || !String(current4M).trim()) populate4MFromBaseForm(true);
     }
     document.querySelectorAll('.cpd-tab-pane').forEach(function (pane) {
       pane.classList.toggle('active', pane.id === 'tab-' + name);
@@ -157,6 +156,8 @@
   UI.renderAll = function () {
     fillBoundFields();
     renderStrengthRows();
+    renderStatusTable();
+    renderMonthlyVolume();
     renderActivities();
     updateOutputs();
   };
@@ -433,20 +434,134 @@
   // TAB 3 — MONTHLY TRACKING
   // =========================================================================
 
-  // หน้านี้ถูกลบออกจาก UI แล้ว (Task 1): คง state ข้อมูลสำคัญไว้เพื่อซิงค์เงียบ ๆ หลังบันทึก
   function buildTab3() {
     var root = $('tab-monthly-track');
-    if (root) root.innerHTML = '';
+    if (!root) return;
+    root.innerHTML = '' +
+      '<div class="cpd-page-head"><div>' +
+      '  <h4 class="mb-1">📅 ติดตามและรายงานผลการแนะนำส่งเสริมรายเดือน</h4>' +
+      '  <div class="text-muted small" id="cpd3CoopLine">ปีงบประมาณ 2570 (ต.ค. 69 – ก.ย. 70)</div>' +
+      '</div><div class="no-print d-flex gap-2">' +
+      '  <button type="button" class="btn btn-sm btn-outline-success" data-action="print-section" data-section="tab-monthly-track">🖨️ พิมพ์</button>' +
+      '  <button type="button" class="btn btn-sm btn-success" data-action="save-plan">💾 บันทึกผลรายเดือน</button>' +
+      '</div></div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">ส่วนที่ 1: สถานะการเข้าส่งเสริม 12 เดือน</div>' +
+      '  <div class="card-body py-3">' +
+      '    <div class="cpd-legend mb-2">' +
+      '      <span><i class="cpd-dot dot-white"></i> ยังไม่รายงานผล</span>' +
+      '      <span><i class="cpd-dot dot-black"></i> ไม่เข้าส่งเสริม</span>' +
+      '      <span><i class="cpd-dot dot-yellow"></i> รออนุมัติ</span>' +
+      '      <span><i class="cpd-dot dot-green"></i> อนุมัติแล้ว</span>' +
+      '      <span class="ms-auto fw-bold">ความคืบหน้า: ' + out('status.progress') + '</span>' +
+      '    </div>' +
+      '    <div class="table-responsive"><table class="table table-bordered table-sm align-middle mb-0" style="font-size:0.85rem;">' +
+      '      <thead class="table-light text-center"><tr><th style="width:14%">เดือน</th><th>สถานะการรายงาน</th><th style="width:16%">ผลจริง (ปริมาณธุรกิจ)</th></tr></thead>' +
+      '      <tbody id="cpd3StatusBody"></tbody>' +
+      '    </table></div>' +
+      '  </div>' +
+      '</div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">ส่วนที่ 2: ปริมาณธุรกิจรายเดือน 12 เดือน (6 ประเภทธุรกิจ)</div>' +
+      '  <div class="card-body py-2 table-responsive">' +
+      '    <table class="table table-bordered table-sm text-center align-middle mb-0" style="font-size:0.78rem;">' +
+      '      <thead class="table-light"><tr><th style="min-width:150px">ประเภทธุรกิจ</th>' +
+      S.MONTHS.map(function (m) { return '<th>' + h(m.name.substring(0, 3)) + '.</th>'; }).join('') +
+      '      <th class="table-success">รวม</th></tr></thead>' +
+      '      <tbody id="cpd3VolumeBody"></tbody>' +
+      '      <tfoot class="table-success"><tr><th class="text-end">รวมทั้งเดือน</th>' +
+      S.MONTHS.map(function (m) { return '<th>' + out('vol.col.' + m.key) + '</th>'; }).join('') +
+      '      <th>' + out('vol.grand') + '</th></tr></tfoot>' +
+      '    </table>' +
+      '  </div>' +
+      '</div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2 d-flex justify-content-between align-items-center">' +
+      '  <span>ส่วนที่ 3: บันทึกการลงพื้นที่ปฏิบัติงาน</span>' +
+      '  <button type="button" class="btn btn-sm btn-light py-0 fw-bold no-print" data-action="add-visit">➕ เพิ่มรายการ</button></div>' +
+      '  <div class="card-body py-2 table-responsive">' +
+      '    <table class="table table-bordered table-sm align-middle mb-0" style="font-size:0.82rem;">' +
+      '      <thead class="table-light text-center"><tr><th>เป้าหมายการปฏิบัติงาน</th><th>ประเด็นที่เข้าไปปฏิบัติงาน</th><th>วิธีปฏิบัติงาน</th><th>ผลการปฏิบัติงาน</th><th style="width:110px">วันที่ปฏิบัติงาน</th><th class="no-print"></th></tr></thead>' +
+      '      <tbody id="cpd3ActivityBody"></tbody>' +
+      '    </table>' +
+      '  </div>' +
+      '</div>';
   }
 
   // =========================================================================
   // TAB 4 — CLOSING REPORT
   // =========================================================================
 
-  // หน้านี้ถูกลบออกจาก UI แล้ว (Task 1): คง state ไว้เพื่อซิงค์เงียบ ๆ หลังบันทึก
   function buildTab4() {
     var root = $('tab-closing-report');
-    if (root) root.innerHTML = '';
+    if (!root) return;
+    root.innerHTML = '' +
+      '<div class="cpd-page-head"><div>' +
+      '  <h4 class="mb-1">📄 รายงานผลการปิดบัญชีและผลสำเร็จด้านการแนะนำส่งเสริมสหกรณ์</h4>' +
+      '  <div class="text-muted small" id="cpd4CoopLine">ยังไม่ได้เลือกสหกรณ์</div>' +
+      '</div><div class="no-print d-flex gap-2">' +
+      '  <button type="button" class="btn btn-sm btn-outline-success" data-action="print-section" data-section="tab-closing-report">🖨️ พิมพ์รายงาน</button>' +
+      '  <button type="button" class="btn btn-sm btn-success" data-action="save-plan">💾 บันทึกผลปิดบัญชี</button>' +
+      '</div></div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">ข้อมูลทั่วไปของสหกรณ์/กลุ่มเกษตรกร</div>' +
+      '  <div class="card-body py-3"><div class="row g-2 cpd-info-grid">' +
+      infoCell('สหกรณ์/กลุ่มเกษตรกร', 'info.coopName') +
+      infoCell('ชื่อหน่วยงานที่รายงานผล', 'info.officeName') +
+      infoCell('สถานะ', 'info.status') +
+      infoCell('วันที่จดทะเบียน', 'info.regDate') +
+      infoCell('วันสิ้นปีบัญชี', 'info.fiscalEndDate') +
+      infoCell('ปีงบประมาณ', 'info.fiscalYear') +
+      infoCell('ผู้รายงานผล', 'info.reporter') +
+      '  </div></div>' +
+      '</div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">1. ผลสำเร็จด้านการปิดบัญชีและการประชุมใหญ่</div>' +
+      '  <div class="card-body py-3"><div class="row g-2">' +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ปิดบัญชีได้หรือไม่</label>' +
+      '      <select class="form-select form-select-sm" data-cpd="closingReport.canCloseAccount"><option value="">— เลือก —</option><option>ได้</option><option>ไม่ได้</option></select></div>' +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ระยะเวลาการปิดบัญชี</label>' +
+      '      <select class="form-select form-select-sm" data-cpd="closingReport.closeAccountTimeframe"><option value="">— เลือก —</option><option>ปิดบัญชีได้ภายใน 30 วัน</option><option>ปิดบัญชีได้เกิน 30 วัน</option></select></div>' +
+      field('closingReport.auditorReceiveDate', 'วันที่ผู้สอบบัญชีรับตรวจ', { col: 3, placeholder: 'วว/ดด/ปปปป' }) +
+      field('closingReport.auditorCertifyDate', 'วันที่ผู้สอบบัญชีรับรองงบการเงิน', { col: 3, placeholder: 'วว/ดด/ปปปป' }) +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ประชุมใหญ่ได้หรือไม่</label>' +
+      '      <select class="form-select form-select-sm" data-cpd="closingReport.canHoldAgm"><option value="">— เลือก —</option><option>ได้</option><option>ไม่ได้</option></select></div>' +
+      field('closingReport.agmDate', 'วันที่ประชุมใหญ่สามัญประจำปี', { col: 3, placeholder: 'วว/ดด/ปปปป' }) +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ข้อมูลประกอบการประชุมใหญ่</label>' +
+      '      <select class="form-select form-select-sm" data-cpd="closingReport.agmHasFinancialStatement"><option value="">— เลือก —</option><option>มีงบการเงิน</option><option>ไม่มีงบการเงิน</option></select></div>' +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ระยะเวลาการประชุมใหญ่</label>' +
+      '      <select class="form-select form-select-sm" data-cpd="closingReport.agmTimeframe"><option value="">— เลือก —</option><option>ประชุมใหญ่ได้ภายใน 150 วัน</option><option>ประชุมใหญ่ได้เกิน 150 วัน</option></select></div>' +
+      field('closingReport.failureReason', 'เหตุผล (กรณีไม่ได้)', { col: 12 }) +
+      '  </div></div>' +
+      '</div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">2. ผลสำเร็จด้านการแนะนำส่งเสริม</div>' +
+      '  <div class="card-body py-3">' +
+      textarea('closingReport.outcome2_1_recovery', '2.1 การฟื้นฟูกิจการ/แก้ไขปัญหาการดำเนินกิจการ', 4) +
+      '    <h6 class="fw-bold text-success mt-3">2.2 การส่งเสริมเพิ่มศักยภาพการดำเนินกิจการให้มีมาตรฐานและความเข้มแข็ง</h6>' +
+      '    <div class="table-responsive"><table class="table table-bordered table-sm align-middle mb-2" style="font-size:0.82rem;">' +
+      '      <thead class="table-light text-center"><tr><th style="width:32%">มิติ / ตัวชี้วัด</th><th>ปี 2568</th><th>ปี 2569</th><th>เปลี่ยนแปลง</th><th>แนวโน้ม</th></tr></thead>' +
+      '      <tbody id="cpd4StrengthBody"></tbody>' +
+      '    </table></div>' +
+      textarea('closingReport.outcome2_3_excellence', '2.3 การพัฒนาต่อยอด/ยกระดับเป็นสหกรณ์/กลุ่มเกษตรกรดีเด่น', 3) +
+      textarea('closingReport.outcome2_4_inspection', '2.4 การตรวจการสหกรณ์ตามที่กฎหมายกำหนด', 3) +
+      textarea('closingReport.outcome2_5_others', '2.5 เพิ่มเติมประเด็นอื่นๆ', 3) +
+      '  </div>' +
+      '</div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">3. ความยุ่งยาก/ปัญหาอุปสรรคในการปฏิบัติงาน</div>' +
+      '  <div class="card-body py-3">' + textarea('closingReport.obstacles', '', 4) + '</div></div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">4. ข้อเสนอแนะ/แนวทางแก้ไข</div>' +
+      '  <div class="card-body py-3">' + textarea('closingReport.recommendations', '', 4) + '</div></div>' +
+
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2">ความเห็นและข้อเสนอแนะของผู้บังคับบัญชา</div>' +
+      '  <div class="card-body py-3"><div class="row g-2">' +
+      textarea('closingReport.supervisorComment', 'ความเห็นและข้อเสนอแนะ', 3, 12) +
+      field('closingReport.supervisorName', 'ผู้เห็นชอบ', { col: 6 }) +
+      field('closingReport.supervisorApprovedDate', 'วันที่เห็นชอบ', { col: 6, placeholder: 'วว/ดด/ปปปป' }) +
+      '  </div></div>' +
+      '</div>';
   }
 
   function infoCell(label, key) {
@@ -474,7 +589,6 @@
       '<div class="card shadow-sm mb-3 no-print"><div class="card-header py-2">ตัวกรองข้อมูล</div>' +
       '  <div class="card-body py-3"><div class="row g-2">' +
       '    <div class="col-md-2"><label class="form-label small fw-bold mb-1">ปีงบประมาณ</label><select class="form-select form-select-sm" id="cpd5FilterYear"><option value="2570">2570</option></select></div>' +
-      
       '    <div class="col-md-2"><label class="form-label small fw-bold mb-1">อำเภอ</label><select class="form-select form-select-sm" id="cpd5FilterDistrict"></select></div>' +
       '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ประเภทสหกรณ์/กลุ่มเกษตรกร</label><select class="form-select form-select-sm" id="cpd5FilterType"></select></div>' +
       '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ผู้ดูแลหลัก</label><select class="form-select form-select-sm" id="cpd5FilterOfficer"></select></div>' +
@@ -483,13 +597,12 @@
 
       '<div id="cpd5Kpis" class="row g-3 mb-3"></div>' +
 
-      '<div class="row g-3 mb-3">' +
-      '  <div class="col-12"><div class="card shadow-sm h-100"><div class="card-header py-2 text-danger">🚨 โซนสัญญาณเตือนภัยล่วงหน้า (Early Warning Signals - ก่อนปิดปีบัญชี)</div>' +
-      '    <div class="card-body py-3" id="cpd5EarlyWarning"></div></div></div>' +
+      '<div class="card shadow-sm mb-3 border-danger"><div class="card-header py-2 text-danger fw-bold">🚨 โซนสัญญาณเตือนภัยล่วงหน้า (Early Warning Signals — ก่อนปิดปีบัญชี)</div>' +
+      '  <div class="card-body py-3" id="cpd5EarlyWarning"></div>' +
       '</div>' +
 
       '<div class="row g-3 mb-3">' +
-      '  <div class="col-lg-12"><div class="card shadow-sm h-100"><div class="card-header py-2">สัดส่วนชั้นความเข้มแข็ง ปี 68 vs 69</div>' +
+      '  <div class="col-12"><div class="card shadow-sm h-100"><div class="card-header py-2">สัดส่วนชั้นความเข้มแข็ง ปี 68 vs 69</div>' +
       '    <div class="card-body py-3" id="cpd5ClassChart"></div></div></div>' +
       '</div>' +
 
@@ -500,16 +613,19 @@
       '    <div class="card-body py-3" id="cpd5Summary"></div></div></div>' +
       '</div>' +
 
-      '<div class="card shadow-sm mb-3"><div class="card-header py-2">ทะเบียนคุมเอกสาร/รายงาน (Cooperative & Officer Document Tracking)</div>' +
+      '<div class="card shadow-sm mb-3"><div class="card-header py-2 d-flex justify-content-between align-items-center">' +
+      '  <span>📁 ทะเบียนคุมเอกสาร/รายงาน (Cooperative &amp; Officer Document Tracking)</span>' +
+      '  <span class="badge bg-light text-dark" id="cpd5ReportCount">0 รายการ</span></div>' +
       '  <div class="card-body py-3 no-print"><div class="row g-2">' +
-      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ประเภทสถาบัน</label><select class="form-select form-select-sm" id="cpd5ReportTarget"></select></div>' +
+      '    <div class="col-md-4"><label class="form-label small fw-bold mb-1">ประเภทสถาบัน/ผู้มีหน้าที่จัดส่ง</label><select class="form-select form-select-sm" id="cpd5ReportTarget"></select></div>' +
       '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ความถี่/รอบการส่ง</label><select class="form-select form-select-sm" id="cpd5ReportFrequency"></select></div>' +
       '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">กลุ่มงาน</label><select class="form-select form-select-sm" id="cpd5ReportSection"></select></div>' +
+      '    <div class="col-md-2 d-flex align-items-end"><button type="button" class="btn btn-sm btn-outline-secondary w-100" data-action="reset-report-filters">ล้างตัวกรอง</button></div>' +
       '  </div></div>' +
       '  <div class="card-body py-2 table-responsive">' +
       '    <table class="table table-bordered table-hover table-sm align-middle mb-0" style="font-size:0.78rem;">' +
       '      <thead class="table-light text-center"><tr>' +
-      '        <th>#</th><th>ชื่อรายงานแบบสั้น</th><th>ผู้มีหน้าที่จัดส่ง</th><th>ข้อมูล ณ วันที่</th><th>กำหนดส่ง</th><th>กลุ่มงาน</th><th>ลิงก์</th>' +
+      '        <th>#</th><th style="min-width:220px">ชื่อรายงาน (แบบสั้น)</th><th style="min-width:180px">ผู้มีหน้าที่จัดส่ง</th><th>ข้อมูล ณ วันที่</th><th style="min-width:180px">กำหนดส่ง</th><th>ความถี่</th><th>กลุ่มงาน</th><th>ลิงก์</th>' +
       '      </tr></thead><tbody id="cpd5ReportRows"></tbody>' +
       '    </table>' +
       '  </div>' +
@@ -671,6 +787,8 @@
       ' | ' + (c.promotionZone || '-') +
       ' | ผู้ดูแลหลัก: ' + (c.primaryOfficer || '-');
     if ($('cpd2CoopLine')) $('cpd2CoopLine').textContent = line;
+    if ($('cpd3CoopLine')) $('cpd3CoopLine').textContent = line + ' | ปีงบประมาณ ' + (state.meta.fiscalYear || '2570');
+    if ($('cpd4CoopLine')) $('cpd4CoopLine').textContent = line;
   }
 
   // =========================================================================
@@ -703,16 +821,46 @@
     body.innerHTML = html;
   }
 
-  // ตารางรายเดือนและรายงานปิดบัญชีเดิมถูกลบออกจาก UI (Task 1):
-  // คง state ไว้หลังบ้านเพื่อซิงค์เงียบ ๆ หลังบันทึก
   function renderStatusTable() {
     var body = $('cpd3StatusBody');
     if (!body) return;
+    var monthly = A().scheduleAndActivities.monthlyPlan12Months || [];
+    var defs = [
+      { color: 'white', label: 'ยังไม่รายงานผล' },
+      { color: 'black', label: 'ไม่เข้าส่งเสริม' },
+      { color: 'yellow', label: 'รออนุมัติ' },
+      { color: 'green', label: 'อนุมัติแล้ว' }
+    ];
+    body.innerHTML = S.MONTHS.map(function (m, idx) {
+      var item = monthly.filter(function (x) { return x.month === m.name; })[0] || {};
+      var cur = item.statusColor || 'white';
+      return '<tr>' +
+        '<td class="fw-bold text-center ' + (idx % 2 ? 'bg-light' : '') + '">' + h(m.name) + '</td>' +
+        '<td><div class="d-flex flex-wrap gap-1">' +
+        defs.map(function (d) {
+          return '<button type="button" class="cpd-status-btn status-' + d.color + (cur === d.color ? ' active' : '') +
+            '" data-action="set-status" data-index="' + idx + '" data-color="' + d.color + '">' + d.label + '</button>';
+        }).join('') +
+        '</div></td>' +
+        '<td><input type="text" class="form-control form-control-sm text-end" data-cpd="scheduleAndActivities.monthlyPlan12Months[' + idx + '].actualResult" data-num="1"></td>' +
+        '</tr>';
+    }).join('');
+    fillBoundFields();
   }
 
   function renderMonthlyVolume() {
     var body = $('cpd3VolumeBody');
     if (!body) return;
+    var vol = A().scheduleAndActivities.monthlyBusinessVolume || {};
+    body.innerHTML = S.MONTHLY_BIZ.map(function (b) {
+      return '<tr><td class="text-start fw-bold">' + h(b.label) + '</td>' +
+        S.MONTHS.map(function (m) {
+          var v = S.num((vol[b.key] || {})[m.key]);
+          return '<td><input type="text" class="form-control form-control-sm text-end cpd-vol-input" data-monthvol="' + b.key + '" data-month="' + m.key + '" data-num="1" value="' + (v ? h(v) : '') + '"></td>';
+        }).join('') +
+        '<td class="fw-bold table-success" data-out="vol.row.' + b.key + '">0</td></tr>';
+    }).join('');
+    updateOutputs();
   }
 
   function planActivityDefaults() {
@@ -747,16 +895,60 @@
       }).join('');
     }
 
-    // ส่วน visit log ถูกลบออกจาก UI แล้ว (Task 1): คง state ไว้หลังบ้านเพื่อซิงค์เงียบ ๆ หลังบันทึก
     var visits = $('cpd3ActivityBody');
-    if (visits) visits.innerHTML = '';
+    if (visits) {
+      visits.innerHTML = sch.visitLog.length ? sch.visitLog.map(function (v, i) {
+        return '<tr>' +
+          '<td><textarea class="form-control form-control-sm" rows="2" data-visit="' + i + '" data-vfield="goal">' + h(v.goal || '') + '</textarea></td>' +
+          '<td><textarea class="form-control form-control-sm" rows="2" data-visit="' + i + '" data-vfield="issue">' + h(v.issue || '') + '</textarea></td>' +
+          '<td><textarea class="form-control form-control-sm" rows="2" data-visit="' + i + '" data-vfield="method">' + h(v.method || '') + '</textarea></td>' +
+          '<td><textarea class="form-control form-control-sm" rows="2" data-visit="' + i + '" data-vfield="result">' + h(v.result || '') + '</textarea></td>' +
+          '<td><input type="text" class="form-control form-control-sm text-center" data-visit="' + i + '" data-vfield="date" value="' + h(v.date || '') + '"></td>' +
+          '<td class="no-print text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" data-action="del-visit" data-index="' + i + '">✕</button></td>' +
+          '</tr>';
+      }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">ยังไม่มีรายการ — กด "+ เพิ่มรายการ" เพื่อบันทึกการลงพื้นที่</td></tr>';
+    }
   }
 
-  // ตารางรายงานปิดบัญชีเดิมถูกลบออกจาก UI แล้ว (Task 1): คง state ไว้หลังบ้านเพื่อซิงค์เงียบ ๆ หลังบันทึก
   function renderTab4StrengthTable() {
     var body = $('cpd4StrengthBody');
     if (!body) return;
-  }  // =========================================================================
+    var st = A().strength;
+    var dims = [
+      { n: 1, title: 'มิติที่ 1: ความสามารถในการให้บริการสมาชิก' },
+      { n: 2, title: 'มิติที่ 2: ประสิทธิภาพในการดำเนินธุรกิจ' },
+      { n: 3, title: 'มิติที่ 3: ประสิทธิภาพในการจัดการองค์กร' },
+      { n: 4, title: 'มิติที่ 4: ประสิทธิภาพของการบริหารงาน' }
+    ];
+    function trend(a, b) {
+      var diff = S.num(b) - S.num(a);
+      if (diff > 0) return '<span class="text-success fw-bold">▲ ดีขึ้น (+' + S.fmt(diff, 2) + ')</span>';
+      if (diff < 0) return '<span class="text-danger fw-bold">▼ ลดลง (' + S.fmt(diff, 2) + ')</span>';
+      return '<span class="text-muted">■ คงที่</span>';
+    }
+    var html = '';
+    dims.forEach(function (d) {
+      var a = S.num((st['dim' + d.n + 'ByYear'] || {})['2568']);
+      var b = S.num((st['dim' + d.n + 'ByYear'] || {})['2569']);
+      html += '<tr class="table-secondary"><td class="fw-bold">' + h(d.title) + '</td>' +
+        '<td class="text-center fw-bold">' + S.fmt(a, 2) + '</td>' +
+        '<td class="text-center fw-bold">' + S.fmt(b, 2) + '</td>' +
+        '<td class="text-center">' + S.fmt(b - a, 2) + '</td>' +
+        '<td>' + trend(a, b) + '</td></tr>';
+      S.STRENGTH_INDICATORS.filter(function (ind) { return ind.dim === d.n; }).forEach(function (ind) {
+        var v68 = S.num((st.indicators[ind.id] || {})['2568']);
+        var v69 = S.num((st.indicators[ind.id] || {})['2569']);
+        html += '<tr><td><span class="badge bg-success me-1">' + h(ind.id) + '</span>' + h(ind.name) + '</td>' +
+          '<td class="text-center">' + (v68 ? S.fmt(v68, 2) : '-') + '</td>' +
+          '<td class="text-center">' + (v69 ? S.fmt(v69, 2) : '-') + '</td>' +
+          '<td class="text-center">' + ((v68 || v69) ? S.fmt(v69 - v68, 2) : '-') + '</td>' +
+          '<td>' + ((v68 || v69) ? trend(v68, v69) : '<span class="text-muted">-</span>') + '</td></tr>';
+      });
+    });
+    body.innerHTML = html;
+  }
+
+  // =========================================================================
   // EVENTS
   // =========================================================================
 
@@ -771,7 +963,7 @@
     if (!el || !el.matches) return;
 
     // ตัวกรอง Dashboard — โหลดข้อมูลใหม่ทันทีเมื่อเปลี่ยนค่า
-    if (el.id === 'cpd5FilterYear' || el.id === 'cpd5FilterZone' ||
+    if (el.id === 'cpd5FilterYear' ||
       el.id === 'cpd5FilterDistrict' || el.id === 'cpd5FilterType' ||
       el.id === 'cpd5FilterOfficer') {
       loadDashboard(true);
@@ -868,7 +1060,6 @@
       insert4MStructure();
     } else if (action === 'analyze-4m') {
       populate4MFromBaseForm();
-      activateTab2Section('analysis');
     } else if (action === 'sync-to-base') {
       syncTotalsToBaseForm();
     } else if (action === 'save-plan') {
@@ -881,6 +1072,12 @@
       exportDashboardRows('csv');
     } else if (action === 'export-xls') {
       exportDashboardRows('xls');
+    } else if (action === 'reset-report-filters') {
+      ['cpd5ReportTarget', 'cpd5ReportFrequency', 'cpd5ReportSection'].forEach(function (id) {
+        var el = $(id);
+        if (el) el.value = '';
+      });
+      renderReportRows();
     } else if (action === 'load-coop') {
       UI.loadCoopForEdit(S.num(btn.getAttribute('data-index')));
     }
@@ -896,13 +1093,305 @@
   }
 
   // =========================================================================
-  // ACTIONS — Task 2: Auto-flow จากฟอร์มพื้นฐานไปสู่ 4M
+  // ACTIONS
   // =========================================================================
 
-  /**
-   * analyze4M(basicFormData) — แปลงข้อมูลจากฟอร์มพื้นฐานเป็นข้อความ 4 มิติ
-   * โดยใช้เฉพาะค่าที่มีอยู่จริง ไม่สร้างตัวเลขจำลอง
-   */
+  function insert4MStructure() {
+    var template = '1. บุคลากร (Man)\n' +
+      '- คณะกรรมการดำเนินการ จำนวน ... คน มีความรู้ความสามารถและประสบการณ์...\n' +
+      '- ผู้ตรวจสอบกิจการ ...\n' +
+      '- ฝ่ายจัดการ/เจ้าหน้าที่ประจำ ...\n' +
+      '- สมาชิกและสมาชิกที่ร่วมทำธุรกิจ ...\n\n' +
+      '2. สำนักงาน/อุปกรณ์ (Material)\n' +
+      '- สถานที่ตั้งสำนักงาน ...\n' +
+      '- ครุภัณฑ์/อุปกรณ์/ยานพาหนะ ...\n' +
+      '- ระบบเทคโนโลยีสารสนเทศ ...\n\n' +
+      '3. การเงิน (Money)\n' +
+      '- โครงสร้างเงินทุน สินทรัพย์ หนี้สิน ทุนของสหกรณ์ ...\n' +
+      '- ผลการดำเนินงานและสภาพคล่อง ...\n' +
+      '- แหล่งเงินทุน/ภาระหนี้สิน ...\n\n' +
+      '4. การจัดการ (Management)\n' +
+      '- ข้อบังคับ ระเบียบ และการควบคุมภายใน ...\n' +
+      '- การวางแผน/แผนกลยุทธ์ ...\n' +
+      '- การจัดสวัสดิการและการมีส่วนร่วมของสมาชิก ...';
+    var box = document.querySelector('[data-cpd="analysis.orgAnalysis4M"]');
+    if (!box) return;
+    if (!box.value.trim()) {
+      box.value = template;
+      A().analysis.orgAnalysis4M = template;
+    } else {
+      box.value += '\n\n' + template;
+      A().analysis.orgAnalysis4M = box.value;
+    }
+    showToast('แทรกโครงสร้าง 4M แล้ว', 'success');
+  }
+
+  function syncTotalsToBaseForm() {
+    var bs = A().financials.balanceSheet;
+    var sum = A().financials.summary2Years;
+    setInputValue('asset_latest', bs.totalAssets || sum.assetsLatest);
+    setInputValue('debt_latest', bs.totalLiabilities || sum.liabilitiesLatest);
+    setInputValue('share_latest', bs.shareCapital || sum.shareCapitalLatest);
+    setInputValue('reserve_latest', bs.reserveFund || sum.reserveFundLatest);
+    setInputValue('profit_latest', bs.netProfitYear || sum.netProfitLatest);
+    setInputValue('loss_latest', bs.accumulatedLoss || sum.accumLossLatest);
+    if (typeof global.validateAccountingEquation === 'function') global.validateAccountingEquation();
+    S.syncFromBaseFormToAllTabs();
+    showToast('ซิงค์ยอดการเงินกลับไปยังฟอร์มหลักแล้ว', 'success');
+  }
+
+  function setInputValue(id, value) {
+    var el = $(id);
+    if (el) el.value = S.num(value) === 0 ? '' : value;
+  }
+
+  function todayThai() {
+    var d = new Date();
+    return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
+  }
+
+  function showToast(message, type) {
+    var el = $('cpdToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'cpdToast';
+      el.className = 'cpd-toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.className = 'cpd-toast show ' + (type || 'info');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      el.className = 'cpd-toast ' + (type || 'info');
+    }, 4000);
+  }
+
+  function saveCompletePlan() {
+    S.syncFromBaseFormToAllTabs();
+    var state = A();
+    var form = {};
+    try {
+      if (typeof global.collectFormObject === 'function') form = global.collectFormObject();
+    } catch (e) { form = {}; }
+    if (!state.coopProfile.coopName) {
+      showToast('กรุณาเลือกสหกรณ์ก่อนบันทึก', 'danger');
+      return;
+    }
+    showToast('กำลังบันทึกข้อมูลทุกแท็บ...', 'info');
+    global.google.script.run.withSuccessHandler(function (res) {
+      state.meta.planId = res.planId || state.meta.planId;
+      state.meta.updatedAt = res.savedAt;
+      // ข้อมูล Dashboard ต้องโหลดใหม่เมื่อเปิดแท็บครั้งถัดไป ไม่ใช้ค่าค้างก่อนบันทึก
+      dashboardData = null;
+      showToast('บันทึกสำเร็จเมื่อ ' + res.savedAt, 'success');
+      if (form && form.coop_name) {
+        global.google.script.run
+          .withSuccessHandler(function () {})
+          .withFailureHandler(function () {})
+          .saveDraftToSheet(form);
+      }
+      if ($('tab-dashboard') && $('tab-dashboard').classList.contains('active')) {
+        loadDashboard(true);
+      }
+    }).withFailureHandler(function (err) {
+      showToast('บันทึกไม่สำเร็จ: ' + err.message, 'danger');
+    }).saveCompleteCoopRecord({ state: state, form: form });
+  }
+
+  function printSection(sectionId) {
+    var name = String(sectionId || '').replace('tab-', '');
+    switchTab(name || 'full-plan', true);
+    setTimeout(function () {
+      try { window.print(); } catch (e) { showToast('เบราว์เซอร์ไม่รองรับการพิมพ์', 'danger'); }
+    }, 250);
+  }
+
+  // =========================================================================
+  // SAVED RECORD AUTO-LOAD
+  // =========================================================================
+
+  function selectedCoopInfo() {
+    var sel = $('coopSelect');
+    if (!sel || sel.value === '' || !global.masterCoops) return null;
+    return global.masterCoops[Number(sel.value)] || null;
+  }
+
+  function maybeLoadSavedRecord() {
+    var c = selectedCoopInfo();
+    if (!c) return;
+    // โหลด CPD record แม้มีร่างเดิม: ร่างเดิมเติม Tab 1 ก่อน แล้ว full_state_json
+    // ที่ใหม่กว่าจะเติมข้อมูล Tab 2-4 ทับอย่างเป็นระเบียบ
+    var key = (c.code13 || '') + '|' + c.name + '|2570';
+    if (global.__cpdLoadingRecord || global.__cpdLoadedKey === key) return;
+
+    var previousName = A().coopProfile.coopName;
+    global.__cpdLoadingRecord = true;
+    global.google.script.run.withSuccessHandler(function (res) {
+      global.__cpdLoadingRecord = false;
+      var current = selectedCoopInfo();
+      if (!current || current.name !== c.name) return;
+      if (res && res.found && res.state) {
+        global.__cpdLoadedKey = key;
+        S.loadStateFromRecord(res.state);
+        showToast('โหลดข้อมูลที่บันทึกไว้เมื่อ ' + (res.savedAt || '-') + ' แล้ว', 'success');
+      } else if (previousName && previousName !== c.name) {
+        // เปลี่ยนสหกรณ์ -> เคลียร์ข้อมูลเฉพาะแท็บ 2-4 ไม่ให้ปนกับรายเดิม
+        S.replaceState(S.defaultState());
+        S.syncFromBaseFormToAllTabs();
+        UI.renderAll();
+      }
+    }).withFailureHandler(function () {
+      global.__cpdLoadingRecord = false;
+    }).getCompleteCoopRecord({
+      fiscalYear: '2570',
+      coopId: c.code13 || '',
+      coopName: c.name || ''
+    });
+  }
+
+  // =========================================================================
+  // DASHBOARD
+  // =========================================================================
+
+  function readDashboardFilters() {
+    return {
+      fiscalYear: ($('cpd5FilterYear') && $('cpd5FilterYear').value) || '2570',
+      district: ($('cpd5FilterDistrict') && $('cpd5FilterDistrict').value) || '',
+      coopType: ($('cpd5FilterType') && $('cpd5FilterType').value) || '',
+      primaryOfficer: ($('cpd5FilterOfficer') && $('cpd5FilterOfficer').value) || ''
+    };
+  }
+
+  function loadDashboard(force) {
+    if (!force && dashboardData) {
+      renderDashboard();
+      return;
+    }
+    var status = $('cpd5Status');
+    if (status) status.textContent = 'กำลังโหลดข้อมูลจาก Google Sheets...';
+    var filters = readDashboardFilters();
+    global.google.script.run.withSuccessHandler(function (res) {
+      dashboardData = res || null;
+      dashboardError = '';
+      populateDashboardFilters(res && res.filterOptions);
+      renderDashboard();
+    }).withFailureHandler(function (err) {
+      dashboardError = err && err.message ? err.message : String(err);
+      dashboardData = fallbackDashboard(filters);
+      populateDashboardFilters(dashboardData.filterOptions);
+      renderDashboard();
+    }).getDashboardSummaryData(filters);
+  }
+
+  function fallbackDashboard(filters) {
+    var master = (global.masterCoops || []).slice();
+    var current = A();
+    var currentName = current.coopProfile.coopName;
+    var currentPlanned = !!currentName && (!!current.meta.updatedAt ||
+      (current.scheduleAndActivities.monthlyPlan12Months || []).some(function (m) {
+        return m.statusColor && m.statusColor !== 'white';
+      }));
+
+    var optionSets = { promotionZone: {}, district: {}, coopType: {}, primaryOfficer: {} };
+    master.forEach(function (c) {
+      if (c.zone) optionSets.promotionZone[c.zone] = true;
+      if (c.district) optionSets.district[c.district] = true;
+      if (c.coopType) optionSets.coopType[c.coopType] = true;
+      if (c.mainOfficer) optionSets.primaryOfficer[c.mainOfficer] = true;
+    });
+
+    var rows = master.map(function (c) {
+      var isCurrent = currentName && c.name === currentName;
+      var hasPlan = isCurrent && currentPlanned;
+      var cls68 = ((c.score68 && c.score68.level) || '').replace(/ชั้น\s*/, 'ชั้น ');
+      var cls69 = ((c.score69 && c.score69.level) || '').replace(/ชั้น\s*/, 'ชั้น ');
+      var sum = current.financials.summary2Years;
+      var st = current.strength;
+      return {
+        fiscalYear: '2570',
+        coopId: c.code13 || '',
+        coopName: c.name,
+        district: c.district || '',
+        promotionZone: c.zone || '',
+        coopSubType: c.coopType || '',
+        primaryOfficer: c.mainOfficer || '',
+        fiscalEndDate: hasPlan ? current.coopProfile.fiscalEndDate : formatThaiDate(c.fiscalYear),
+        targetClose30d: hasPlan ? current.scheduleAndActivities.targetCloseAccountDate30Days : '',
+        targetAgm150d: hasPlan ? current.scheduleAndActivities.targetAgm150Days : '',
+        assetsLatest: hasPlan ? S.num(sum.assetsLatest) : 0,
+        businessVolLatest: hasPlan ? S.num(sum.businessVolumeLatest) : 0,
+        class68: cls68,
+        class69: cls69,
+        strengthScorePrev: S.num(c.score68 && c.score68.total),
+        strengthScoreLatest: S.num(c.score69 && c.score69.total),
+        dim1: hasPlan ? S.num(st.dim1ByYear['2569']) : S.num(c.score69 && c.score69.d1),
+        dim2: hasPlan ? S.num(st.dim2ByYear['2569']) : S.num(c.score69 && c.score69.d2),
+        dim3: hasPlan ? S.num(st.dim3ByYear['2569']) : S.num(c.score69 && c.score69.d3),
+        dim4: hasPlan ? S.num(st.dim4ByYear['2569']) : S.num(c.score69 && c.score69.d4),
+        approvalStatus: hasPlan ? (current.meta.approvalStatus || 'ร่าง') : '',
+        monthlyProgress: hasPlan ? (current.scheduleAndActivities.monthlyPlan12Months || []).filter(function (m) {
+          return m.statusColor && m.statusColor !== 'white';
+        }).length / 12 * 100 : 0,
+        canCloseAccount: hasPlan ? current.closingReport.canCloseAccount : '',
+        closeTimeframe: hasPlan ? current.closingReport.closeAccountTimeframe : '',
+        canHoldAgm: hasPlan ? current.closingReport.canHoldAgm : '',
+        agmTimeframe: hasPlan ? current.closingReport.agmTimeframe : '',
+        hasPlan: hasPlan
+      };
+    });
+
+    if (rows.length === 0 && currentName) {
+      rows.push({
+        fiscalYear: '2570', coopId: current.coopProfile.coopId13, coopName: currentName,
+        district: current.coopProfile.district, promotionZone: current.coopProfile.promotionZone,
+        coopSubType: current.coopProfile.coopSubType, primaryOfficer: current.coopProfile.primaryOfficer,
+        fiscalEndDate: current.coopProfile.fiscalEndDate,
+        targetClose30d: current.scheduleAndActivities.targetCloseAccountDate30Days,
+        targetAgm150d: current.scheduleAndActivities.targetAgm150Days,
+        assetsLatest: S.num(current.financials.summary2Years.assetsLatest),
+        businessVolLatest: S.num(current.financials.summary2Years.businessVolumeLatest),
+        class68: current.strength.classByYear['2568'], class69: current.strength.classByYear['2569'],
+        dim1: S.num(current.strength.dim1ByYear['2569']), dim2: S.num(current.strength.dim2ByYear['2569']),
+        dim3: S.num(current.strength.dim3ByYear['2569']), dim4: S.num(current.strength.dim4ByYear['2569']),
+        approvalStatus: current.meta.approvalStatus, monthlyProgress: 0,
+        canCloseAccount: current.closingReport.canCloseAccount,
+        closeTimeframe: current.closingReport.closeAccountTimeframe,
+        canHoldAgm: current.closingReport.canHoldAgm,
+        agmTimeframe: current.closingReport.agmTimeframe,
+        hasPlan: true
+      });
+    }
+
+    var filtered = rows.filter(function (r) {
+      return matchFilter(r.district, filters.district) &&
+        matchFilter(r.coopSubType, filters.coopType) &&
+        matchFilter(r.primaryOfficer, filters.primaryOfficer);
+    });
+    var agg = aggregateClientRows(filtered);
+    return {
+      generatedAt: 'แสดงผลจากข้อมูลในเบราว์เซอร์ (ยังเชื่อมต่อฐานข้อมูลไม่ได้)',
+      filters: filters,
+      filterOptions: {
+        fiscalYears: ['2570'],
+        promotionZones: Object.keys(optionSets.promotionZone).sort(),
+        districts: Object.keys(optionSets.district).sort(),
+        coopTypes: Object.keys(optionSets.coopType).sort(),
+        primaryOfficers: Object.keys(optionSets.primaryOfficer).sort()
+      },
+      kpis: agg.kpis,
+      zones: agg.zones,
+      classDistribution: agg.classDistribution,
+      dimAverages: agg.dimAverages,
+      rows: filtered
+    };
+  }
+
+  function matchFilter(value, filter) {
+    if (!filter) return true;
+    return String(value || '').trim().toLowerCase() === String(filter).trim().toLowerCase();
+  }
+
+  /** แปลงวันที่ที่อาจมาเป็น Date หรือข้อความ Date.toString() ให้เป็น วว/ดด/ปปปป (พ.ศ.) */
   function formatThaiDate(value) {
     if (!value) return '';
     if (typeof value === 'string' && value.indexOf('/') !== -1 && value.length <= 10) return value;
@@ -1001,7 +1490,6 @@
       el.innerHTML = options(list || [], cur, 'ทั้งหมด');
       if (cur) el.value = cur;
     }
-    setOptions('cpd5FilterZone', opts.promotionZones);
     setOptions('cpd5FilterDistrict', opts.districts);
     setOptions('cpd5FilterType', opts.coopTypes);
     setOptions('cpd5FilterOfficer', opts.primaryOfficers);
@@ -1035,74 +1523,6 @@
       '</div>';
   }
 
-  function renderReportRegistry() {
-    var registry = window.CPD_REPORT_REGISTRY || [];
-    if (!registry.length) return;
-    
-    // Populate filters
-    var targets = {}, frequencies = {}, sections = {};
-    registry.forEach(function (r) {
-      targets[r.targetType] = true;
-      frequencies[r.frequency] = true;
-      sections[r.section] = true;
-    });
-    
-    var targetSelect = $('cpd5ReportTarget');
-    if (targetSelect && targetSelect.options.length === 0) {
-      targetSelect.innerHTML = '<option value="">— ทั้งหมด —</option>' + 
-        Object.keys(targets).sort().map(function (t) { return '<option value="' + h(t) + '">' + h(t) + '</option>'; }).join('');
-      targetSelect.addEventListener('change', renderReportRows);
-    }
-    
-    var freqSelect = $('cpd5ReportFrequency');
-    if (freqSelect && freqSelect.options.length === 0) {
-      freqSelect.innerHTML = '<option value="">— ทั้งหมด —</option>' + 
-        Object.keys(frequencies).sort().map(function (f) { return '<option value="' + h(f) + '">' + h(f) + '</option>'; }).join('');
-      freqSelect.addEventListener('change', renderReportRows);
-    }
-    
-    var sectionSelect = $('cpd5ReportSection');
-    if (sectionSelect && sectionSelect.options.length === 0) {
-      sectionSelect.innerHTML = '<option value="">— ทั้งหมด —</option>' + 
-        Object.keys(sections).sort().map(function (s) { return '<option value="' + h(s) + '">' + h(s) + '</option>'; }).join('');
-      sectionSelect.addEventListener('change', renderReportRows);
-    }
-    
-    renderReportRows();
-  }
-  
-  function renderReportRows() {
-    var registry = window.CPD_REPORT_REGISTRY || [];
-    var targetFilter = ($('cpd5ReportTarget') && $('cpd5ReportTarget').value) || '';
-    var freqFilter = ($('cpd5ReportFrequency') && $('cpd5ReportFrequency').value) || '';
-    var sectionFilter = ($('cpd5ReportSection') && $('cpd5ReportSection').value) || '';
-    
-    var filtered = registry.filter(function (r) {
-      return (!targetFilter || r.targetType === targetFilter) &&
-             (!freqFilter || r.frequency === freqFilter) &&
-             (!sectionFilter || r.section === sectionFilter);
-    });
-    
-    var tbody = $('cpd5ReportRows');
-    if (tbody) {
-      tbody.innerHTML = filtered.length ? filtered.map(function (r, i) {
-        var linkHtml = r.url ? (r.url.indexOf('mailto:') === 0 
-          ? '<a href="' + h(r.url) + '">อีเมล</a>'
-          : '<a href="' + h(r.url) + '" target="_blank">ลิงก์</a>')
-          : '-';
-        return '<tr>' +
-          '<td class="text-center">' + (i + 1) + '</td>' +
-          '<td>' + h(r.shortName) + '</td>' +
-          '<td>' + h(r.targetType) + '</td>' +
-          '<td class="text-center">' + h(r.asOf) + '</td>' +
-          '<td>' + h(r.dueText) + '</td>' +
-          '<td class="text-center">' + h(r.section) + '</td>' +
-          '<td class="text-center">' + linkHtml + '</td>' +
-          '</tr>';
-      }).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">ไม่พบรายการตามตัวกรอง</td></tr>';
-    }
-  }
-  
   function renderDashboard() {
     var data = dashboardData;
     var status = $('cpd5Status');
@@ -1134,18 +1554,8 @@
       }).join('');
     }
 
-    var zonesBox = $('cpd5Zones');
-    if (zonesBox) {
-      zonesBox.innerHTML = (data.zones || []).length ? data.zones.map(function (z) {
-        return '<div class="cpd-zone-block"><div class="d-flex justify-content-between align-items-center mb-1">' +
-          '<strong>' + h(z.zone) + '</strong><span class="badge bg-light text-dark">' + int(z.total) + ' แห่ง</span></div>' +
-          progressRow('จัดทำแผน', z.planPct || 0, int(z.planned) + '/' + int(z.total)) +
-          progressRow('รายงานรายเดือน', z.monthlyPct || 0, int(z.monthlyReported) + '/' + int(z.total)) +
-          progressRow('อนุมัติแผน', z.approvedPct || 0, int(z.approved) + '/' + int(z.total)) +
-          progressRow('ปิดบัญชี 30 วัน', z.closedPct || 0, int(z.closed30) + '/' + int(z.total)) +
-          '</div>';
-      }).join('') : '<div class="text-muted">ไม่พบข้อมูลตามตัวกรอง</div>';
-    }
+    // Task 3: แทนที่ความก้าวหน้ารายเขตส่งเสริมด้วยสัญญาณเตือนภัยล่วงหน้า
+    renderEarlyWarning(data);
 
     var cls = data.classDistribution || { y2568: {}, y2569: {} };
     var maxClass = Math.max(1, cls.y2568.class1 || 0, cls.y2568.class2 || 0, cls.y2568.class3 || 0,
@@ -1179,7 +1589,7 @@
         '<div class="row g-2">' +
         '<div class="col-6"><div class="score-box"><div class="small text-muted">รายงานรายเดือนแล้ว</div><div class="fs-5 fw-bold">' + int(k.monthlyReported) + ' แห่ง</div><div class="small">' + (k.monthlyReportedPct || 0) + '%</div></div></div>' +
         '<div class="col-6"><div class="score-box"><div class="small text-muted">แผนที่อนุมัติแล้ว</div><div class="fs-5 fw-bold">' + int(k.approved) + ' แห่ง</div><div class="small">' + (k.approvedPct || 0) + '%</div></div></div>' +
-        '<div class="col-12"><div class="score-box"><div class="small text-muted">เขตส่งเสริมที่แสดง</div><div class="fw-bold">' + h((data.zones || []).map(function (z) { return z.zone; }).join(', ') || '-') + '</div></div></div>' +
+        '<div class="col-12"><div class="score-box"><div class="small text-muted">อำเภอที่แสดง</div><div class="fw-bold">' + h(Array.from(new Set((data.rows || []).map(function (r) { return r.district; }).filter(Boolean))).join(', ') || '-') + '</div></div></div>' +
         '</div>';
     }
 
@@ -1204,8 +1614,8 @@
       }).join('') : '<tr><td colspan="12" class="text-center text-muted py-3">ไม่พบข้อมูลตามตัวกรอง</td></tr>';
     }
     if ($('cpd5RowCount')) $('cpd5RowCount').textContent = rows.length + ' รายการ';
-    
-    // Render report registry (Task 4)
+
+    // Task 4: ทะเบียนเอกสาร/รายงาน
     renderReportRegistry();
   }
 
@@ -1303,385 +1713,14 @@
     setTimeout(function () { window.URL.revokeObjectURL(url); }, 1000);
   }
 
+
   // =========================================================================
-  // PUBLIC + BOOT
+  // TASK 2 — วิเคราะห์ 4M จากฟอร์มพื้นฐาน
   // =========================================================================
-
-  UI.switchTab = switchTab;
-  
-  // =========================================================================
-  // DASHBOARD DATA LOADING
-  // =========================================================================
-
-  function readDashboardFilters() {
-    return {
-      fiscalYear: ($('cpd5FilterYear') && $('cpd5FilterYear').value) || '2570',
-      district: ($('cpd5FilterDistrict') && $('cpd5FilterDistrict').value) || '',
-      coopType: ($('cpd5FilterType') && $('cpd5FilterType').value) || '',
-      primaryOfficer: ($('cpd5FilterOfficer') && $('cpd5FilterOfficer').value) || ''
-    };
-  }
-
-  function loadDashboard(force) {
-    if (!force && dashboardData) {
-      renderDashboard();
-      return;
-    }
-    var status = $('cpd5Status');
-    if (status) status.textContent = 'กำลังโหลดข้อมูลจาก Google Sheets...';
-    var filters = readDashboardFilters();
-    global.google.script.run.withSuccessHandler(function (res) {
-      dashboardData = res || null;
-      dashboardError = '';
-      populateDashboardFilters(res && res.filterOptions);
-      renderDashboard();
-    }).withFailureHandler(function (err) {
-      dashboardError = err && err.message ? err.message : String(err);
-      dashboardData = fallbackDashboard(filters);
-      populateDashboardFilters(dashboardData.filterOptions);
-      renderDashboard();
-    }).getDashboardSummaryData(filters);
-  }
-
-  function fallbackDashboard(filters) {
-    var master = (global.masterCoops || []).slice();
-    var current = A();
-    var currentName = current.coopProfile.coopName;
-    var currentPlanned = !!currentName && (!!current.meta.updatedAt ||
-      (current.scheduleAndActivities.monthlyPlan12Months || []).some(function (m) {
-        return m.statusColor && m.statusColor !== 'white';
-      }));
-
-    var optionSets = { promotionZone: {}, district: {}, coopType: {}, primaryOfficer: {} };
-    master.forEach(function (c) {
-      if (c.zone) optionSets.promotionZone[c.zone] = true;
-      if (c.district) optionSets.district[c.district] = true;
-      if (c.coopType) optionSets.coopType[c.coopType] = true;
-      if (c.mainOfficer) optionSets.primaryOfficer[c.mainOfficer] = true;
-    });
-
-    var rows = master.map(function (c) {
-      var isCurrent = currentName && c.name === currentName;
-      var hasPlan = isCurrent && currentPlanned;
-      var cls68 = String((c.score68 && c.score68.level) || '').replace(/^.*?(\d)/, '');
-      var cls69 = String((c.score69 && c.score69.level) || '').replace(/^.*?(\d)/, '');
-      var sum = current.financials.summary2Years;
-      var st = current.strength;
-      return {
-        fiscalYear: '2570',
-        coopId: c.code13 || '',
-        coopName: c.name,
-        district: c.district || '',
-        promotionZone: c.zone || '',
-        coopSubType: c.coopType || '',
-        primaryOfficer: c.mainOfficer || '',
-        fiscalEndDate: hasPlan ? current.coopProfile.fiscalEndDate : formatThaiDate(c.fiscalYear),
-        targetClose30d: hasPlan ? current.scheduleAndActivities.targetCloseAccountDate30Days : '',
-        targetAgm150d: hasPlan ? current.scheduleAndActivities.targetAgm150Days : '',
-        assetsLatest: hasPlan ? S.num(sum.assetsLatest) : 0,
-        businessVolLatest: hasPlan ? S.num(sum.businessVolumeLatest) : 0,
-        class68: cls68,
-        class69: cls69,
-        strengthScorePrev: S.num(c.score68 && c.score68.total),
-        strengthScoreLatest: S.num(c.score69 && c.score69.total),
-        dim1: hasPlan ? S.num(st.dim1ByYear['2569']) : S.num(c.score69 && c.score69.d1),
-        dim2: hasPlan ? S.num(st.dim2ByYear['2569']) : S.num(c.score69 && c.score69.d2),
-        dim3: hasPlan ? S.num(st.dim3ByYear['2569']) : S.num(c.score69 && c.score69.d3),
-        dim4: hasPlan ? S.num(st.dim4ByYear['2569']) : S.num(c.score69 && c.score69.d4),
-        approvalStatus: hasPlan ? (current.meta.approvalStatus || 'ร่าง') : '',
-        monthlyProgress: hasPlan ? (current.scheduleAndActivities.monthlyPlan12Months || []).filter(function (m) {
-          return m.statusColor && m.statusColor !== 'white';
-        }).length / 12 * 100 : 0,
-        canCloseAccount: hasPlan ? current.closingReport.canCloseAccount : '',
-        closeTimeframe: hasPlan ? current.closingReport.closeAccountTimeframe : '',
-        canHoldAgm: hasPlan ? current.closingReport.canHoldAgm : '',
-        agmTimeframe: hasPlan ? current.closingReport.agmTimeframe : '',
-        hasPlan: hasPlan
-      };
-    });
-
-    if (rows.length === 0 && currentName) {
-      rows.push({
-        fiscalYear: '2570', coopId: current.coopProfile.coopId13, coopName: currentName,
-        district: current.coopProfile.district, promotionZone: current.coopProfile.promotionZone,
-        coopSubType: current.coopProfile.coopSubType, primaryOfficer: current.coopProfile.primaryOfficer,
-        fiscalEndDate: current.coopProfile.fiscalEndDate,
-        targetClose30d: current.scheduleAndActivities.targetCloseAccountDate30Days,
-        targetAgm150d: current.scheduleAndActivities.targetAgm150Days,
-        assetsLatest: S.num(current.financials.summary2Years.assetsLatest),
-        businessVolLatest: S.num(current.financials.summary2Years.businessVolumeLatest),
-        class68: current.strength.classByYear['2568'], class69: current.strength.classByYear['2569'],
-        dim1: S.num(current.strength.dim1ByYear['2569']), dim2: S.num(current.strength.dim2ByYear['2569']),
-        dim3: S.num(current.strength.dim3ByYear['2569']), dim4: S.num(current.strength.dim4ByYear['2569']),
-        approvalStatus: current.meta.approvalStatus, monthlyProgress: 0,
-        canCloseAccount: current.closingReport.canCloseAccount,
-        closeTimeframe: current.closingReport.closeAccountTimeframe,
-        canHoldAgm: current.closingReport.canHoldAgm,
-        agmTimeframe: current.closingReport.agmTimeframe,
-        hasPlan: true
-      });
-    }
-
-    var filtered = rows.filter(function (r) {
-      return matchFilter(r.district, filters.district) &&
-        matchFilter(r.coopSubType, filters.coopType) &&
-        matchFilter(r.primaryOfficer, filters.primaryOfficer);
-    });
-    var agg = aggregateClientRows(filtered);
-    return {
-      generatedAt: 'แสดงผลจากข้อมูลในเบราว์เซอร์ (ยังเชื่อมต่อฐานข้อมูลไม่ได้)',
-      filters: filters,
-      filterOptions: {
-        fiscalYears: ['2570'],
-        districts: Object.keys(optionSets.district).sort(),
-        coopTypes: Object.keys(optionSets.coopType).sort(),
-        primaryOfficers: Object.keys(optionSets.primaryOfficer).sort()
-      },
-      kpis: agg.kpis,
-      zones: agg.zones,
-      classDistribution: agg.classDistribution,
-      dimAverages: agg.dimAverages,
-      rows: filtered
-    };
-  }
-
-  function matchFilter(value, filter) {
-    if (!filter) return true;
-    return String(value || '').trim().toLowerCase() === String(filter).trim().toLowerCase();
-  }
-
-  function formatThaiDate(value) {
-    if (!value) return '';
-    if (typeof value === 'string' && value.indexOf('/') !== -1 && value.length <= 10) return value;
-    var d = value instanceof Date ? value : new Date(value);
-    if (isNaN(d.getTime())) return String(value);
-    var day = ('0' + d.getDate()).slice(-2);
-    var month = ('0' + (d.getMonth() + 1)).slice(-2);
-    var year = d.getFullYear() + 543;
-    return day + '/' + month + '/' + year;
-  }
-
-  function classBucket(value) {
-    var m = String(value || '').match(/(\d)/);
-    return m ? 'class' + m[1] : '';
-  }
-
-  function aggregateClientRows(rows) {
-    var kpis = {
-      totalCoops: rows.length,
-      planned: rows.filter(function (r) { return r.hasPlan; }).length,
-      approved: rows.filter(function (r) { return r.approvalStatus === 'อนุมัติแล้ว'; }).length,
-      closed30: rows.filter(function (r) { return r.canCloseAccount === 'ได้' && /30/.test(r.closeTimeframe); }).length,
-      agm150: rows.filter(function (r) { return r.canHoldAgm === 'ได้' && /150/.test(r.agmTimeframe); }).length,
-      monthlyReported: rows.filter(function (r) { return S.num(r.monthlyProgress) > 0; }).length,
-      totalBusinessVolume: rows.reduce(function (sum, r) { return sum + S.num(r.businessVolLatest); }, 0),
-      totalAssets: rows.reduce(function (sum, r) { return sum + S.num(r.assetsLatest); }, 0)
-    };
-    kpis.plannedPct = rows.length ? Math.round(kpis.planned / rows.length * 100) : 0;
-    kpis.approvedPct = rows.length ? Math.round(kpis.approved / rows.length * 100) : 0;
-    kpis.closed30Pct = rows.length ? Math.round(kpis.closed30 / rows.length * 100) : 0;
-    kpis.agm150Pct = rows.length ? Math.round(kpis.agm150 / rows.length * 100) : 0;
-    kpis.monthlyReportedPct = rows.length ? Math.round(kpis.monthlyReported / rows.length * 100) : 0;
-
-    var zoneMap = {};
-    rows.forEach(function (r) {
-      var z = r.promotionZone || 'ไม่ระบุ';
-      if (!zoneMap[z]) zoneMap[z] = { zone: z, total: 0, planned: 0, approved: 0, monthlyReported: 0, closed30: 0, agm150: 0, businessVolume: 0 };
-      var zb = zoneMap[z];
-      zb.total++;
-      if (r.hasPlan) zb.planned++;
-      if (r.approvalStatus === 'อนุมัติแล้ว') zb.approved++;
-      if (S.num(r.monthlyProgress) > 0) zb.monthlyReported++;
-      if (r.canCloseAccount === 'ได้' && /30/.test(r.closeTimeframe)) zb.closed30++;
-      if (r.canHoldAgm === 'ได้' && /150/.test(r.agmTimeframe)) zb.agm150++;
-      zb.businessVolume += S.num(r.businessVolLatest);
-    });
-    var zones = Object.keys(zoneMap).sort(function (a, b) { return a.localeCompare(b, 'th'); }).map(function (z) {
-      var o = zoneMap[z];
-      o.planPct = o.total ? Math.round(o.planned / o.total * 100) : 0;
-      o.approvedPct = o.total ? Math.round(o.approved / o.total * 100) : 0;
-      o.monthlyPct = o.total ? Math.round(o.monthlyReported / o.total * 100) : 0;
-      o.closedPct = o.total ? Math.round(o.closed30 / o.total * 100) : 0;
-      o.agmPct = o.total ? Math.round(o.agm150 / o.total * 100) : 0;
-      return o;
-    });
-
-    var classDistribution = {
-      y2568: { class1: 0, class2: 0, class3: 0 },
-      y2569: { class1: 0, class2: 0, class3: 0 }
-    };
-    rows.forEach(function (r) {
-      var b68 = classBucket(r.class68);
-      var b69 = classBucket(r.class69);
-      if (b68) classDistribution.y2568[b68]++;
-      if (b69) classDistribution.y2569[b69]++;
-    });
-
-    var dimAverages = [1, 2, 3, 4].map(function (n) {
-      var key = 'dim' + n;
-      var values = rows.map(function (r) { return S.num(r[key]); }).filter(function (v) { return v > 0; });
-      var avg = values.length ? Math.round((values.reduce(function (s, v) { return s + v; }, 0) / values.length) * 100) / 100 : 0;
-      return { key: key, label: 'มิติที่ ' + n, average: avg, count: values.length };
-    });
-
-    return { kpis: kpis, zones: zones, classDistribution: classDistribution, dimAverages: dimAverages };
-  }
-
-  function populateDashboardFilters(opts) {
-    if (!opts) return;
-    function setOptions(id, list) {
-      var sel = $(id);
-      if (!sel) return;
-      var current = sel.value;
-      sel.innerHTML = '<option value="">— ทั้งหมด —</option>' + list.map(function (v) { return '<option value="' + h(v) + '">' + h(v) + '</option>'; }).join('');
-      if (current && list.indexOf(current) !== -1) sel.value = current;
-    }
-    setOptions('cpd5FilterDistrict', opts.districts || []);
-    setOptions('cpd5FilterType', opts.coopTypes || []);
-    setOptions('cpd5FilterOfficer', opts.primaryOfficers || []);
-  }
-
-
-function trend(a, b) {
-      var diff = S.num(b) - S.num(a);
-      if (diff > 0) return '<span class="text-success fw-bold">▲ ดีขึ้น (+' + S.fmt(diff, 2) + ')</span>';
-      if (diff < 0) return '<span class="text-danger fw-bold">▼ ลดลง (' + S.fmt(diff, 2) + ')</span>';
-      return '<span class="text-muted">■ คงที่</span>';
-    }
-
-function insert4MStructure() {
-    var template = '1. บุคลากร (Man)\n' +
-      '- คณะกรรมการดำเนินการ จำนวน ... คน มีความรู้ความสามารถและประสบการณ์...\n' +
-      '- ผู้ตรวจสอบกิจการ ...\n' +
-      '- ฝ่ายจัดการ/เจ้าหน้าที่ประจำ ...\n' +
-      '- สมาชิกและสมาชิกที่ร่วมทำธุรกิจ ...\n\n' +
-      '2. สำนักงาน/อุปกรณ์ (Material)\n' +
-      '- สถานที่ตั้งสำนักงาน ...\n' +
-      '- ครุภัณฑ์/อุปกรณ์/ยานพาหนะ ...\n' +
-      '- ระบบเทคโนโลยีสารสนเทศ ...\n\n' +
-      '3. การเงิน (Money)\n' +
-      '- โครงสร้างเงินทุน สินทรัพย์ หนี้สิน ทุนของสหกรณ์ ...\n' +
-      '- ผลการดำเนินงานและสภาพคล่อง ...\n' +
-      '- แหล่งเงินทุน/ภาระหนี้สิน ...\n\n' +
-      '4. การจัดการ (Management)\n' +
-      '- ข้อบังคับ ระเบียบ และการควบคุมภายใน ...\n' +
-      '- การวางแผน/แผนกลยุทธ์ ...\n' +
-      '- การจัดสวัสดิการและการมีส่วนร่วมของสมาชิก ...';
-    var box = document.querySelector('[data-cpd="analysis.orgAnalysis4M"]');
-    if (!box) return;
-    if (!box.value.trim()) {
-      box.value = template;
-      A().analysis.orgAnalysis4M = template;
-    } else {
-      box.value += '\n\n' + template;
-      A().analysis.orgAnalysis4M = box.value;
-    }
-    showToast('แทรกโครงสร้าง 4M แล้ว', 'success');
-  }
-
-function syncTotalsToBaseForm() {
-    var bs = A().financials.balanceSheet;
-    var sum = A().financials.summary2Years;
-    setInputValue('asset_latest', bs.totalAssets || sum.assetsLatest);
-    setInputValue('debt_latest', bs.totalLiabilities || sum.liabilitiesLatest);
-    setInputValue('share_latest', bs.shareCapital || sum.shareCapitalLatest);
-    setInputValue('reserve_latest', bs.reserveFund || sum.reserveFundLatest);
-    setInputValue('profit_latest', bs.netProfitYear || sum.netProfitLatest);
-    setInputValue('loss_latest', bs.accumulatedLoss || sum.accumLossLatest);
-    if (typeof global.validateAccountingEquation === 'function') global.validateAccountingEquation();
-    S.syncFromBaseFormToAllTabs();
-    showToast('ซิงค์ยอดการเงินกลับไปยังฟอร์มหลักแล้ว', 'success');
-  }
-
-function setInputValue(id, value) {
-    var el = $(id);
-    if (el) el.value = S.num(value) === 0 ? '' : value;
-  }
-
-function todayThai() {
-    var d = new Date();
-    return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
-  }
-
-function showToast(message, type) {
-    var el = $('cpdToast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'cpdToast';
-      el.className = 'cpd-toast';
-      document.body.appendChild(el);
-    }
-    el.textContent = message;
-    el.className = 'cpd-toast show ' + (type || 'info');
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () {
-      el.className = 'cpd-toast ' + (type || 'info');
-    }, 4000);
-  }
-
-function printSection(sectionId) {
-    var name = String(sectionId || '').replace('tab-', '');
-    switchTab(name || 'full-plan', true);
-    setTimeout(function () {
-      try { window.print(); } catch (e) { showToast('เบราว์เซอร์ไม่รองรับการพิมพ์', 'danger'); }
-    }, 250);
-  }
-
-function selectedCoopInfo() {
-    var sel = $('coopSelect');
-    if (!sel || sel.value === '' || !global.masterCoops) return null;
-    return global.masterCoops[Number(sel.value)] || null;
-  }
-
-function maybeLoadSavedRecord() {
-    var c = selectedCoopInfo();
-    if (!c) return;
-    // โหลด CPD record แม้มีร่างเดิม: ร่างเดิมเติม Tab 1 ก่อน แล้ว full_state_json
-    // ที่ใหม่กว่าจะเติมข้อมูล Tab 2-4 ทับอย่างเป็นระเบียบ
-    var key = (c.code13 || '') + '|' + c.name + '|2570';
-    if (global.__cpdLoadingRecord || global.__cpdLoadedKey === key) return;
-
-    var previousName = A().coopProfile.coopName;
-    global.__cpdLoadingRecord = true;
-    global.google.script.run.withSuccessHandler(function (res) {
-      global.__cpdLoadingRecord = false;
-      var current = selectedCoopInfo();
-      if (!current || current.name !== c.name) return;
-      if (res && res.found && res.state) {
-        global.__cpdLoadedKey = key;
-        S.loadStateFromRecord(res.state);
-        showToast('โหลดข้อมูลที่บันทึกไว้เมื่อ ' + (res.savedAt || '-') + ' แล้ว', 'success');
-      } else if (previousName && previousName !== c.name) {
-        // เปลี่ยนสหกรณ์ -> เคลียร์ข้อมูลเฉพาะแท็บ 2-4 ไม่ให้ปนกับรายเดิม
-        S.replaceState(S.defaultState());
-        S.syncFromBaseFormToAllTabs();
-        UI.renderAll();
-      }
-    }).withFailureHandler(function () {
-      global.__cpdLoadingRecord = false;
-    }).getCompleteCoopRecord({
-      fiscalYear: '2570',
-      coopId: c.code13 || '',
-      coopName: c.name || ''
-    });
-  }
-
-  function saveCompletePlan() {
-    S.syncFromBaseFormToAllTabs();
-    var state = A();
-    var form = {};
-    try {
-      if (typeof global.collectFormObject === 'function') form = global.collectFormObject();
-    } catch (e) { form = {}; }
-    if (!state.coopProfile.coopName) {
-      showToast('กรุณาเลือกสหกรณ์ก่อนบันทึก', 'danger');
-      return;
-    }
-
 
   /**
    * analyze4M(basicFormData) — แปลงข้อมูลจากฟอร์มพื้นฐานเป็นข้อความ 4 มิติ
-   * โดยใช้เฉพาะค่าที่มีอยู่จริง ไม่สร้างตัวเลขจำลอง ไม่ล้างข้อความที่ user แก้ไขเอง
+   * ใช้เฉพาะค่าที่มีอยู่จริง ไม่สร้างตัวเลขจำลอง
    */
   function analyze4M(basicFormData) {
     var s = A();
@@ -1691,7 +1730,8 @@ function maybeLoadSavedRecord() {
     var bs = f.balanceSheet || {};
     var st = s.strength || {};
     var mem = p.members || {};
-    var membersTotal = S.num(mem.regularMale) + S.num(mem.regularFemale) + S.num(mem.associateMale) + S.num(mem.associateFemale);
+    var membersTotal = S.num(mem.regularMale) + S.num(mem.regularFemale) +
+      S.num(mem.associateMale) + S.num(mem.associateFemale);
     if (!membersTotal) membersTotal = S.num(mem.regularTotal) + S.num(mem.associateTotal);
     if (!membersTotal) membersTotal = S.num(mem.prevYearTotal);
     var assets = S.num(bs.totalAssets) || S.num(sum.assetsLatest);
@@ -1700,81 +1740,277 @@ function maybeLoadSavedRecord() {
     var businessVol = S.num(sum.businessVolumeLatest);
     var biz = Array.isArray(p.mainBusinesses)
       ? p.mainBusinesses.filter(Boolean).join(', ')
-      : (p.mainBusinesses || sum.activeBusinessesText || 'ยังไม่ระบุ');
+      : (p.mainBusinesses || sum.activeBusinessesText || '');
     var products = Array.isArray(p.mainProducts)
       ? p.mainProducts.filter(Boolean).join(', ')
       : (p.mainProducts || '');
-    var strength69 = st.classByYear && st.classByYear['2569'] ? st.classByYear['2569'] : '';
+    var strength69 = (st.classByYear && st.classByYear['2569']) || '';
     var total69 = S.num(st.totalByYear && st.totalByYear['2569']);
-    var d = st.dim1ByYear || {};
-    var line = function (label, value) { return '- ' + label + ': ' + (value !== '' && value !== undefined && value !== null ? value : 'ยังไม่ระบุ'); };
+    var d1 = S.num(st.dim1ByYear && st.dim1ByYear['2569']);
+    var d2 = S.num(st.dim2ByYear && st.dim2ByYear['2569']);
+    var d3 = S.num(st.dim3ByYear && st.dim3ByYear['2569']);
+    var d4 = S.num(st.dim4ByYear && st.dim4ByYear['2569']);
+
+    function line(label, value) {
+      var ok = value !== '' && value !== undefined && value !== null &&
+        !(typeof value === 'number' && value === 0);
+      return '- ' + label + ': ' + (ok ? value : 'ยังไม่ระบุ');
+    }
+    function baht(v) { return v ? S.fmt(v, 2) + ' บาท' : ''; }
+
     var man = [
       '1. บุคลากร (Man)',
       line('ชื่อสหกรณ์', p.coopName),
-      line('จำนวนสมาชิกสามัญ (ชาย/หญิง)', mem.regularMale || mem.regularFemale
-        ? (mem.regularMale || 0) + ' / ' + (mem.regularFemale || 0) : ''),
-      line('ยอดรวมสมาชิกสามัญ', mem.regularTotal),
-      line('สมาชิกสมทบ (ชาย/หญิง)', mem.associateMale || mem.associateFemale
-        ? (mem.associateMale || 0) + ' / ' + (mem.associateFemale || 0) : ''),
-      line('ยอดรวมสมาชิก', membersTotal),
-      line('จำนวนกรรมการ (คน)', p.boardCount),
+      line('จำนวนสมาชิกสามัญ (ชาย/หญิง)',
+        (S.num(mem.regularMale) || S.num(mem.regularFemale))
+          ? S.num(mem.regularMale) + ' / ' + S.num(mem.regularFemale) : ''),
+      line('ยอดรวมสมาชิกสามัญ', S.num(mem.regularTotal) || ''),
+      line('สมาชิกสมทบ (ชาย/หญิง)',
+        (S.num(mem.associateMale) || S.num(mem.associateFemale))
+          ? S.num(mem.associateMale) + ' / ' + S.num(mem.associateFemale) : ''),
+      line('ยอดรวมสมาชิกทั้งหมด', membersTotal || ''),
+      line('จำนวนกรรมการดำเนินการ (คน)', S.num(p.boardCount) || ''),
       line('ชื่อผู้ตรวจสอบกิจการ', p.inspectorName),
-      line('จำนวนผู้ตรวจสอบกิจการ (คน)', p.inspectorCount),
+      line('จำนวนผู้ตรวจสอบกิจการ (คน)', S.num(p.inspectorCount) || ''),
       line('ผู้ดูแลหลัก', p.primaryOfficer),
-      line('ผู้ดูแลร่วม', p.coOfficer),
-      'หมายเหตุ: อัตราการมีส่วนร่วมทำธุรกิจของสมาชิกให้ตรวจสอบจากข้อมูลสรุปการมีส่วนร่วมทำธุรกิจของสมาชิก'
+      line('ผู้ดูแลร่วม', p.coOfficer)
     ].join('\n');
+
     var money = [
       '2. การเงิน (Money)',
-      line('สินทรัพย์รวมล่าสุด', assets ? S.fmt(assets, 2) + ' บาท' : ''),
-      line('หนี้สินรวมล่าสุด', liabilities ? S.fmt(liabilities, 2) + ' บาท' : ''),
-      line('ทุนของสหกรณ์ล่าสุด', equity ? S.fmt(equity, 2) + ' บาท' : ''),
-      line('เงินรับฝาก (ถ้ามีในงบทดลอง)', bs.currentLiabilities ? S.fmt(bs.currentLiabilities, 2) + ' บาท' : ''),
-      line('เงินให้กู้ยืม (ถ้ามีในงบทดลอง)', bs.currentAssets ? S.fmt(bs.currentAssets, 2) + ' บาท' : ''),
-      line('กำไรสุทธิปีล่าสุด', S.num(sum.netProfitLatest) ? S.fmt(sum.netProfitLatest, 2) + ' บาท' : ''),
-      'หมายเหตุ: อัตราค้างชำระหนี้ (NPL) และสภาพคล่องให้ใช้แบบรายงานคุณภาพลูกหนี้และฐานะสภาพคล่องสุทธิใน MIS'
+      line('สินทรัพย์รวมล่าสุด', baht(assets)),
+      line('หนี้สินรวมล่าสุด', baht(liabilities)),
+      line('ทุนของสหกรณ์ล่าสุด', baht(equity)),
+      line('เงินรับฝาก/หนี้สินหมุนเวียน', baht(S.num(bs.currentLiabilities))),
+      line('เงินให้กู้ยืม/สินทรัพย์หมุนเวียน', baht(S.num(bs.currentAssets))),
+      line('กำไรสุทธิปีล่าสุด', baht(S.num(sum.netProfitLatest))),
+      '- หมายเหตุ: NPL และสภาพคล่องให้ตรวจสอบจากแบบรายงาน MIS ที่เกี่ยวข้อง'
     ].join('\n');
+
     var material = [
       '3. ทรัพย์สินและผลผลิต (Material)',
-      line('ธุรกิจที่ทำตามลำดับมูลค่า', biz),
-      line('ผลผลิตหลัก', products),
-      line('ปริมาณธุรกิจล่าสุด', businessVol ? S.fmt(businessVol, 2) + ' บาท' : ''),
-      line('ทุนดำเนินงาน (สินทรัพย์ไม่หมุนเวียน)', bs.nonCurrentAssets ? S.fmt(bs.nonCurrentAssets, 2) + ' บาท' : ''),
-      line('สินทรัพย์หมุนเวียน', bs.currentAssets ? S.fmt(bs.currentAssets, 2) + ' บาท' : ''),
-      'หมายเหตุ: สต็อก ผลิตภัณฑ์เฉพาะสหกรณ์ให้ตรวจสอบจากรายงานปริมาณธุรกิจรายเดือน'
+      line('ธุรกิจหลัก (เรียงตามมูลค่า)', biz),
+      line('ผลผลิต/สินค้าหลัก', products),
+      line('ปริมาณธุรกิจล่าสุด', baht(businessVol)),
+      line('สินทรัพย์ไม่หมุนเวียน', baht(S.num(bs.nonCurrentAssets))),
+      line('สินทรัพย์หมุนเวียน', baht(S.num(bs.currentAssets))),
+      '- หมายเหตุ: สต็อก/ผลิตภัณฑ์เฉพาะสหกรณ์ให้ตรวจสอบจากรายงานปริมาณธุรกิจรายเดือน'
     ].join('\n');
+
     var management = [
       '4. การบริหารจัดการ (Management)',
       line('ชั้นความเข้มแข็งปีล่าสุด (2569)', strength69),
       line('คะแนนรวมปีล่าสุด', total69 ? S.fmt(total69, 2) : ''),
-      line('คะแนนมิติที่ 1 (บริการสมาชิก)', d['2569'] ? S.fmt(d['2569'], 2) : ''),
-      line('คะแนนมิติที่ 2 (ประสิทธิภาพธุรกิจ)', st.dim2ByYear && st.dim2ByYear['2569'] ? S.fmt(st.dim2ByYear['2569'], 2) : ''),
-      line('คะแนนมิติที่ 3 (จัดการองค์กร)', st.dim3ByYear && st.dim3ByYear['2569'] ? S.fmt(st.dim3ByYear['2569'], 2) : ''),
-      line('คะแนนมิติที่ 4 (บริหารงาน)', st.dim4ByYear && st.dim4ByYear['2569'] ? S.fmt(st.dim4ByYear['2569'], 2) : ''),
+      line('คะแนนมิติที่ 1 (บริการสมาชิก)', d1 ? S.fmt(d1, 2) : ''),
+      line('คะแนนมิติที่ 2 (ประสิทธิภาพธุรกิจ)', d2 ? S.fmt(d2, 2) : ''),
+      line('คะแนนมิติที่ 3 (จัดการองค์กร)', d3 ? S.fmt(d3, 2) : ''),
+      line('คะแนนมิติที่ 4 (บริหารงาน)', d4 ? S.fmt(d4, 2) : ''),
       line('วันสิ้นปีบัญชี', p.fiscalEndDate),
-      'หมายเหตุ: สถานะการจัดทำงบทดลองรายเดือนและเตรียมปิดบัญชีให้ตรวจสอบจากแบบรายงานงบทดลองใน MIS'
+      '- หมายเหตุ: สถานะงบทดลองรายเดือนและการเตรียมปิดบัญชีให้ตรวจสอบจากรายงานใน MIS'
     ].join('\n');
+
     return [man, money, material, management].join('\n\n');
   }
 
-  function populate4MFromBaseForm() {
+  /**
+   * populate4MFromBaseForm(silent) — ซิงค์ฟอร์มพื้นฐานแล้วสร้างข้อความ 4M
+   * silent = true ใช้ตอนสลับหน้า (ไม่ต้องแสดง toast)
+   */
+  function populate4MFromBaseForm(silent) {
     S.syncFromBaseFormToAllTabs();
-    S.recalcFinancials();
-    S.recalcStrength();
+    if (typeof S.recalcFinancials === 'function') S.recalcFinancials();
+    if (typeof S.recalcStrength === 'function') S.recalcStrength();
     var text = analyze4M(A());
     var box = document.querySelector('[data-cpd="analysis.orgAnalysis4M"]');
     if (box) box.value = text;
     A().analysis.orgAnalysis4M = text;
-    showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
+    if (!silent) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
+    return text;
   }
 
-  UI.loadDashboard = loadDashboard;
+  // =========================================================================
+  // TASK 3 — Early Warning Signals
+  // =========================================================================
 
+  function parseThaiDateValue(value) {
+    if (!value) return null;
+    var str = String(value).trim();
+    var m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (m) {
+      var year = S.num(m[3]);
+      if (year > 2400) year -= 543;
+      var d = new Date(year, S.num(m[2]) - 1, S.num(m[1]));
+      return isNaN(d.getTime()) ? null : d;
+    }
+    var parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function daysUntilThaiDate(value) {
+    var d = parseThaiDateValue(value);
+    if (!d) return null;
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return Math.round((d.getTime() - today.getTime()) / 86400000);
+  }
+
+  function computeEarlyWarnings(rows) {
+    var buckets = { critical: [], warning: [], normal: [] };
+    (rows || []).forEach(function (r) {
+      var days = daysUntilThaiDate(r.targetAgm150d);
+      var pct = S.num(r.monthlyProgress);
+      var classNum = String(r.class69 || '').replace(/[^0-9]/g, '').slice(-1);
+      var lowClass = classNum === '3' || classNum === '4';
+      var reasons = [];
+      var level = 'normal';
+
+      if (days !== null && days <= 30 && pct < 25) {
+        level = 'critical';
+        reasons.push('เหลือ ' + days + ' วันถึงกำหนดประชุมใหญ่ แต่รายงานรายเดือน ' + Math.round(pct) + '%');
+      } else if (!r.hasPlan && days !== null && days <= 60) {
+        level = 'critical';
+        reasons.push('ยังไม่มีแผน และเหลือ ' + days + ' วันถึงกำหนดประชุมใหญ่');
+      } else if (days !== null && days <= 60 && pct < 50) {
+        level = 'warning';
+        reasons.push('เหลือ ' + days + ' วัน แต่รายงานรายเดือน ' + Math.round(pct) + '%');
+      } else if (lowClass) {
+        level = 'warning';
+        reasons.push('ชั้นความเข้มแข็งปี 69 อยู่ในชั้น ' + classNum);
+      }
+
+      buckets[level].push({ row: r, days: days, pct: pct, reasons: reasons });
+    });
+    return buckets;
+  }
+
+  function renderEarlyWarning(data) {
+    var box = $('cpd5EarlyWarning');
+    if (!box) return;
+    var b = computeEarlyWarnings((data && data.rows) || []);
+    var cards = [
+      { key: 'critical', title: '🚨 วิกฤต', cls: 'danger', desc: 'เหลือ ≤30 วัน และรายงานรายเดือน <25% หรือยังไม่มีแผน' },
+      { key: 'warning', title: '⚠️ เฝ้าระวัง', cls: 'warning', desc: 'เหลือ ≤60 วัน และรายงาน <50% หรือชั้นความเข้มแข็ง 3–4' },
+      { key: 'normal', title: '✅ ปกติ', cls: 'success', desc: 'พร้อมดำเนินการตามแผน' }
+    ];
+    var html = '<div class="row g-3 mb-3">' + cards.map(function (c) {
+      return '<div class="col-md-4"><div class="card border-' + c.cls + ' h-100"><div class="card-body text-center py-3">' +
+        '<div class="text-' + c.cls + ' fw-bold">' + c.title + '</div>' +
+        '<div class="display-6 fw-bold text-' + c.cls + '">' + b[c.key].length + '</div>' +
+        '<div class="small text-muted">' + c.desc + '</div>' +
+        '</div></div></div>';
+    }).join('') + '</div>';
+
+    var risky = b.critical.concat(b.warning).slice(0, 12);
+    if (risky.length) {
+      html += '<div class="table-responsive"><table class="table table-sm table-bordered align-middle mb-0" style="font-size:0.78rem;">' +
+        '<thead class="table-light text-center"><tr>' +
+        '<th>#</th><th style="min-width:200px">สหกรณ์/กลุ่มเกษตรกร</th><th>อำเภอ</th><th>ชั้น 69</th>' +
+        '<th>เหลือ (วัน)</th><th>รายงานรายเดือน</th><th style="min-width:260px">สัญญาณ</th>' +
+        '</tr></thead><tbody>' +
+        risky.map(function (x, i) {
+          var r = x.row;
+          var rowCls = b.critical.indexOf(x) !== -1 ? 'table-danger' : 'table-warning';
+          return '<tr class="' + rowCls + '">' +
+            '<td class="text-center">' + (i + 1) + '</td>' +
+            '<td class="fw-bold">' + h(r.coopName || '-') + '</td>' +
+            '<td>' + h(r.district || '-') + '</td>' +
+            '<td class="text-center">' + h(r.class69 || '-') + '</td>' +
+            '<td class="text-center">' + (x.days === null ? '-' : x.days) + '</td>' +
+            '<td class="text-center">' + Math.round(x.pct) + '%</td>' +
+            '<td>' + h(x.reasons.join(' • ')) + '</td>' +
+            '</tr>';
+        }).join('') + '</tbody></table></div>' +
+        (b.critical.length + b.warning.length > 12
+          ? '<div class="small text-muted mt-2">แสดง 12 รายการแรกจากทั้งหมด ' + (b.critical.length + b.warning.length) + ' รายการ</div>'
+          : '');
+    } else {
+      html += '<div class="text-muted">ไม่พบสหกรณ์ที่เข้าเกณฑ์สัญญาณเตือนภัย</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  // =========================================================================
+  // TASK 4 — Cooperative & Officer Document Tracking
+  // =========================================================================
+
+  function fillReportFilter(id, values) {
+    var sel = $(id);
+    if (!sel) return;
+    if (sel.options.length > 0) return;
+    sel.innerHTML = '<option value="">— ทั้งหมด —</option>' + values.sort().map(function (v) {
+      return '<option value="' + h(v) + '">' + h(v) + '</option>';
+    }).join('');
+    sel.addEventListener('change', renderReportRows);
+  }
+
+  function renderReportRegistry() {
+    var registry = global.CPD_REPORT_REGISTRY || [];
+    var tbody = $('cpd5ReportRows');
+    if (!tbody) return;
+    if (!registry.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">ไม่พบข้อมูลทะเบียนเอกสาร</td></tr>';
+      return;
+    }
+    var targets = {}, freqs = {}, sections = {};
+    registry.forEach(function (r) {
+      if (r.targetType) targets[r.targetType] = true;
+      if (r.frequency) freqs[r.frequency] = true;
+      if (r.section) sections[r.section] = true;
+    });
+    fillReportFilter('cpd5ReportTarget', Object.keys(targets));
+    fillReportFilter('cpd5ReportFrequency', Object.keys(freqs));
+    fillReportFilter('cpd5ReportSection', Object.keys(sections));
+    renderReportRows();
+  }
+
+  function renderReportRows() {
+    var registry = global.CPD_REPORT_REGISTRY || [];
+    var target = ($('cpd5ReportTarget') && $('cpd5ReportTarget').value) || '';
+    var freq = ($('cpd5ReportFrequency') && $('cpd5ReportFrequency').value) || '';
+    var section = ($('cpd5ReportSection') && $('cpd5ReportSection').value) || '';
+    var filtered = registry.filter(function (r) {
+      return (!target || r.targetType === target) &&
+        (!freq || r.frequency === freq) &&
+        (!section || r.section === section);
+    });
+    var tbody = $('cpd5ReportRows');
+    if (tbody) {
+      tbody.innerHTML = filtered.length ? filtered.map(function (r, i) {
+        var link = r.url
+          ? (r.url.indexOf('mailto:') === 0
+            ? '<a href="' + h(r.url) + '">อีเมล</a>'
+            : '<a href="' + h(r.url) + '" target="_blank" rel="noopener">เปิดลิงก์</a>')
+          : '-';
+        return '<tr>' +
+          '<td class="text-center">' + (i + 1) + '</td>' +
+          '<td><span title="' + h(r.fullName || '') + '">' + h(r.shortName || '') + '</span></td>' +
+          '<td>' + h(r.targetType || '') + '</td>' +
+          '<td class="text-center">' + h(r.asOf || '') + '</td>' +
+          '<td>' + h(r.dueText || '') + '</td>' +
+          '<td class="text-center">' + h(r.frequency || '') + '</td>' +
+          '<td class="text-center">' + h(r.section || '') + '</td>' +
+          '<td class="text-center">' + link + '</td>' +
+          '</tr>';
+      }).join('') : '<tr><td colspan="8" class="text-center text-muted py-3">ไม่พบรายการตามตัวกรอง</td></tr>';
+    }
+    var count = $('cpd5ReportCount');
+    if (count) count.textContent = filtered.length + ' รายการ';
+  }
+
+  // =========================================================================
+  // PUBLIC + BOOT
+  // =========================================================================
+
+  UI.switchTab = switchTab;
+  UI.loadDashboard = loadDashboard;
   UI.saveCompletePlan = saveCompletePlan;
   UI.showToast = showToast;
   UI.renderDashboard = renderDashboard;
   UI.analyze4M = analyze4M;
   UI.populate4MFromBaseForm = populate4MFromBaseForm;
+  UI.renderReportRegistry = renderReportRegistry;
+  UI.renderReportRows = renderReportRows;
   global.CPD_UI = UI;
 
   if (document.readyState === 'loading') {
