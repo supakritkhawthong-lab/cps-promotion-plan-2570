@@ -116,6 +116,9 @@
     document.querySelectorAll('[data-action="switch-tab"]').forEach(function (btn) {
       btn.classList.toggle('active', btn.getAttribute('data-tab') === name);
     });
+    // อัปเดตค่าใน input fields หลังเปลี่ยน tab
+    fillBoundFields();
+    updateOutputs();
     if (!silent) {
       try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
     }
@@ -938,6 +941,7 @@
     var agmYear = agmParts.year;
     // วันที่รับรองงบ: แสดงเฉพาะเดือน+ปี ตาม Template (เช่น "กุมภาพันธ์ 2569")
     var certifyMonthYear = agm.certifyDate; // มาจาก deriveCertifyDate() ที่เป็น month+year แล้ว
+    var close30 = agm.close30; // วันปิดบัญชี 30 วัน
     return [
       { code: '1', isHeader: true, auto: true, goal: '1. สหกรณ์/กลุ่มเกษตรกรได้รับการแนะนำช่วยเหลือในการฟื้นฟูกิจการ/แก้ไขปัญหาการดำเนินกิจการ', target: '', unit: '', startDate: '', endDate: '', operator: '' },
       { code: '2', isHeader: true, auto: true, goal: '2. สหกรณ์/กลุ่มเกษตรกรได้รับการส่งเสริมเพิ่มศักยภาพการดำเนินกิจการให้มีความเข้มแข็ง', target: '', unit: '', startDate: '', endDate: '', operator: '' },
@@ -964,6 +968,57 @@
       { code: '4', isHeader: true, auto: true, goal: '4. สหกรณ์/กลุ่มเกษตรกรได้รับการตรวจการสหกรณ์ตามที่กฎหมายกำหนด (ระหว่างดำเนินกิจการ)', target: '', unit: '', startDate: '', endDate: '', operator: '' },
       { code: '5', isHeader: true, auto: true, goal: '5. เพิ่มเติมประเด็นอื่นๆ', target: '', unit: '', startDate: '', endDate: '', operator: '' }
     ];
+  }
+
+  /**
+   * syncActivitiesFromMonthlyPlan() — ดึงกิจกรรมจากแผน 12 เดือน (หน้า 1) มาใส่ตาราง 5.2
+   * เฉพาะ cpdAction ที่มีคำว่า "ประชุม" จะถูกดึงมาใส่ในหัวข้อ 2
+   */
+  function syncActivitiesFromMonthlyPlan() {
+    var sch = A().scheduleAndActivities;
+    if (!Array.isArray(sch.monthlyPlan12Months) || sch.monthlyPlan12Months.length === 0) return;
+    
+    // ดึง cpdAction ที่มีคำว่า "ประชุม" จาก monthlyPlan12Months
+    var meetingActivities = sch.monthlyPlan12Months
+      .filter(function (m) {
+        return m.cpdAction && /ประชุม|เข้าร่วม|รับรอง/.test(m.cpdAction);
+      })
+      .map(function (m, idx) {
+        return {
+          code: '2.' + (5 + idx), // ต่อจาก 2.1-2.4
+          auto: true,
+          goal: m.cpdAction,
+          target: '1',
+          unit: 'ครั้ง',
+          startDate: A().scheduleAndActivities.targetCloseAccountDate30Days || '',
+          endDate: m.month || '',
+          operator: 'เจ้าหน้าที่ส่งเสริม',
+          syncedFromPlan: true
+        };
+      });
+
+    // ลบกิจกรรมที่ sync มาแล้ว (syncedFromPlan) ก่อนเพิ่มใหม่
+    if (Array.isArray(sch.activities)) {
+      sch.activities = sch.activities.filter(function (a) {
+        return !a.syncedFromPlan;
+      });
+    }
+
+    // เพิ่มกิจกรรมที่ sync มาหลัง 2.4
+    if (meetingActivities.length > 0 && Array.isArray(sch.activities)) {
+      var insertIdx = -1;
+      for (var i = 0; i < sch.activities.length; i++) {
+        if (sch.activities[i].code === '3') {
+          insertIdx = i;
+          break;
+        }
+      }
+      if (insertIdx >= 0) {
+        sch.activities.splice.apply(sch.activities, [insertIdx, 0].concat(meetingActivities));
+      } else {
+        sch.activities = sch.activities.concat(meetingActivities);
+      }
+    }
   }
 
   function syncPlanActivityDates() {
@@ -1002,6 +1057,8 @@
       !sch.activities.some(function (a) { return a && a.code; })) {
       sch.activities = planActivityDefaults();
     }
+    // ซิงค์กิจกรรมจากแผน 12 เดือน (หน้า 1) มาใส่ตาราง 5.2
+    syncActivitiesFromMonthlyPlan();
     syncPlanActivityDates();
     if (!Array.isArray(sch.visitLog)) sch.visitLog = [];
 
@@ -2003,7 +2060,17 @@
 
   function fmtBahtTxt(v) {
     var n = S.num(v);
-    return n ? S.fmt(n, 2) + ' บาท' : 'ยังไม่ระบุ';
+    return n ? S.fmt(n, 2) + ' บาท' : '......';
+  }
+
+  function fmtCountTxt(v) {
+    var n = S.num(v);
+    return n ? S.fmtInt(v) + ' คน' : '......';
+  }
+
+  function fmtTextOrPlaceholder(v) {
+    var s = String(v || '').trim();
+    return s ? s : '......';
   }
 
   function diffPhrase(latest, prev) {
@@ -2029,11 +2096,11 @@
     var n = S.num(v);
     if (n > 0) return 'มีกำไรเฉพาะธุรกิจ จำนวน ' + S.fmt(n, 2) + ' บาท';
     if (n < 0) return 'มีผลขาดทุนเฉพาะธุรกิจ จำนวน ' + S.fmt(Math.abs(n), 2) + ' บาท';
-    return 'ไม่มีผลกำไรหรือขาดทุนเฉพาะธุรกิจ';
+    return '......';
   }
 
   function pctText(part, total) {
-    if (!S.num(total)) return '0.00';
+    if (!S.num(total)) return '......';
     return S.fmt((S.num(part) / S.num(total)) * 100, 2);
   }
 
@@ -2125,36 +2192,20 @@
     org.push('ด้านการบริหารจัดการองค์กร (หลัก 4M)');
     org.push('');
     org.push('1. หัวข้อ: บุคลากร');
-    org.push(joinPhrase([
-      '- คณะกรรมการดำเนินการ มีจำนวน',
-      (p.boardCount ? S.fmtInt(p.boardCount) + ' คน' : 'ตามที่กำหนดในข้อบังคับ'),
-      'มีความรู้ความสามารถและประสบการณ์เพียงพอในการบริหารงาน'
-    ]));
-    org.push(joinPhrase([
-      '- ผู้ตรวจสอบกิจการ',
-      (p.inspectorName ? 'ชื่อ ' + p.inspectorName : ''),
-      'ผ่านการอบรมผู้ตรวจสอบกิจการสหกรณ์ และเข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ'
-    ]));
-    org.push(joinPhrase([
-      '- ฝ่ายจัดการมีเจ้าหน้าที่ปฏิบัติงานประจำ',
-      (staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : 'ตามโครงสร้างที่สหกรณ์กำหนด'),
-      'มีความรู้ความสามารถตามสมควรในตำแหน่งที่ได้รับมอบหมาย และสหกรณ์ได้มอบหมายผู้รับผิดชอบการเก็บรักษาเงินสดและการรับจ่ายเงินอย่างชัดเจน'
-    ]));
-    org.push(joinPhrase([
-      '- ณ วันสิ้นปีบัญชีมีสมาชิก',
-      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : 'ตามทะเบียนสมาชิก'),
-      'มีสมาชิกร่วมทำธุรกิจกับสหกรณ์ แยกเป็น ธุรกิจรับฝากเงิน จำนวน',
-      S.fmtInt(membersDeposit) + ' คน',
-      'ธุรกิจจัดหาสินค้ามาจำหน่าย จำนวน',
-      S.fmtInt(membersTrading) + ' คน',
-      'และธุรกิจแปรรูปและผลิตสินค้า จำนวน',
-      S.fmtInt(membersProcessing) + ' คน',
-      'สำหรับการเข้าร่วมประชุมใหญ่สามัญประจำปีของสมาชิกนั้น สมาชิกมาเข้าประชุม จำนวน',
-      S.fmtInt(agmAttendees) + ' คน',
-      'จากสมาชิกทั้งหมด',
-      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
-      (quorumOk ? 'ครบองค์ประชุม' : '')
-    ]));
+    org.push('- คณะกรรมการดำเนินการ มีจำนวน ' + fmtTextOrPlaceholder(p.boardCount ? S.fmtInt(p.boardCount) + ' คน' : '') + ' มีความรู้ความสามารถและประสบการณ์เพียงพอในการบริหารงาน');
+    org.push('- ผู้ตรวจสอบกิจการ ' + fmtTextOrPlaceholder(p.inspectorName ? 'ชื่อ ' + p.inspectorName : '') + ' ผ่านการอบรมผู้ตรวจสอบกิจการสหกรณ์ และเข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ');
+    org.push('- ฝ่ายจัดการมีเจ้าหน้าที่ปฏิบัติงานประจำ ' + fmtTextOrPlaceholder(staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : '') + ' มีความรู้ความสามารถตามสมควรในตำแหน่งที่ได้รับมอบหมาย และสหกรณ์ได้มอบหมายผู้รับผิดชอบการเก็บรักษาเงินสดและการรับจ่ายเงินอย่างชัดเจน');
+    org.push('- ณ วันสิ้นปีบัญชีมีสมาชิก ' + fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') + ' มีสมาชิกร่วมทำธุรกิจกับสหกรณ์ แยกเป็น ธุรกิจรับฝากเงิน จำนวน ' +
+      fmtCountTxt(membersDeposit) +
+      ' ธุรกิจจัดหาสินค้ามาจำหน่าย จำนวน ' +
+      fmtCountTxt(membersTrading) +
+      ' และธุรกิจแปรรูปและผลิตสินค้า จำนวน ' +
+      fmtCountTxt(membersProcessing) +
+      ' สำหรับการเข้าร่วมประชุมใหญ่สามัญประจำปีของสมาชิกนั้น สมาชิกมาเข้าประชุม จำนวน ' +
+      fmtCountTxt(agmAttendees) +
+      ' จากสมาชิกทั้งหมด ' +
+      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+      (quorumOk ? ' ครบองค์ประชุม' : ''));
     org.push('- สมาชิกส่วนใหญ่มีความรู้ความเข้าใจเกี่ยวกับอุดมการณ์ หลักการและวิธีการสหกรณ์พอสมควร สมาชิกทราบถึงสิทธิและหน้าที่ของสมาชิกตามข้อบังคับกำหนด');
     org.push('');
     org.push('2. หัวข้อ: สำนักงาน/อุปกรณ์');
@@ -2167,104 +2218,80 @@
     org.push('- สหกรณ์ยังไม่มีการนำ Application Smart 4M มาใช้ในการบริหารจัดการในสหกรณ์');
     org.push('');
     org.push('3. หัวข้อ: การเงิน');
-    org.push(joinPhrase([
-      '- ในรอบ 3 ปีบัญชีย้อนหลังสหกรณ์ดำเนินงานมีกำไรทุกปีเฉลี่ยปีละ',
-      fmtBahtTxt(avgProfit3),
-      (avgProfit3 ? '' : '(อยู่ระหว่างการรวบรวมข้อมูล)')
-    ]));
-    org.push(joinPhrase([
-      '- สำหรับปีสิ้นสุดวันที่ ' + fiscalEndDate + ' สหกรณ์มีรายได้รวมทั้งสิ้น',
-      fmtBahtTxt(income),
-      'มีต้นทุนและค่าใช้จ่ายทั้งสิ้น จำนวน',
-      fmtBahtTxt(expense),
-      'ผลการดำเนินงานมีกำไรสุทธิ จำนวน',
-      fmtBahtTxt(profit),
-      diffPhrase(profit, profitPrev)
-    ]));
-    org.push(joinPhrase([
-      '- ณ วันที่ ' + fiscalEndDate + ' สหกรณ์มีทุนดำเนินงานทั้งสิ้น',
-      fmtBahtTxt(workingCapital),
-      diffPhrase(workingCapital, N1.workingCapital),
-      'ทุนดำเนินงานดังกล่าวมาจากทุนของสหกรณ์ จำนวน',
-      fmtBahtTxt(coopCapital),
-      'เป็นหนี้สิน จำนวน',
-      fmtBahtTxt(liabilities),
-      'ซึ่งมาจากการกู้ยืม จำนวน',
-      fmtBahtTxt(loans),
-      'รองลงมา คือเจ้าหนี้การค้า จำนวน',
-      fmtBahtTxt(payables)
-    ]));
-    org.push(joinPhrase([
-      '- สหกรณ์มีสินทรัพย์ทั้งสิ้นจำนวน',
-      fmtBahtTxt(assets),
-      'ส่วนใหญ่อยู่ในรูปของเงินสดและเงินฝากธนาคาร จำนวน',
-      fmtBahtTxt(cash),
-      'รองลงมาเป็นสินค้าคงเหลือ จำนวน',
-      fmtBahtTxt(inventory),
-      'ที่ดินอาคารและอุปกรณ์-สุทธิ จำนวน',
-      fmtBahtTxt(ppe),
-      'ลูกหนี้การค้า จำนวน',
-      fmtBahtTxt(receivables),
-      'และสินทรัพย์อื่นๆ จำนวน',
-      fmtBahtTxt(otherAssets)
-    ]));
-    org.push(joinPhrase([
-      '- ธุรกิจจัดหาสินค้ามาจำหน่าย ระหว่างปี สหกรณ์จัดหาสินค้ามาจำหน่าย จำนวน',
-      fmtBahtTxt(salesTrading),
-      planComparePhrase(salesTrading, planTrading),
-      'ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้',
-      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้'),
-      profitPhrase(profitTrading),
-      diffPhrase(profitTrading, profitTradingPrev)
-    ]));
-    org.push(joinPhrase([
-      '- ธุรกิจแปรรูปและผลิตสินค้า ระหว่างปี สหกรณ์ดำเนินธุรกิจ จำนวน',
-      fmtBahtTxt(salesProcessing),
-      planComparePhrase(salesProcessing, planProcessing),
-      'ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้',
-      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้'),
-      profitPhrase(profitProcessing),
-      diffPhrase(profitProcessing, profitProcessingPrev)
-    ]));
-    org.push(joinPhrase([
-      '- การรับฝากเงิน ระหว่างปี สหกรณ์รับฝากเงินจากสมาชิก จำนวน',
-      fmtBahtTxt(depositAmount),
-      (profitDeposit ? profitPhrase(profitDeposit) : 'สหกรณ์รับฝากเงินเพื่อเป็นทุนหมุนเวียนในการดำเนินงาน')
-    ]));
-    org.push(joinPhrase([
-      '- เมื่อเปรียบเทียบเงินออมเฉลี่ยต่อสมาชิก',
-      fmtBahtTxt(avgSaving) + ' ต่อคน',
-      'กับหนี้สินเฉลี่ยต่อสมาชิก',
-      fmtBahtTxt(avgDebt) + ' ต่อคน',
-      'พบว่า',
-      (S.num(avgSaving) >= S.num(avgDebt)
-        ? 'สมาชิกมีเงินออมเฉลี่ยสูงกว่าหนี้สิน แสดงให้เห็นถึงสมาชิกมีศักยภาพทางการเงินที่ดี'
-        : 'สมาชิกมีหนี้สินเฉลี่ยสูงกว่าเงินออม จึงควรติดตามและบริหารจัดการภาระหนี้สินของสมาชิกอย่างต่อเนื่อง')
-    ]));
+    org.push('- ในรอบ 3 ปีบัญชีย้อนหลังสหกรณ์ดำเนินงานมีกำไรทุกปีเฉลี่ยปีละ ' + fmtBahtTxt(avgProfit3));
+    org.push('- สำหรับปีสิ้นสุดวันที่ ' + fiscalEndDate + ' สหกรณ์มีรายได้รวมทั้งสิ้น ' +
+      fmtBahtTxt(income) +
+      ' มีต้นทุนและค่าใช้จ่ายทั้งสิ้น จำนวน ' +
+      fmtBahtTxt(expense) +
+      ' ผลการดำเนินงานมีกำไรสุทธิ จำนวน ' +
+      fmtBahtTxt(profit) +
+      (diffPhrase(profit, profitPrev) ? ' ' + diffPhrase(profit, profitPrev) : ''));
+    org.push('- ณ วันที่ ' + fiscalEndDate + ' สหกรณ์มีทุนดำเนินงานทั้งสิ้น ' +
+      fmtBahtTxt(workingCapital) +
+      (diffPhrase(workingCapital, N1.workingCapital) ? ' ' + diffPhrase(workingCapital, N1.workingCapital) : '') +
+      ' ทุนดำเนินงานดังกล่าวมาจากทุนของสหกรณ์ จำนวน ' +
+      fmtBahtTxt(coopCapital) +
+      ' เป็นหนี้สิน จำนวน ' +
+      fmtBahtTxt(liabilities) +
+      ' ซึ่งมาจากการกู้ยืม จำนวน ' +
+      fmtBahtTxt(loans) +
+      ' รองลงมา คือเจ้าหนี้การค้า จำนวน ' +
+      fmtBahtTxt(payables));
+    org.push('- สหกรณ์มีสินทรัพย์ทั้งสิ้นจำนวน ' +
+      fmtBahtTxt(assets) +
+      ' ส่วนใหญ่อยู่ในรูปของเงินสดและเงินฝากธนาคาร จำนวน ' +
+      fmtBahtTxt(cash) +
+      ' รองลงมาเป็นสินค้าคงเหลือ จำนวน ' +
+      fmtBahtTxt(inventory) +
+      ' ที่ดินอาคารและอุปกรณ์-สุทธิ จำนวน ' +
+      fmtBahtTxt(ppe) +
+      ' ลูกหนี้การค้า จำนวน ' +
+      fmtBahtTxt(receivables) +
+      ' และสินทรัพย์อื่นๆ จำนวน ' +
+      fmtBahtTxt(otherAssets));
+    org.push('- ธุรกิจจัดหาสินค้ามาจำหน่าย ระหว่างปี สหกรณ์จัดหาสินค้ามาจำหน่าย จำนวน ' +
+      fmtBahtTxt(salesTrading) +
+      ' ' + planComparePhrase(salesTrading, planTrading) +
+      ' ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้ ' +
+      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้') +
+      ' ' + profitPhrase(profitTrading) +
+      (diffPhrase(profitTrading, profitTradingPrev) ? ' ' + diffPhrase(profitTrading, profitTradingPrev) : ''));
+    org.push('- ธุรกิจแปรรูปและผลิตสินค้า ระหว่างปี สหกรณ์ดำเนินธุรกิจ จำนวน ' +
+      fmtBahtTxt(salesProcessing) +
+      ' ' + planComparePhrase(salesProcessing, planProcessing) +
+      ' ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้ ' +
+      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้') +
+      ' ' + profitPhrase(profitProcessing) +
+      (diffPhrase(profitProcessing, profitProcessingPrev) ? ' ' + diffPhrase(profitProcessing, profitProcessingPrev) : ''));
+    org.push('- การรับฝากเงิน ระหว่างปี สหกรณ์รับฝากเงินจากสมาชิก จำนวน ' +
+      fmtBahtTxt(depositAmount) +
+      ' ' + (profitDeposit ? profitPhrase(profitDeposit) : 'สหกรณ์รับฝากเงินเพื่อเป็นทุนหมุนเวียนในการดำเนินงาน'));
+    org.push('- เมื่อเปรียบเทียบเงินออมเฉลี่ยต่อสมาชิก ' +
+      fmtBahtTxt(avgSaving) + ' ต่อคน' +
+      ' กับหนี้สินเฉลี่ยต่อสมาชิก ' +
+      fmtBahtTxt(avgDebt) + ' ต่อคน' +
+      ' พบว่า ' +
+      (S.num(avgSaving) > 0 && S.num(avgDebt) > 0
+        ? (S.num(avgSaving) >= S.num(avgDebt)
+          ? 'สมาชิกมีเงินออมเฉลี่ยสูงกว่าหนี้สิน แสดงให้เห็นถึงสมาชิกมีศักยภาพทางการเงินที่ดี'
+          : 'สมาชิกมีหนี้สินเฉลี่ยสูงกว่าเงินออม จึงควรติดตามและบริหารจัดการภาระหนี้สินของสมาชิกอย่างต่อเนื่อง')
+        : '......'));
     org.push('- สินทรัพย์หมุนเวียนส่วนใหญ่ของสหกรณ์ คือ เงินสดและเงินฝากธนาคาร สินค้าคงเหลือ และลูกหนี้การค้า ดังนั้น สภาพคล่องทางการเงินของสหกรณ์จึงขึ้นอยู่กับการบริหารจัดการด้านสินค้าให้มีการขายในระยะเวลาที่เหมาะสมและบริหารจัดการลูกหนี้การค้าให้ชำระหนี้เป็นไปตามเงื่อนไข');
     org.push('- สหกรณ์ต้องติดตามข้อมูลข่าวสารจากภายนอกเพื่อเป็นข้อมูลในการตัดสินใจดำเนินธุรกิจ และลดความเสี่ยงที่อาจส่งผลกระทบต่อการดำเนินงานของสหกรณ์ โดยภาวการณ์แข่งขันในตลาดเป็นปัจจัยภายนอกที่สหกรณ์ไม่สามารถควบคุมได้ รวมทั้งนโยบายของรัฐทั้งด้านราคาผลผลิต ราคาอาหาร และยาส่งผลกระทบต่อต้นทุนการดำเนินงานของสหกรณ์');
     org.push('');
     org.push('4. หัวข้อ: การจัดการ');
-    org.push(joinPhrase([
-      '- ผลการจัดระดับชั้นความเข้มแข็ง ประจำปี',
-      String(latestStrengthYear),
-      'สหกรณ์อยู่ในระดับชั้น',
-      (classLatest ? String(classLatest) : '-'),
-      (totalLatest ? 'โดยมีคะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : ''),
-      'และมีเป้าหมายรักษาระดับชั้น',
-      (classTarget ? String(classTarget) : 'เดิม'),
-      'ในปี',
-      String(targetStrengthYear)
-    ]));
+    org.push('- ผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(latestStrengthYear) +
+      ' สหกรณ์อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(classLatest) +
+      (totalLatest ? ' โดยมีคะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : '') +
+      ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
+      ' ในปี ' + String(targetStrengthYear));
     org.push('- คณะกรรมการดำเนินการได้พิจารณาอนุมัติโครงการจัดทำแผนกลยุทธ์ระยะ 3 ปี และมอบหมายให้ฝ่ายจัดการนำไปปฏิบัติอย่างต่อเนื่อง');
     org.push('- สหกรณ์ถือใช้ข้อบังคับและระเบียบที่เกี่ยวข้องครบถ้วน และควรพิจารณาทบทวนแก้ไขเพิ่มเติมระเบียบให้สอดคล้องกับข้อบังคับปัจจุบันและการดำเนินธุรกิจของสหกรณ์');
     org.push('- สหกรณ์ถือใช้ระเบียบว่าด้วยการรับจ่ายและเก็บรักษาเงิน ระเบียบว่าด้วยการควบคุมภายใน และระเบียบว่าด้วยเจ้าหน้าที่และข้อบังคับเกี่ยวกับการทำงานอย่างครบถ้วน');
     org.push('- สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์ในการประมวลผลข้อมูลทุนเรือนหุ้น สินค้า และจัดทำบัญชีแยกประเภท');
-    org.push(joinPhrase([
-      '- สหกรณ์สามารถจัดประชุมใหญ่ได้ภายในระยะเวลา 150 วัน โดยมีการนำเสนองบการเงินที่ผ่านการแสดงความเห็นจากผู้สอบบัญชีแล้วต่อที่ประชุมใหญ่เพื่อพิจารณาอนุมัติ',
-      (agmAttendees ? 'โดยมีสมาชิกเข้าร่วมประชุม ' + S.fmtInt(agmAttendees) + ' คน' : ''),
-      (quorumOk ? 'ครบองค์ประชุม' : '')
-    ]));
+    org.push('- สหกรณ์สามารถจัดประชุมใหญ่ได้ภายในระยะเวลา 150 วัน โดยมีการนำเสนองบการเงินที่ผ่านการแสดงความเห็นจากผู้สอบบัญชีแล้วต่อที่ประชุมใหญ่เพื่อพิจารณาอนุมัติ' +
+      (agmAttendees ? ' โดยมีสมาชิกเข้าร่วมประชุม ' + S.fmtInt(agmAttendees) + ' คน' : '') +
+      (quorumOk ? ' ครบองค์ประชุม' : ''));
 
     // -------------------------------------------------------------------
     // 2) ด้านการบริหารจัดการธุรกิจ
@@ -2276,66 +2303,50 @@
     business.push('1. หัวข้อ: ธุรกิจรับฝากเงิน');
     business.push('- ในรอบปี ' + planYear + ' สหกรณ์' + (depositAmount ? 'ได้กำหนด' : 'ไม่ได้กำหนด') + 'แผนธุรกิจรับฝากเงินไว้' + (depositAmount ? 'เพื่อรองรับการออมของสมาชิก' : 'เช่นเดียวกับปีก่อน'));
     business.push('- สหกรณ์รับฝากเงินจากสมาชิกประเภทเงินรับฝากออมทรัพย์ เพื่อเป็นทุนหมุนเวียนในการดำเนินงานของสหกรณ์');
-    business.push(joinPhrase([
-      '- การมีส่วนร่วมของสมาชิก สหกรณ์รับฝากเงินออมทรัพย์จำนวน',
-      S.fmtInt(membersDeposit) + ' คน',
-      'จากสมาชิกทั้งหมด',
-      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
-      'คิดเป็นร้อยละ',
-      pctText(membersDeposit, membersTotal),
-      'ของจำนวนสมาชิกทั้งหมด',
-      'ระหว่างปีรับฝากเงิน จำนวน',
-      fmtBahtTxt(depositAmount)
-    ]));
+    business.push('- การมีส่วนร่วมของสมาชิก สหกรณ์รับฝากเงินออมทรัพย์จำนวน ' +
+      fmtCountTxt(membersDeposit) +
+      ' จากสมาชิกทั้งหมด ' +
+      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+      ' คิดเป็นร้อยละ ' + pctText(membersDeposit, membersTotal) +
+      ' ของจำนวนสมาชิกทั้งหมด ระหว่างปีรับฝากเงิน จำนวน ' +
+      fmtBahtTxt(depositAmount));
     business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
     business.push('- สหกรณ์ยังไม่มีนโยบายในการที่จะเพิ่มประเภทเงินรับฝากนอกจากที่ดำเนินการอยู่ในปัจจุบัน');
     business.push('');
     business.push('2. หัวข้อ: ธุรกิจจัดหาสินค้ามาจำหน่าย');
-    business.push(joinPhrase([
-      '- สหกรณ์ดำเนินธุรกิจจัดหาสินค้ามาจำหน่ายปริมาณธุรกิจรวม',
-      fmtBahtTxt(salesTrading),
-      'มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน',
-      profitPhrase(profitTrading),
-      diffPhrase(profitTrading, profitTradingPrev)
-    ]));
-    business.push(joinPhrase([
-      '- สหกรณ์กำหนดแผนงานไว้',
-      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้'),
-      planComparePhrase(salesTrading, planTrading)
-    ]));
+    business.push('- สหกรณ์ดำเนินธุรกิจจัดหาสินค้ามาจำหน่ายปริมาณธุรกิจรวม ' +
+      fmtBahtTxt(salesTrading) +
+      ' มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน ' +
+      profitPhrase(profitTrading) +
+      (diffPhrase(profitTrading, profitTradingPrev) ? ' ' + diffPhrase(profitTrading, profitTradingPrev) : ''));
+    business.push('- สหกรณ์กำหนดแผนงานไว้ ' +
+      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้') +
+      ' ' + planComparePhrase(salesTrading, planTrading));
     business.push('- สหกรณ์ใช้โปรแกรมบันทึกรายการซื้อขาย/สต๊อกสินค้า และมีระบบการควบคุมสินค้าคงเหลือตามระเบียบที่เกี่ยวข้อง');
-    business.push(joinPhrase([
-      '- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน',
-      S.fmtInt(membersTrading) + ' คน',
-      'จากจำนวนสมาชิกทั้งหมด',
-      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
-      'ระหว่างปีมีการจำหน่ายสินค้าเป็นเงิน',
-      fmtBahtTxt(salesTrading)
-    ]));
+    business.push('- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน ' +
+      fmtCountTxt(membersTrading) +
+      ' จากจำนวนสมาชิกทั้งหมด ' +
+      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+      ' ระหว่างปีมีการจำหน่ายสินค้าเป็นเงิน ' +
+      fmtBahtTxt(salesTrading));
     business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
     business.push('');
     business.push('3. หัวข้อ: ธุรกิจแปรรูป');
-    business.push(joinPhrase([
-      '- สหกรณ์ดำเนินธุรกิจแปรรูปและผลิตสินค้า ระหว่างปีมีมูลค่าธุรกิจ จำนวน',
-      fmtBahtTxt(salesProcessing),
-      'มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน',
-      profitPhrase(profitProcessing),
-      diffPhrase(profitProcessing, profitProcessingPrev)
-    ]));
-    business.push(joinPhrase([
-      '- ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้',
-      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้'),
-      planComparePhrase(salesProcessing, planProcessing)
-    ]));
+    business.push('- สหกรณ์ดำเนินธุรกิจแปรรูปและผลิตสินค้า ระหว่างปีมีมูลค่าธุรกิจ จำนวน ' +
+      fmtBahtTxt(salesProcessing) +
+      ' มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน ' +
+      profitPhrase(profitProcessing) +
+      (diffPhrase(profitProcessing, profitProcessingPrev) ? ' ' + diffPhrase(profitProcessing, profitProcessingPrev) : ''));
+    business.push('- ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้ ' +
+      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้') +
+      ' ' + planComparePhrase(salesProcessing, planProcessing));
     business.push('- สหกรณ์กำหนดแนวทางปฏิบัติงานด้านการผลิตอย่างต่อเนื่อง และควรจัดทำระเบียบรองรับให้ครอบคลุมการดำเนินธุรกิจ');
-    business.push(joinPhrase([
-      '- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน',
-      S.fmtInt(membersProcessing) + ' คน',
-      'จากจำนวนสมาชิกทั้งหมด',
-      (membersTotal ? S.fmtInt(membersTotal) + ' คน' : ''),
-      'ระหว่างปีมีมูลค่าการขาย',
-      fmtBahtTxt(salesProcessing)
-    ]));
+    business.push('- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน ' +
+      fmtCountTxt(membersProcessing) +
+      ' จากจำนวนสมาชิกทั้งหมด ' +
+      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+      ' ระหว่างปีมีมูลค่าการขาย ' +
+      fmtBahtTxt(salesProcessing));
     business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
 
     // -------------------------------------------------------------------
@@ -2354,41 +2365,24 @@
     // -------------------------------------------------------------------
     var summary = [];
     summary.push('สรุปผลการวิเคราะห์');
-    summary.push(joinPhrase([
-      'สหกรณ์แห่งนี้มีประสิทธิภาพในการจัดการองค์กรดี คณะกรรมการมีความรู้ความสามารถและประสบการณ์เพียงพอ',
-      (p.inspectorName ? 'ผู้ตรวจสอบกิจการชื่อ ' + p.inspectorName + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ' : 'ผู้ตรวจสอบกิจการเข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ'),
-      'มีเจ้าหน้าที่ปฏิบัติงาน',
-      (staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : 'ตามโครงสร้างที่กำหนด'),
-      'และมีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์'
-    ]));
-    summary.push(joinPhrase([
-      'อัตราส่วนทางการเงินที่ปรากฏสะท้อนถึงผลการดำเนินธุรกิจที่ดี',
-      (profit > 0 ? 'มีผลกำไรต่อเนื่อง' : ''),
-      'มีสภาพคล่องการเงินที่เพียงพอ สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์',
-      'มีการประชุมคณะกรรมการดำเนินการเป็นประจำ และในด้านการจัดสวัสดิการสหกรณ์มีการจัดสวัสดิการได้สอดคล้องกับผลประกอบการ'
-    ]));
-    summary.push(joinPhrase([
-      'ทั้งนี้ ผลการดำเนินงานที่ผ่านมาในปีบัญชี',
-      String(acctYear),
-      'ส่งผลให้สหกรณ์มีผลการจัดระดับชั้นความเข้มแข็ง ประจำปี',
-      String(latestStrengthYear),
-      'ในระดับชั้น',
-      (classLatest ? String(classLatest) : '-'),
-      'และ ณ ปัจจุบัน สหกรณ์แห่งนี้ได้ส่งงบการเงินให้ผู้สอบบัญชีได้ภายใน 30 วัน'
-    ]));
-    summary.push(joinPhrase([
-      'ดังนั้น เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ.',
-      String(planYear),
-      'คือ สหกรณ์สามารถรักษาระดับชั้น',
-      (classTarget ? String(classTarget) : '-'),
-      'ปี',
-      String(targetStrengthYear),
-      'สหกรณ์มีการจัดทำแผนกลยุทธ์ และสหกรณ์ยังคงรักษาผลการดำเนินงานในระดับที่มีกำไร ไม่มีการทุจริต และปฏิบัติงานตามกฎหมาย',
-      'เพื่อให้ผลการประเมินความเข้มแข็ง ปี',
-      String(assessmentYear),
-      'ยังคงอยู่ในระดับชั้น',
-      (classTarget ? String(classTarget) : '-')
-    ]));
+    summary.push('สหกรณ์แห่งนี้มีประสิทธิภาพในการจัดการองค์กรดี คณะกรรมการมีความรู้ความสามารถและประสบการณ์เพียงพอ ' +
+      fmtTextOrPlaceholder(p.inspectorName ? 'ผู้ตรวจสอบกิจการชื่อ ' + p.inspectorName + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ' : '') +
+      ' มีเจ้าหน้าที่ปฏิบัติงาน ' + fmtTextOrPlaceholder(staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : '') +
+      ' และมีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์');
+    summary.push('อัตราส่วนทางการเงินที่ปรากฏสะท้อนถึงผลการดำเนินธุรกิจที่ดี ' +
+      (profit > 0 ? 'มีผลกำไรต่อเนื่อง ' : '') +
+      'มีสภาพคล่องการเงินที่เพียงพอ สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์ ' +
+      'มีการประชุมคณะกรรมการดำเนินการเป็นประจำ และในด้านการจัดสวัสดิการสหกรณ์มีการจัดสวัสดิการได้สอดคล้องกับผลประกอบการ');
+    summary.push('ทั้งนี้ ผลการดำเนินงานที่ผ่านมาในปีบัญชี ' + String(acctYear) +
+      ' ส่งผลให้สหกรณ์มีผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(latestStrengthYear) +
+      ' ในระดับชั้น ' + fmtTextOrPlaceholder(classLatest) +
+      ' และ ณ ปัจจุบัน สหกรณ์แห่งนี้ได้ส่งงบการเงินให้ผู้สอบบัญชีได้ภายใน 30 วัน');
+    summary.push('ดังนั้น เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ. ' + String(planYear) +
+      ' คือ สหกรณ์สามารถรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
+      ' ปี ' + String(targetStrengthYear) +
+      ' สหกรณ์มีการจัดทำแผนกลยุทธ์ และสหกรณ์ยังคงรักษาผลการดำเนินงานในระดับที่มีกำไร ไม่มีการทุจริต และปฏิบัติงานตามกฎหมาย ' +
+      'เพื่อให้ผลการประเมินความเข้มแข็ง ปี ' + String(assessmentYear) +
+      ' ยังคงอยู่ในระดับชั้น ' + fmtTextOrPlaceholder(classTarget));
 
     return {
       orgAnalysis4M: org.join('\n'),

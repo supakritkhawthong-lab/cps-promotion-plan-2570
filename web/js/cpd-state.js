@@ -929,17 +929,39 @@
     var st = AppState.strength;
     YEARS.forEach(function (y) {
       var dims = { 1: 0, 2: 0, 3: 0, 4: 0 };
-      var any = false;
+      var anyIndicator = false;
       STRENGTH_INDICATORS.forEach(function (ind) {
         var v = num((st.indicators[ind.id] || {})[y]);
-        if (v > 0) any = true;
+        if (v > 0) anyIndicator = true;
         dims[ind.dim] += v;
       });
-      if (any) {
+      
+      if (anyIndicator) {
+        // มี 18 ตัวชี้วัดย่อย -> คำนวณ dim1-4 จาก indicators
         st.dim1ByYear[y] = round4(dims[1]);
         st.dim2ByYear[y] = round4(dims[2]);
         st.dim3ByYear[y] = round4(dims[3]);
         st.dim4ByYear[y] = round4(dims[4]);
+        st.totalByYear[y] = round4(dims[1] + dims[2] + dims[3] + dims[4]);
+      } else {
+        // ไม่มี indicators -> กระจาย dim1-4 (จากหน้า 1) ไปยัง indicators ตามน้ำหนัก
+        for (var d = 1; d <= 4; d++) {
+          var dimTotal = num(st['dim' + d + 'ByYear'][y]);
+          if (dimTotal <= 0) continue;
+          
+          // คำนวณน้ำหนักรวมของมิตินี้
+          var indicatorsInDim = STRENGTH_INDICATORS.filter(function (ind) { return ind.dim === d; });
+          var totalWeight = indicatorsInDim.reduce(function (sum, ind) { return sum + ind.weight; }, 0);
+          if (totalWeight === 0) continue;
+          
+          // กระจาย dimTotal ไปยัง indicators ตามน้ำหนัก
+          indicatorsInDim.forEach(function (ind) {
+            if (!st.indicators[ind.id]) st.indicators[ind.id] = {};
+            var distributed = round4(dimTotal * ind.weight / totalWeight);
+            st.indicators[ind.id][y] = distributed;
+            dims[d] += distributed;
+          });
+        }
         st.totalByYear[y] = round4(dims[1] + dims[2] + dims[3] + dims[4]);
       }
     });
