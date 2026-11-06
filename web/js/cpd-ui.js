@@ -1769,27 +1769,6 @@ function maybeLoadSavedRecord() {
   }
 
   UI.loadDashboard = loadDashboard;
-  
-    showToast('กำลังบันทึกข้อมูลทุกแท็บ...', 'info');
-    global.google.script.run.withSuccessHandler(function (res) {
-      state.meta.planId = res.planId || state.meta.planId;
-      state.meta.updatedAt = res.savedAt;
-      // ข้อมูล Dashboard ต้องโหลดใหม่เมื่อเปิดแท็บครั้งถัดไป ไม่ใช้ค่าค้างก่อนบันทึก
-      dashboardData = null;
-      showToast('บันทึกสำเร็จเมื่อ ' + res.savedAt, 'success');
-      if (form && form.coop_name) {
-        global.google.script.run
-          .withSuccessHandler(function () {})
-          .withFailureHandler(function () {})
-          .saveDraftToSheet(form);
-      }
-      if ($('tab-dashboard') && $('tab-dashboard').classList.contains('active')) {
-        loadDashboard(true);
-      }
-    }).withFailureHandler(function (err) {
-      showToast('บันทึกไม่สำเร็จ: ' + err.message, 'danger');
-    }).saveCompleteCoopRecord({ state: state, form: form });
-  }
 
   UI.saveCompletePlan = saveCompletePlan;
   UI.showToast = showToast;
