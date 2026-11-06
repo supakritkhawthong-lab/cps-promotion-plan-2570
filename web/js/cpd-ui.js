@@ -1541,7 +1541,165 @@
     setOptions('cpd5FilterOfficer', opts.primaryOfficers || []);
   }
 
+
+function trend(a, b) {
+      var diff = S.num(b) - S.num(a);
+      if (diff > 0) return '<span class="text-success fw-bold">▲ ดีขึ้น (+' + S.fmt(diff, 2) + ')</span>';
+      if (diff < 0) return '<span class="text-danger fw-bold">▼ ลดลง (' + S.fmt(diff, 2) + ')</span>';
+      return '<span class="text-muted">■ คงที่</span>';
+    }
+
+function insert4MStructure() {
+    var template = '1. บุคลากร (Man)\n' +
+      '- คณะกรรมการดำเนินการ จำนวน ... คน มีความรู้ความสามารถและประสบการณ์...\n' +
+      '- ผู้ตรวจสอบกิจการ ...\n' +
+      '- ฝ่ายจัดการ/เจ้าหน้าที่ประจำ ...\n' +
+      '- สมาชิกและสมาชิกที่ร่วมทำธุรกิจ ...\n\n' +
+      '2. สำนักงาน/อุปกรณ์ (Material)\n' +
+      '- สถานที่ตั้งสำนักงาน ...\n' +
+      '- ครุภัณฑ์/อุปกรณ์/ยานพาหนะ ...\n' +
+      '- ระบบเทคโนโลยีสารสนเทศ ...\n\n' +
+      '3. การเงิน (Money)\n' +
+      '- โครงสร้างเงินทุน สินทรัพย์ หนี้สิน ทุนของสหกรณ์ ...\n' +
+      '- ผลการดำเนินงานและสภาพคล่อง ...\n' +
+      '- แหล่งเงินทุน/ภาระหนี้สิน ...\n\n' +
+      '4. การจัดการ (Management)\n' +
+      '- ข้อบังคับ ระเบียบ และการควบคุมภายใน ...\n' +
+      '- การวางแผน/แผนกลยุทธ์ ...\n' +
+      '- การจัดสวัสดิการและการมีส่วนร่วมของสมาชิก ...';
+    var box = document.querySelector('[data-cpd="analysis.orgAnalysis4M"]');
+    if (!box) return;
+    if (!box.value.trim()) {
+      box.value = template;
+      A().analysis.orgAnalysis4M = template;
+    } else {
+      box.value += '\n\n' + template;
+      A().analysis.orgAnalysis4M = box.value;
+    }
+    showToast('แทรกโครงสร้าง 4M แล้ว', 'success');
+  }
+
+function syncTotalsToBaseForm() {
+    var bs = A().financials.balanceSheet;
+    var sum = A().financials.summary2Years;
+    setInputValue('asset_latest', bs.totalAssets || sum.assetsLatest);
+    setInputValue('debt_latest', bs.totalLiabilities || sum.liabilitiesLatest);
+    setInputValue('share_latest', bs.shareCapital || sum.shareCapitalLatest);
+    setInputValue('reserve_latest', bs.reserveFund || sum.reserveFundLatest);
+    setInputValue('profit_latest', bs.netProfitYear || sum.netProfitLatest);
+    setInputValue('loss_latest', bs.accumulatedLoss || sum.accumLossLatest);
+    if (typeof global.validateAccountingEquation === 'function') global.validateAccountingEquation();
+    S.syncFromBaseFormToAllTabs();
+    showToast('ซิงค์ยอดการเงินกลับไปยังฟอร์มหลักแล้ว', 'success');
+  }
+
+function setInputValue(id, value) {
+    var el = $(id);
+    if (el) el.value = S.num(value) === 0 ? '' : value;
+  }
+
+function todayThai() {
+    var d = new Date();
+    return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
+  }
+
+function showToast(message, type) {
+    var el = $('cpdToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'cpdToast';
+      el.className = 'cpd-toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.className = 'cpd-toast show ' + (type || 'info');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      el.className = 'cpd-toast ' + (type || 'info');
+    }, 4000);
+  }
+
+function printSection(sectionId) {
+    var name = String(sectionId || '').replace('tab-', '');
+    switchTab(name || 'full-plan', true);
+    setTimeout(function () {
+      try { window.print(); } catch (e) { showToast('เบราว์เซอร์ไม่รองรับการพิมพ์', 'danger'); }
+    }, 250);
+  }
+
+function selectedCoopInfo() {
+    var sel = $('coopSelect');
+    if (!sel || sel.value === '' || !global.masterCoops) return null;
+    return global.masterCoops[Number(sel.value)] || null;
+  }
+
+function maybeLoadSavedRecord() {
+    var c = selectedCoopInfo();
+    if (!c) return;
+    // โหลด CPD record แม้มีร่างเดิม: ร่างเดิมเติม Tab 1 ก่อน แล้ว full_state_json
+    // ที่ใหม่กว่าจะเติมข้อมูล Tab 2-4 ทับอย่างเป็นระเบียบ
+    var key = (c.code13 || '') + '|' + c.name + '|2570';
+    if (global.__cpdLoadingRecord || global.__cpdLoadedKey === key) return;
+
+    var previousName = A().coopProfile.coopName;
+    global.__cpdLoadingRecord = true;
+    global.google.script.run.withSuccessHandler(function (res) {
+      global.__cpdLoadingRecord = false;
+      var current = selectedCoopInfo();
+      if (!current || current.name !== c.name) return;
+      if (res && res.found && res.state) {
+        global.__cpdLoadedKey = key;
+        S.loadStateFromRecord(res.state);
+        showToast('โหลดข้อมูลที่บันทึกไว้เมื่อ ' + (res.savedAt || '-') + ' แล้ว', 'success');
+      } else if (previousName && previousName !== c.name) {
+        // เปลี่ยนสหกรณ์ -> เคลียร์ข้อมูลเฉพาะแท็บ 2-4 ไม่ให้ปนกับรายเดิม
+        S.replaceState(S.defaultState());
+        S.syncFromBaseFormToAllTabs();
+        UI.renderAll();
+      }
+    }).withFailureHandler(function () {
+      global.__cpdLoadingRecord = false;
+    }).getCompleteCoopRecord({
+      fiscalYear: '2570',
+      coopId: c.code13 || '',
+      coopName: c.name || ''
+    });
+  }
+
   UI.loadDashboard = loadDashboard;
+  
+  function saveCompletePlan() {
+    S.syncFromBaseFormToAllTabs();
+    var state = A();
+    var form = {};
+    try {
+      if (typeof global.collectFormObject === 'function') form = global.collectFormObject();
+    } catch (e) { form = {}; }
+    if (!state.coopProfile.coopName) {
+      showToast('กรุณาเลือกสหกรณ์ก่อนบันทึก', 'danger');
+      return;
+    }
+    showToast('กำลังบันทึกข้อมูลทุกแท็บ...', 'info');
+    global.google.script.run.withSuccessHandler(function (res) {
+      state.meta.planId = res.planId || state.meta.planId;
+      state.meta.updatedAt = res.savedAt;
+      // ข้อมูล Dashboard ต้องโหลดใหม่เมื่อเปิดแท็บครั้งถัดไป ไม่ใช้ค่าค้างก่อนบันทึก
+      dashboardData = null;
+      showToast('บันทึกสำเร็จเมื่อ ' + res.savedAt, 'success');
+      if (form && form.coop_name) {
+        global.google.script.run
+          .withSuccessHandler(function () {})
+          .withFailureHandler(function () {})
+          .saveDraftToSheet(form);
+      }
+      if ($('tab-dashboard') && $('tab-dashboard').classList.contains('active')) {
+        loadDashboard(true);
+      }
+    }).withFailureHandler(function (err) {
+      showToast('บันทึกไม่สำเร็จ: ' + err.message, 'danger');
+    }).saveCompleteCoopRecord({ state: state, form: form });
+  }
+
   UI.saveCompletePlan = saveCompletePlan;
   UI.showToast = showToast;
   UI.renderDashboard = renderDashboard;
