@@ -1678,6 +1678,96 @@ function maybeLoadSavedRecord() {
       return;
     }
 
+
+  /**
+   * analyze4M(basicFormData) — แปลงข้อมูลจากฟอร์มพื้นฐานเป็นข้อความ 4 มิติ
+   * โดยใช้เฉพาะค่าที่มีอยู่จริง ไม่สร้างตัวเลขจำลอง ไม่ล้างข้อความที่ user แก้ไขเอง
+   */
+  function analyze4M(basicFormData) {
+    var s = A();
+    var p = s.coopProfile || {};
+    var f = s.financials || {};
+    var sum = f.summary2Years || {};
+    var bs = f.balanceSheet || {};
+    var st = s.strength || {};
+    var mem = p.members || {};
+    var membersTotal = S.num(mem.regularMale) + S.num(mem.regularFemale) + S.num(mem.associateMale) + S.num(mem.associateFemale);
+    if (!membersTotal) membersTotal = S.num(mem.regularTotal) + S.num(mem.associateTotal);
+    if (!membersTotal) membersTotal = S.num(mem.prevYearTotal);
+    var assets = S.num(bs.totalAssets) || S.num(sum.assetsLatest);
+    var liabilities = S.num(bs.totalLiabilities) || S.num(sum.liabilitiesLatest);
+    var equity = S.num(bs.totalEquity) || (assets ? assets - liabilities : 0);
+    var businessVol = S.num(sum.businessVolumeLatest);
+    var biz = Array.isArray(p.mainBusinesses)
+      ? p.mainBusinesses.filter(Boolean).join(', ')
+      : (p.mainBusinesses || sum.activeBusinessesText || 'ยังไม่ระบุ');
+    var products = Array.isArray(p.mainProducts)
+      ? p.mainProducts.filter(Boolean).join(', ')
+      : (p.mainProducts || '');
+    var strength69 = st.classByYear && st.classByYear['2569'] ? st.classByYear['2569'] : '';
+    var total69 = S.num(st.totalByYear && st.totalByYear['2569']);
+    var d = st.dim1ByYear || {};
+    var line = function (label, value) { return '- ' + label + ': ' + (value !== '' && value !== undefined && value !== null ? value : 'ยังไม่ระบุ'); };
+    var man = [
+      '1. บุคลากร (Man)',
+      line('ชื่อสหกรณ์', p.coopName),
+      line('จำนวนสมาชิกสามัญ (ชาย/หญิง)', mem.regularMale || mem.regularFemale
+        ? (mem.regularMale || 0) + ' / ' + (mem.regularFemale || 0) : ''),
+      line('ยอดรวมสมาชิกสามัญ', mem.regularTotal),
+      line('สมาชิกสมทบ (ชาย/หญิง)', mem.associateMale || mem.associateFemale
+        ? (mem.associateMale || 0) + ' / ' + (mem.associateFemale || 0) : ''),
+      line('ยอดรวมสมาชิก', membersTotal),
+      line('จำนวนกรรมการ (คน)', p.boardCount),
+      line('ชื่อผู้ตรวจสอบกิจการ', p.inspectorName),
+      line('จำนวนผู้ตรวจสอบกิจการ (คน)', p.inspectorCount),
+      line('ผู้ดูแลหลัก', p.primaryOfficer),
+      line('ผู้ดูแลร่วม', p.coOfficer),
+      'หมายเหตุ: อัตราการมีส่วนร่วมทำธุรกิจของสมาชิกให้ตรวจสอบจากข้อมูลสรุปการมีส่วนร่วมทำธุรกิจของสมาชิก'
+    ].join('\n');
+    var money = [
+      '2. การเงิน (Money)',
+      line('สินทรัพย์รวมล่าสุด', assets ? S.fmt(assets, 2) + ' บาท' : ''),
+      line('หนี้สินรวมล่าสุด', liabilities ? S.fmt(liabilities, 2) + ' บาท' : ''),
+      line('ทุนของสหกรณ์ล่าสุด', equity ? S.fmt(equity, 2) + ' บาท' : ''),
+      line('เงินรับฝาก (ถ้ามีในงบทดลอง)', bs.currentLiabilities ? S.fmt(bs.currentLiabilities, 2) + ' บาท' : ''),
+      line('เงินให้กู้ยืม (ถ้ามีในงบทดลอง)', bs.currentAssets ? S.fmt(bs.currentAssets, 2) + ' บาท' : ''),
+      line('กำไรสุทธิปีล่าสุด', S.num(sum.netProfitLatest) ? S.fmt(sum.netProfitLatest, 2) + ' บาท' : ''),
+      'หมายเหตุ: อัตราค้างชำระหนี้ (NPL) และสภาพคล่องให้ใช้แบบรายงานคุณภาพลูกหนี้และฐานะสภาพคล่องสุทธิใน MIS'
+    ].join('\n');
+    var material = [
+      '3. ทรัพย์สินและผลผลิต (Material)',
+      line('ธุรกิจที่ทำตามลำดับมูลค่า', biz),
+      line('ผลผลิตหลัก', products),
+      line('ปริมาณธุรกิจล่าสุด', businessVol ? S.fmt(businessVol, 2) + ' บาท' : ''),
+      line('ทุนดำเนินงาน (สินทรัพย์ไม่หมุนเวียน)', bs.nonCurrentAssets ? S.fmt(bs.nonCurrentAssets, 2) + ' บาท' : ''),
+      line('สินทรัพย์หมุนเวียน', bs.currentAssets ? S.fmt(bs.currentAssets, 2) + ' บาท' : ''),
+      'หมายเหตุ: สต็อก ผลิตภัณฑ์เฉพาะสหกรณ์ให้ตรวจสอบจากรายงานปริมาณธุรกิจรายเดือน'
+    ].join('\n');
+    var management = [
+      '4. การบริหารจัดการ (Management)',
+      line('ชั้นความเข้มแข็งปีล่าสุด (2569)', strength69),
+      line('คะแนนรวมปีล่าสุด', total69 ? S.fmt(total69, 2) : ''),
+      line('คะแนนมิติที่ 1 (บริการสมาชิก)', d['2569'] ? S.fmt(d['2569'], 2) : ''),
+      line('คะแนนมิติที่ 2 (ประสิทธิภาพธุรกิจ)', st.dim2ByYear && st.dim2ByYear['2569'] ? S.fmt(st.dim2ByYear['2569'], 2) : ''),
+      line('คะแนนมิติที่ 3 (จัดการองค์กร)', st.dim3ByYear && st.dim3ByYear['2569'] ? S.fmt(st.dim3ByYear['2569'], 2) : ''),
+      line('คะแนนมิติที่ 4 (บริหารงาน)', st.dim4ByYear && st.dim4ByYear['2569'] ? S.fmt(st.dim4ByYear['2569'], 2) : ''),
+      line('วันสิ้นปีบัญชี', p.fiscalEndDate),
+      'หมายเหตุ: สถานะการจัดทำงบทดลองรายเดือนและเตรียมปิดบัญชีให้ตรวจสอบจากแบบรายงานงบทดลองใน MIS'
+    ].join('\n');
+    return [man, money, material, management].join('\n\n');
+  }
+
+  function populate4MFromBaseForm() {
+    S.syncFromBaseFormToAllTabs();
+    S.recalcFinancials();
+    S.recalcStrength();
+    var text = analyze4M(A());
+    var box = document.querySelector('[data-cpd="analysis.orgAnalysis4M"]');
+    if (box) box.value = text;
+    A().analysis.orgAnalysis4M = text;
+    showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
+  }
+
   UI.loadDashboard = loadDashboard;
   
     showToast('กำลังบันทึกข้อมูลทุกแท็บ...', 'info');
