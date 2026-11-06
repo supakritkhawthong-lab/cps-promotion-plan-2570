@@ -25,22 +25,17 @@
     <p class="text-muted">สำนักงานสหกรณ์จังหวัดชลบุรี (Enterprise Version: Smart Fast-Read AI + Strength Score Simulator + Cross-Check บัญชี)</p>
   </div>
 
-  <!-- แถบเมนู 5 แท็บ -->
+  <!-- แถบเมนู 3 หน้า (เมนูติดตามรายเดือน/รายงานปิดบัญชีเดิมถูกลบออกจาก UI;
+       ข้อมูลในชีต monthly/closing ยังคงอยู่และซิงค์เงียบ ๆ หลังบันทึก) -->
   <nav class="cpd-tabbar mb-4 no-print" id="cpdTabBar">
     <button type="button" class="cpd-tab-btn active" data-action="switch-tab" data-tab="base-form">
       <span class="cpd-tab-icon">📝</span><span>1. ฟอร์มพื้นฐาน</span>
     </button>
     <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="full-plan">
-      <span class="cpd-tab-icon">📘</span><span>2. แผนฉบับเต็ม</span>
-    </button>
-    <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="monthly-track">
-      <span class="cpd-tab-icon">📅</span><span>3. ติดตามรายเดือน</span>
-    </button>
-    <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="closing-report">
-      <span class="cpd-tab-icon">📄</span><span>4. รายงานปิดบัญชี</span>
+      <span class="cpd-tab-icon">📘</span><span>2. แผนฉบับเต็ม & วิเคราะห์ 4M</span>
     </button>
     <button type="button" class="cpd-tab-btn" data-action="switch-tab" data-tab="dashboard">
-      <span class="cpd-tab-icon">📊</span><span>5. Dashboard จังหวัด</span>
+      <span class="cpd-tab-icon">📊</span><span>3. Dashboard จังหวัด & ติดตามเอกสาร</span>
     </button>
   </nav>
 
@@ -296,10 +291,8 @@
   </form>
   </div><!-- /#tab-base-form -->
 
-  <!-- ================= แท็บ 2-5: สร้างโครงด้วย js/cpd-ui.js ================= -->
+  <!-- ================= หน้า 2-3: สร้างโครงด้วย js/cpd-ui.js ================= -->
   <div id="tab-full-plan" class="cpd-tab-pane"></div>
-  <div id="tab-monthly-track" class="cpd-tab-pane"></div>
-  <div id="tab-closing-report" class="cpd-tab-pane"></div>
   <div id="tab-dashboard" class="cpd-tab-pane"></div>
 
   <!-- GitHub Pages: โหลด config + shim ก่อนโค้ด UI เดิม (ห้ามสลับลำดับ) -->
@@ -891,6 +884,7 @@
   }
 </script>
 <!-- State + UI ของแท็บ 2-5 (โหลดหลังโค้ดเดิมเสมอ) -->
+<script src="js/cpd-report-registry.js"></script>
 <script src="js/cpd-state.js"></script>
 <script src="js/cpd-ui.js"></script>
 </body>
