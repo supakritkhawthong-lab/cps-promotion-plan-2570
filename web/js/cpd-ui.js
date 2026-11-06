@@ -450,8 +450,8 @@
       '  </div>' +
 
       '  <div class="card shadow-sm mb-3"><div class="card-header py-2 d-flex justify-content-between align-items-center">' +
-      '    <span>5.2 ตารางเป้าหมายงาน/กิจกรรมที่จะดำเนินการ (5 หัวข้อหลัก และข้อย่อย 2.1–2.4)</span>' +
-      '    <button type="button" class="btn btn-sm btn-light py-0 fw-bold no-print" data-action="add-activity">➕ เพิ่มกิจกรรม</button></div>' +
+      '    <span>5.2 ตารางเป้าหมายงาน/กิจกรรมที่จะดำเนินการ (5 หัวข้อหลัก — กด ➕ เพิ่มกิจกรรมย่อยได้แต่ละข้อ)</span>' +
+      '    <button type="button" class="btn btn-sm btn-light py-0 fw-bold no-print" data-action="add-activity">➕ เพิ่มหัวข้อหลัก</button></div>' +
       '    <div class="card-body py-2 table-responsive">' +
       '      <table class="table table-bordered table-sm align-middle mb-0" style="font-size:0.82rem;">' +
       '        <thead class="table-light text-center"><tr><th style="width:38%">เป้าหมายงาน/กิจกรรม</th><th>ค่าเป้าหมาย</th><th>หน่วยนับ</th><th>วันเริ่มต้น</th><th>วันสิ้นสุด</th><th>ผู้ดำเนินการ</th><th class="no-print"></th></tr></thead>' +
@@ -678,7 +678,10 @@
 
       '<div class="card shadow-sm mb-3"><div class="card-header py-2 d-flex justify-content-between align-items-center">' +
       '  <span>ทะเบียนคุมแผนและแจ้งเตือนกำหนดการปิดบัญชี 30 วัน / ประชุมใหญ่ 150 วัน</span>' +
-      '  <span class="badge bg-light text-dark" id="cpd5RowCount">0 รายการ</span></div>' +
+      '  <div class="d-flex align-items-center gap-2">' +
+      '    <label class="form-check-label small fw-bold"><input type="checkbox" id="cpd5FilterUpcoming" class="form-check-input me-1"> เฉพาะที่กำลังจะถึงกำหนด (≤30 วัน)</label>' +
+      '    <span class="badge bg-light text-dark" id="cpd5RowCount">0 รายการ</span>' +
+      '  </div></div>' +
       '  <div class="card-body py-2 table-responsive">' +
       '    <table class="table table-bordered table-hover table-sm align-middle mb-0" style="font-size:0.78rem;">' +
       '      <thead class="table-light text-center"><tr>' +
@@ -933,6 +936,8 @@
     var agmParts = S.parseDateParts(agm.agmDate) || { day: 27, month: 2, year: y.planYear };
     var agmMonth = ('0' + agmParts.month).slice(-2);
     var agmYear = agmParts.year;
+    // วันที่รับรองงบ: แสดงเฉพาะเดือน+ปี ตาม Template (เช่น "กุมภาพันธ์ 2569")
+    var certifyMonthYear = agm.certifyDate; // มาจาก deriveCertifyDate() ที่เป็น month+year แล้ว
     return [
       { code: '1', isHeader: true, auto: true, goal: '1. สหกรณ์/กลุ่มเกษตรกรได้รับการแนะนำช่วยเหลือในการฟื้นฟูกิจการ/แก้ไขปัญหาการดำเนินกิจการ', target: '', unit: '', startDate: '', endDate: '', operator: '' },
       { code: '2', isHeader: true, auto: true, goal: '2. สหกรณ์/กลุ่มเกษตรกรได้รับการส่งเสริมเพิ่มศักยภาพการดำเนินกิจการให้มีความเข้มแข็ง', target: '', unit: '', startDate: '', endDate: '', operator: '' },
@@ -943,7 +948,7 @@
           ' และแนะนำส่งเสริมเกี่ยวกับ การปรับปรุงการควบคุมภายใน การจัดและจ่ายสวัสดิการ การจัดทำบันทึกบัญชีให้เป็นปัจจุบัน รวมทั้งการจัดทำงบการเงินและปิดบัญชีประจำปีได้และส่งงบการเงินให้ผู้สอบได้ภายใน 30 วัน นับแต่วันสิ้นปีทางบัญชี และจัดประชุมใหญ่ ภายใน 150 วัน แบบมีงบการเงิน'
       },
       {
-        code: '2.2', auto: true, target: '1', unit: 'ครั้ง', startDate: agm.certifyDate, endDate: agm.agmDate, operator: 'เจ้าหน้าที่ส่งเสริม',
+        code: '2.2', auto: true, target: '1', unit: 'ครั้ง', startDate: certifyMonthYear, endDate: certifyMonthYear, operator: 'เจ้าหน้าที่ส่งเสริม',
         goal: '2.2 ร่วมประชุมคณะกรรมการฯ เพื่อรับรองงบการเงินของสหกรณ์ ปีบัญชี ' + y.acctYear +
           ' (ช่วงเวลารับรองงบอยู่ในเดือนเดียวกับเดือนประชุมใหญ่ และไม่เกินวันประชุมใหญ่)'
       },
@@ -970,8 +975,13 @@
     sch.activities.forEach(function (a) {
       if (!a.code || !byCode[a.code]) return;
       var d = byCode[a.code];
-      // วันที่ของ 2.2 และ 2.3 ต้องอัปเดตตามวันประชุมใหญ่เสมอ
-      if (a.code === '2.2' || a.code === '2.3') {
+      // 2.2: วันที่รับรองงบ — แสดงเดือน+ปี เท่านั้น
+      if (a.code === '2.2') {
+        a.startDate = d.startDate;
+        a.endDate = d.endDate;
+      }
+      // 2.3: ช่วงวันประชุมใหญ่ — อัปเดตเต็มวันที่
+      if (a.code === '2.3') {
         a.startDate = d.startDate;
         a.endDate = d.endDate;
       }
@@ -998,11 +1008,13 @@
     var body = $('cpd2ActivityBody');
     if (body) {
       body.innerHTML = sch.activities.map(function (a, i) {
-        var del = '<td class="no-print text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" data-action="del-plan-activity" data-index="' + i + '">✕</button></td>';
+        var del = '<td class="no-print text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" data-action="del-plan-activity" data-index="' + i + '" title="ลบ">✕</button></td>';
         if (a.isHeader) {
+          // ปุ่ม ➕ เพิ่มกิจกรรมย่อย สำหรับหัวข้อหลักทุกข้อ (1–5)
+          var addBtn = '<td class="no-print text-center"><button type="button" class="btn btn-sm btn-outline-success py-0" data-action="add-sub-activity" data-header-index="' + i + '" title="เพิ่มกิจกรรมย่อย">➕</button></td>';
           return '<tr class="table-secondary">' +
             '<td colspan="6"><textarea class="form-control form-control-sm fw-bold bg-transparent border-0" rows="1" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
-            del + '</tr>';
+            addBtn + del + '</tr>';
         }
         return '<tr>' +
           '<td><textarea class="form-control form-control-sm" rows="3" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
@@ -1087,6 +1099,10 @@
       el.id === 'cpd5FilterDistrict' || el.id === 'cpd5FilterType' ||
       el.id === 'cpd5FilterOfficer') {
       loadDashboard(true);
+      return;
+    }
+    if (el.id === 'cpd5FilterUpcoming') {
+      renderDashboard();
       return;
     }
 
@@ -1182,6 +1198,42 @@
     } else if (action === 'add-activity') {
       A().scheduleAndActivities.activities.push({ goal: '', target: '', unit: '', startDate: '', endDate: '', operator: '' });
       renderActivities();
+    } else if (action === 'add-sub-activity') {
+      // เพิ่มกิจกรรมย่อยต่อท้ายหัวข้อหลักที่กดปุ่ม ➕
+      var headerIdx = S.num(btn.getAttribute('data-header-index'));
+      var acts = A().scheduleAndActivities.activities;
+      var header = acts[headerIdx];
+      if (!header) return;
+      // หาตำแหน่งที่จะแทรก: ต่อจากกิจกรรมย่อยทั้งหมดของหัวข้อนี้
+      var headerCode = String(header.code || '').replace(/\.0$/, '').replace(/\.+$/, '');
+      var insertAt = headerIdx + 1;
+      while (insertAt < acts.length) {
+        var next = acts[insertAt];
+        if (!next) break;
+        // ถ้าเป็นหัวข้อถัดไป หรือไม่มี code ที่ขึ้นต้นด้วย headerCode. ให้หยุด
+        if (next.isHeader) break;
+        var nextCode = String(next.code || '');
+        if (nextCode && !nextCode.match(new RegExp('^' + headerCode.replace(/\./g, '\\.') + '\\.'))) break;
+        insertAt++;
+      }
+      // หาข้อย่อยลำดับถัดไป (เช่น 1.1, 1.2 หรือ 3.1)
+      var existingSubs = acts.filter(function (a) {
+        return !a.isHeader && String(a.code || '').match(new RegExp('^' + headerCode.replace(/\./g, '\\.') + '\\.\\d+$'));
+      });
+      var nextNum = existingSubs.length + 1;
+      var newCode = headerCode + '.' + nextNum;
+      var y = planYearInfo();
+      acts.splice(insertAt, 0, {
+        code: newCode,
+        goal: newCode + ' ',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+      renderActivities();
+      S.scheduleLocalDraftSave(500);
     } else if (action === 'del-plan-activity') {
       A().scheduleAndActivities.activities.splice(S.num(btn.getAttribute('data-index')), 1);
       renderActivities();
@@ -1585,6 +1637,23 @@
     return String(value || '').trim().toLowerCase() === String(filter).trim().toLowerCase();
   }
 
+  /** คำนวณจำนวนวันจาก today ถึง targetDate (วว/ดด/ปปปป หรือ Date) คืนค่า null ถ้า parse ไม่ได้ */
+  function daysUntil(target, today) {
+    if (!target) return null;
+    var d;
+    if (target instanceof Date) {
+      d = target;
+    } else {
+      var s = String(target).trim();
+      var m = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (!m) return null;
+      d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    }
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return Math.round((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  }
+
   /** แปลงวันที่ที่อาจมาเป็น Date หรือข้อความ Date.toString() ให้เป็น วว/ดด/ปปปป (พ.ศ.) */
   function formatThaiDate(value) {
     if (!value) return '';
@@ -1789,6 +1858,26 @@
 
     var tbody = $('cpd5Rows');
     var rows = data.rows || [];
+
+    // ตัวกรอง "เฉพาะที่กำลังจะถึงกำหนด": แสดงเฉพาะสหกรณ์ที่ deadline ≤ 30 วันจากวันนี้
+    var upcomingOnly = $('cpd5FilterUpcoming') && $('cpd5FilterUpcoming').checked;
+    if (upcomingOnly) {
+      var today = new Date();
+      today.setHours(0, 0, 0, 0);
+      rows = rows.filter(function (r) {
+        // ถ้าเสร็จแล้ว (canCloseAccount/canHoldAgm เป็น "ได้" และมี timeframe ที่ตรง) -> ซ่อน
+        var completed30 = r.canCloseAccount === 'ได้' && String(r.closeTimeframe || '').indexOf('30') !== -1;
+        var completed150 = r.canHoldAgm === 'ได้' && String(r.agmTimeframe || '').indexOf('150') !== -1;
+        if (completed30 && completed150) return false;
+        // คำนวณวันเหลือจนถึง deadline
+        var daysClose = daysUntil(r.targetClose30d, today);
+        var daysAgm = daysUntil(r.targetAgm150d, today);
+        // แสดงถ้ามี deadline ใด ≤ 30 วัน (ยังไม่ถึง หรือเลยมาไม่เกิน 7 วัน)
+        return (daysClose !== null && daysClose <= 30 && daysClose >= -7) ||
+          (daysAgm !== null && daysAgm <= 30 && daysAgm >= -7);
+      });
+    }
+
     if (tbody) {
       tbody.innerHTML = rows.length ? rows.map(function (r, i) {
         return '<tr>' +

@@ -442,7 +442,8 @@
     if (cert.getMonth() !== agm.getMonth() || cert.getFullYear() !== agm.getFullYear()) {
       cert = new Date(agm.getFullYear(), agm.getMonth(), 1);
     }
-    return formatDateThai(cert);
+    // แสดงเฉพาะเดือน + ปี ตาม Template (เช่น "กุมภาพันธ์ 2569")
+    return THAI_MONTHS[cert.getMonth() + 1] + ' ' + cert.getFullYear();
   }
 
   function deriveAgmDates() {
