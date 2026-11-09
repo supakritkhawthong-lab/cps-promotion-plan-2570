@@ -199,6 +199,7 @@
                 <tr><td>หนี้สิน</td><td><input type="text" id="debt_latest" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td><td><input type="text" id="debt_prev" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td></tr>
                 <tr><td>หุ้น (ทุนเรือนหุ้น)</td><td><input type="text" id="share_latest" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td><td><input type="text" id="share_prev" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td></tr>
                 <tr><td>ทุนสำรอง</td><td><input type="text" id="reserve_latest" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td><td><input type="text" id="reserve_prev" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td></tr>
+                <tr><td>ทุนสะสมตามข้อบังคับ ระเบียบ และอื่นๆ</td><td><input type="text" id="accumfund_latest" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td><td><input type="text" id="accumfund_prev" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td></tr>
                 <tr><td>กำไร (ขาดทุน)</td><td><input type="text" id="profit_latest" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td><td><input type="text" id="profit_prev" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td></tr>
                 <tr><td>ขาดทุนสะสม</td><td><input type="text" id="loss_latest" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td><td><input type="text" id="loss_prev" class="form-control form-control-sm" oninput="validateAccountingEquation()"></td></tr>
                 <tr><td>ปริมาณธุรกิจ</td><td><input type="text" id="biz_vol_latest" class="form-control form-control-sm"></td><td><input type="text" id="biz_vol_prev" class="form-control form-control-sm"></td></tr>
@@ -374,7 +375,8 @@
     'wc', 'coopcap', 'loan', 'payable', 'cash', 'inventory', 'ppe', 'receivable', 'otherasset',
     'income', 'expense', 'sales_trading', 'cost_trading', 'profit_biz_trading', 'plan_trading',
     'sales_processing', 'cost_processing', 'profit_biz_processing', 'plan_processing',
-    'deposit_amount', 'profit_biz_deposit', 'avgprofit3', 'avgsaving', 'avgdebt', 'staff_count'
+    'deposit_amount', 'profit_biz_deposit', 'avgprofit3', 'avgsaving', 'avgdebt', 'staff_count',
+    'accumfund'
   ];
 
   const monthsOrder = [
@@ -539,7 +541,7 @@
   }
 
   function loadFormFromSavedData(f) {
-    const fields = ['coop_name', 'district', 'distance', 'group_zone', 'main_officer', 'co_officers', 'reg_date', 'board_count', 'inspector_count', 'inspector_name', 'target_projects', 'yr_latest', 'yr_prev', 'mem_latest', 'mem_prev', 'asset_latest', 'asset_prev', 'debt_latest', 'debt_prev', 'share_latest', 'share_prev', 'reserve_latest', 'reserve_prev', 'profit_latest', 'profit_prev', 'loss_latest', 'loss_prev', 'biz_vol_latest', 'biz_vol_prev', 'business_types', 'c68_lv', 'c68_tot', 'c68_d1', 'c68_d2', 'c68_d3', 'c68_d4', 'c69_lv', 'c69_tot', 'c69_d1', 'c69_d2', 'c69_d3', 'c69_d4', 'issue_1', 'issue_2', 'issue_3', 'promotion_goals', 'planned_visits', 'visit_remark', 'agm_date', 'certify_date'];
+    const fields = ['coop_name', 'district', 'distance', 'group_zone', 'main_officer', 'co_officers', 'reg_date', 'board_count', 'inspector_count', 'inspector_name', 'target_projects', 'yr_latest', 'yr_prev', 'mem_latest', 'mem_prev', 'asset_latest', 'asset_prev', 'debt_latest', 'debt_prev', 'share_latest', 'share_prev', 'reserve_latest', 'reserve_prev', 'accumfund_latest', 'accumfund_prev', 'profit_latest', 'profit_prev', 'loss_latest', 'loss_prev', 'biz_vol_latest', 'biz_vol_prev', 'business_types', 'c68_lv', 'c68_tot', 'c68_d1', 'c68_d2', 'c68_d3', 'c68_d4', 'c69_lv', 'c69_tot', 'c69_d1', 'c69_d2', 'c69_d3', 'c69_d4', 'issue_1', 'issue_2', 'issue_3', 'promotion_goals', 'planned_visits', 'visit_remark', 'agm_date', 'certify_date'];
     CPD_DETAIL_IDS.forEach(prefix => { fields.push(prefix + '_latest', prefix + '_prev'); });
     fields.forEach(id => { if (document.getElementById(id) && f[id] !== undefined) document.getElementById(id).value = f[id]; });
     if (f.auditor_type) { document.getElementById('auditor_type').value = f.auditor_type; onAuditorTypeChange(); }
@@ -560,6 +562,7 @@
     const debt = parseNum(document.getElementById('debt_latest').value);
     const share = parseNum(document.getElementById('share_latest').value);
     const reserve = parseNum(document.getElementById('reserve_latest').value);
+    const accumFund = parseNum(document.getElementById('accumfund_latest').value);
     const profit = parseNum(document.getElementById('profit_latest').value);
     const loss = Math.abs(parseNum(document.getElementById('loss_latest').value));
     const alertEl = document.getElementById('accountingCheckAlert');
@@ -569,19 +572,20 @@
       alertEl.innerHTML = "💡 ระบบตรวจสอบสมการบัญชีอัตโนมัติ (สินทรัพย์ = หนี้สิน + ทุน)";
       return;
     }
-    const totalLiabAndEquity = debt + share + reserve + profit - loss;
+    // totalEquity = shareCapital + reserveFund + otherAccumFund + netProfit - accumLoss
+    const totalLiabAndEquity = debt + share + reserve + accumFund + profit - loss;
     const diff = asset - totalLiabAndEquity;
     const pctDiff = asset > 0 ? (Math.abs(diff) / asset) * 100 : 0;
 
-    if (Math.abs(diff) < 1) {
+    if (Math.abs(diff) < 0.05) {
       alertEl.className = "alert alert-success py-2 mb-3";
       alertEl.innerHTML = `✅ <strong>สมการบัญชีดุลสมบูรณ์ 100%:</strong> สินทรัพย์ (${asset.toLocaleString('th-TH', {minimumFractionDigits:2})}) = หนี้สิน + ทุน (${totalLiabAndEquity.toLocaleString('th-TH', {minimumFractionDigits:2})})`;
-    } else if (diff > 0 && pctDiff <= 15) {
+    } else if (diff > 0 && pctDiff <= 5) {
       alertEl.className = "alert alert-info py-2 mb-3";
-      alertEl.innerHTML = `ℹ️ <strong>ตรวจสอบสมการบัญชี:</strong> สินทรัพย์มากกว่าผลรวม (หนี้สิน+หุ้น+ทุนสำรอง+กำไรสุทธิ) อยู่ <strong>${diff.toLocaleString('th-TH', {minimumFractionDigits:2})} บาท (${pctDiff.toFixed(2)}%)</strong> ซึ่งโดยปกติคือรายการทุนสะสมอื่นตามข้อบังคับ`;
+      alertEl.innerHTML = `ℹ️ <strong>ตรวจสอบสมการบัญชี:</strong> สินทรัพย์มากกว่าผลรวม (หนี้สิน+ทุน) อยู่ <strong>${diff.toLocaleString('th-TH', {minimumFractionDigits:2})} บาท (${pctDiff.toFixed(2)}%)</strong> กรุณาตรวจสอบรายการทุนสะสมตามข้อบังคับ`;
     } else {
       alertEl.className = "alert alert-danger py-2 mb-3";
-      alertEl.innerHTML = `⚠️ <strong>แจ้งเตือนสมการบัญชีไม่ดุลผิดปกติ!</strong> สินทรัพย์ (${asset.toLocaleString('th-TH', {minimumFractionDigits:2})}) ต่างจาก หนี้สิน+ทุน (${totalLiabAndEquity.toLocaleString('th-TH', {minimumFractionDigits:2})}) อยู่ถึง <strong>${diff.toLocaleString('th-TH', {minimumFractionDigits:2})} บาท</strong> กรุณาตรวจสอบตัวเลข`;
+      alertEl.innerHTML = `⚠️ <strong>แจ้งเตือนสมการบัญชีไม่ดุล!</strong> สินทรัพย์ (${asset.toLocaleString('th-TH', {minimumFractionDigits:2})}) ต่างจาก หนี้สิน+ทุน (${totalLiabAndEquity.toLocaleString('th-TH', {minimumFractionDigits:2})}) อยู่ <strong>${diff.toLocaleString('th-TH', {minimumFractionDigits:2})} บาท</strong> กรุณาตรวจสอบตัวเลข`;
     }
   }
 
@@ -1219,6 +1223,7 @@
       debt_latest: document.getElementById('debt_latest').value, debt_prev: document.getElementById('debt_prev').value,
       share_latest: document.getElementById('share_latest').value, share_prev: document.getElementById('share_prev').value,
       reserve_latest: document.getElementById('reserve_latest').value, reserve_prev: document.getElementById('reserve_prev').value,
+      accumfund_latest: document.getElementById('accumfund_latest').value, accumfund_prev: document.getElementById('accumfund_prev').value,
       profit_latest: document.getElementById('profit_latest').value, profit_prev: document.getElementById('profit_prev').value,
       loss_latest: document.getElementById('loss_latest').value, loss_prev: document.getElementById('loss_prev').value,
       biz_vol_latest: document.getElementById('biz_vol_latest').value, biz_vol_prev: document.getElementById('biz_vol_prev').value,
@@ -1300,8 +1305,8 @@
   }
 </script>
 <!-- State + UI ของแท็บ 2-5 (โหลดหลังโค้ดเดิมเสมอ) -->
-<script src="js/cpd-report-registry.js?v=20260212d"></script>
-<script src="js/cpd-state.js?v=20260212d"></script>
-<script src="js/cpd-ui.js?v=20260212d"></script>
+<script src="js/cpd-report-registry.js?v=20260213"></script>
+<script src="js/cpd-state.js?v=20260213"></script>
+<script src="js/cpd-ui.js?v=20260213"></script>
 </body>
 </html>

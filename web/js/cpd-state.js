@@ -90,7 +90,8 @@
     ['avgProfit3', 'avgprofit3'],
     ['avgSaving', 'avgsaving'],
     ['avgDebt', 'avgdebt'],
-    ['staffCount', 'staff_count']
+    ['staffCount', 'staff_count'],
+    ['accumFund', 'accumfund']
   ];
 
   function emptyOperatingYear() {
@@ -160,6 +161,7 @@
           liabilitiesLatest: 0, liabilitiesPrev: 0,
           shareCapitalLatest: 0, shareCapitalPrev: 0,
           reserveFundLatest: 0, reserveFundPrev: 0,
+          otherAccumFundLatest: 0, otherAccumFundPrev: 0,
           netProfitLatest: 0, netProfitPrev: 0,
           accumLossLatest: 0, accumLossPrev: 0,
           businessVolumeLatest: 0, businessVolumePrev: 0,
@@ -590,6 +592,8 @@
           shareCapitalPrev: numVal('share_prev'),
           reserveFundLatest: numVal('reserve_latest'),
           reserveFundPrev: numVal('reserve_prev'),
+          otherAccumFundLatest: numVal('accumfund_latest'),
+          otherAccumFundPrev: numVal('accumfund_prev'),
           netProfitLatest: numVal('profit_latest'),
           netProfitPrev: numVal('profit_prev'),
           accumLossLatest: Math.abs(numVal('loss_latest')),
@@ -695,6 +699,7 @@
     syncBs('liabilitiesLatest', ['currentLiabilities', 'nonCurrentLiabilities']);
     syncBs('shareCapitalLatest', ['shareCapital']);
     syncBs('reserveFundLatest', ['reserveFund']);
+    syncBs('otherAccumFundLatest', ['otherAccumFunds']);
     syncBs('netProfitLatest', ['netProfitYear']);
     syncBs('accumLossLatest', ['accumulatedLoss']);
 
@@ -914,6 +919,7 @@
     if (num(bs.totalLiabilities)) sum.liabilitiesLatest = num(bs.totalLiabilities);
     if (num(bs.shareCapital)) sum.shareCapitalLatest = num(bs.shareCapital);
     if (num(bs.reserveFund)) sum.reserveFundLatest = num(bs.reserveFund);
+    if (num(bs.otherAccumFunds)) sum.otherAccumFundLatest = num(bs.otherAccumFunds);
     if (num(bs.netProfitYear)) sum.netProfitLatest = num(bs.netProfitYear);
     if (num(bs.accumulatedLoss)) sum.accumLossLatest = Math.abs(num(bs.accumulatedLoss));
 
@@ -1048,6 +1054,8 @@
       setVal('share_prev', sum.shareCapitalPrev || '');
       setVal('reserve_latest', sum.reserveFundLatest || '');
       setVal('reserve_prev', sum.reserveFundPrev || '');
+      setVal('accumfund_latest', sum.otherAccumFundLatest || '');
+      setVal('accumfund_prev', sum.otherAccumFundPrev || '');
       setVal('profit_latest', sum.netProfitLatest || '');
       setVal('profit_prev', sum.netProfitPrev || '');
       setVal('loss_latest', sum.accumLossLatest || '');
