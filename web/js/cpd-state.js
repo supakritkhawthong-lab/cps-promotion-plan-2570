@@ -189,7 +189,7 @@
           totalSalesService: 0, totalCogsService: 0, grossProfit: 0,
           lessUncollectedProfitCurrent: 0, addCollectedProfitPrev: 0,
           specificIncome: 0, specificExpense: 0, netSpecificProfit: 0,
-          otherIncome: 0, priorPeriodAdjustment: 0, operatingExpense: 0, netProfit: 0
+          otherIncome: 0, profitBeforeOpEx: 0, priorPeriodAdjustment: 0, operatingExpense: 0, netProfit: 0
         },
         ratios: {
           deRatio: 0, roe: 0, roa: 0, currentRatio: 0,
@@ -901,17 +901,43 @@
       num(b.collection.specificExpense) + num(b.processing.specificExpense) + num(b.service.specificExpense);
     is.netSpecificProfit = num(is.grossProfit) - num(is.lessUncollectedProfitCurrent) +
       num(is.addCollectedProfitPrev) + num(is.specificIncome) - num(is.specificExpense);
-    is.netProfit = num(is.netSpecificProfit) + num(is.otherIncome) +
+    // profitBeforeOpEx = กำไรเฉพาะธุรกิจ + รายได้อื่น
+    is.profitBeforeOpEx = num(is.netSpecificProfit) + num(is.otherIncome);
+    is.netProfit = num(is.profitBeforeOpEx) +
       num(is.priorPeriodAdjustment) - num(is.operatingExpense);
 
+    // 7 อัตราส่วนทางการเงินตามเกณฑ์ CAD (กรมตรวจบัญชีสหกรณ์)
+    // (1) DE Ratio = หนี้สินรวม / ทุนรวม
     ratios.deRatio = num(bs.totalEquity) ? round4(num(bs.totalLiabilities) / num(bs.totalEquity)) : 0;
-    ratios.roe = num(bs.totalEquity) ? round4((num(bs.netProfitYear) / num(bs.totalEquity)) * 100) : 0;
-    ratios.roa = num(bs.totalAssets) ? round4((num(bs.netProfitYear) / num(bs.totalAssets)) * 100) : 0;
+    
+    // คำนวณค่าเฉลี่ย 2 ปีสำหรับ ROE และ ROA
+    var prevEquity = num(fin.summary2Years.assetsPrev) - num(fin.summary2Years.liabilitiesPrev);
+    var currEquity = num(bs.totalEquity);
+    var avgEquity = prevEquity > 0 ? (currEquity + prevEquity) / 2 : currEquity;
+    
+    var prevAssets = num(fin.summary2Years.assetsPrev);
+    var currAssets = num(bs.totalAssets);
+    var avgAssets = prevAssets > 0 ? (currAssets + prevAssets) / 2 : currAssets;
+    
+    // (2) ROE (%) = (กำไรสุทธิ / ทุนเฉลี่ย) * 100
+    ratios.roe = avgEquity > 0 ? round4((num(bs.netProfitYear) / avgEquity) * 100) : 0;
+    
+    // (3) ROA (%) = (กำไรสุทธิ / สินทรัพย์เฉลี่ย) * 100
+    ratios.roa = avgAssets > 0 ? round4((num(bs.netProfitYear) / avgAssets) * 100) : 0;
+    
+    // (4) อัตราส่วนทุนหมุนเวียน = สินทรัพย์หมุนเวียน / หนี้สินหมุนเวียน
     ratios.currentRatio = num(bs.currentLiabilities) ? round4(num(bs.currentAssets) / num(bs.currentLiabilities)) : 0;
+    
+    // (5) ทุนสำรองต่อสินทรัพย์ = ทุนสำรอง / สินทรัพย์รวม
     ratios.reserveToAssetRatio = num(bs.totalAssets) ? round4(num(bs.reserveFund) / num(bs.totalAssets)) : 0;
-    var grossBeforeOpex = num(is.grossProfit) + num(is.specificIncome) - num(is.specificExpense);
-    ratios.opexToGrossProfitRatio = grossBeforeOpex
-      ? round4((num(is.operatingExpense) / grossBeforeOpex) * 100) : 0;
+    
+    // (6) อัตราค่าใช้จ่ายดำเนินงานต่อกำไรก่อนหักค่าใช้จ่าย (%)
+    var profitBeforeOpEx = num(is.profitBeforeOpEx);
+    ratios.opexToGrossProfitRatio = profitBeforeOpEx > 0
+      ? round4((num(is.operatingExpense) / profitBeforeOpEx) * 100) : 0;
+    
+    // (7) อัตราลูกหนี้ระยะสั้นชำระตามกำหนด (%) - แสดงเป็น 0.00 เสมอถ้าไม่มีข้อมูล
+    ratios.shortTermDebtPaidOnTimeRatio = ratios.shortTermDebtPaidOnTimeRatio || 0;
 
     // อัปเดตยอดสรุปให้ตรงกับงบที่กรอกใน Tab 2
     var sum = fin.summary2Years;

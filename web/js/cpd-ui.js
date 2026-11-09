@@ -352,12 +352,13 @@
 
       '  <div class="card shadow-sm mb-3"><div class="card-header py-2">งบกำไรขาดทุน</div>' +
       '    <div class="card-body py-3"><div class="row g-2">' +
-      '      <div class="col-md-6"><div class="d-flex justify-content-between py-1 border-bottom"><span>รายได้จากการขาย/บริการ</span><strong>' + out('is.totalSalesService') + '</strong></div></div>' +
-      '      <div class="col-md-6"><div class="d-flex justify-content-between py-1 border-bottom"><span>ต้นทุนขาย/บริการ</span><strong>' + out('is.totalCogsService') + '</strong></div></div>' +
+      field('financials.incomeStatement.totalSalesService', 'รายได้จากการขาย/บริการ', { num: 1, col: 6 }) +
+      field('financials.incomeStatement.totalCogsService', 'ต้นทุนขาย/บริการ', { num: 1, col: 6 }) +
       '      <div class="col-md-6"><div class="d-flex justify-content-between py-1 border-bottom"><span>กำไรขั้นต้น</span><strong class="text-success">' + out('is.grossProfit') + '</strong></div></div>' +
-      '      <div class="col-md-6"><div class="d-flex justify-content-between py-1 border-bottom"><span>กำไรสุทธิเฉพาะธุรกิจ</span><strong>' + out('is.netSpecificProfit') + '</strong></div></div>' +
+      field('financials.incomeStatement.specificExpense', 'ค่าใช้จ่ายเฉพาะธุรกิจ', { num: 1, col: 6 }) +
+      '      <div class="col-md-6"><div class="d-flex justify-content-between py-1 border-bottom"><span>กำไรเฉพาะธุรกิจ</span><strong class="text-success">' + out('is.netSpecificProfit') + '</strong></div></div>' +
       field('financials.incomeStatement.otherIncome', 'รายได้อื่น', { num: 1, col: 4 }) +
-      field('financials.incomeStatement.priorPeriodAdjustment', 'ปรับปรุงงวดก่อน', { num: 1, col: 4 }) +
+      '      <div class="col-md-4"><div class="d-flex justify-content-between py-1 border-bottom"><span>กำไรก่อนหักค่าใช้จ่ายดำเนินงาน</span><strong class="text-info fw-bold">' + out('is.profitBeforeOpEx') + '</strong></div></div>' +
       field('financials.incomeStatement.operatingExpense', 'ค่าใช้จ่ายดำเนินงาน', { num: 1, col: 4 }) +
       '      <div class="col-12"><div class="d-flex justify-content-between border-top pt-2 fs-5"><strong>กำไร(ขาดทุน)สุทธิ</strong><strong class="text-success">' + out('is.netProfit') + '</strong></div></div>' +
       '    </div></div>' +
@@ -786,6 +787,7 @@
       'is.totalCogsService': money(inc.totalCogsService),
       'is.grossProfit': money(inc.grossProfit),
       'is.netSpecificProfit': money(inc.netSpecificProfit),
+      'is.profitBeforeOpEx': money(inc.profitBeforeOpEx),
       'is.netProfit': money(inc.netProfit),
       'ratio.deRatio': money(ratios.deRatio, 2),
       'ratio.roe': money(ratios.roe, 2),
