@@ -526,6 +526,44 @@ if (info.email_verified !== 'true') throw apiError_('UNAUTHORIZED', 'ยัง�
 ### หมายเหตุ
 
 - Frontend-only — ไม่ต้อง deploy GAS ใหม่
-- Cache-bust: `?v=20260214a` บน script tags
+- Cache-bust: `?v=20260214b` บน script tags
 - Backend deployment ID: `AKfycbwRmIN0s6DxePBfQYkWCpn0zD-7uw5KuhAqa-wHbzipyTw5BapF9bDVVSsGIBY5GLw` (last deployed `@38`)
 - หากต้องการเพิ่มสหกรณ์ตรวจสอบแล้วอีก → เพิ่ม entry ใน `CPD_PRELOAD.data` array ของ `cpd-preload.js`
+
+---
+
+## ระยะที่ 5 — 4M Analysis Engine + Structured Form (เสร็จแล้ว)
+
+### สิ่งที่เปลี่ยน (commit `afd61b9`)
+
+| ไฟล์ | การเปลี่ยนแปลง |
+| --- | --- |
+| `web/js/cpd-4m-engine.js` | **ไฟล์ใหม่** — Rule-based Analysis Engine วิเคราะห์ M1-M4 + ข้อสังเกตผู้สอบบัญชี |
+| `web/js/cpd-state.js` | +90 บรรทัด — `fourMDetails` ใน defaultState(), `recalc4MRatios()`, CAMELS ratios เพิ่มเติม |
+| `web/js/cpd-ui.js` | +200 บรรทัด — UI 4M Structured Form, ปุ่มวิเคราะห์, sync fields, run engine |
+| `web/js/cpd-preload.js` | +300 บรรทัด — ข้อมูล สอ.โตโยต้า + fourMDetails ในสหกรณ์ผู้เลี้ยงไก่ไข่ชลบุรี |
+| `web/index.html` | เพิ่ม script tag `cpd-4m-engine.js` |
+
+### 4M Analysis Engine
+
+| กฎ | เงื่อนไข | ผลลัพธ์ |
+| --- | --- | --- |
+| M1: ผู้ตรวจฯ เข้มแข็ง | `inspectorFrequency = monthly` | จุดแข็ง |
+| M1: ส่วนร่วมต่ำ | `ฝากเงิน < 50%` หรือ `กู้เงิน < 60%` | จุดควรพัฒนา + กิจกรรม |
+| M2: สถานที่ดี | `facilityCondition = good` | จุดแข็ง |
+| M2: โปรแกรมเอกชน | `accountingSoftware = private_software` | จุดแข็ง |
+| M3: มั่นคง | `D/E < 1` + `Current Ratio > 2` | จุดแข็ง |
+| M3: ทุนสำรองต่ำ | `reserve/asset < 0.10` | จุดควรพัฒนา + กิจกรรม |
+| M3: หมุนต่ำ | `assetTurnover < 0.10` | จุดควรพัฒนา + กิจกรรม |
+| M4: ทันเวลา | `ปิดบัญชี ≤ 30 วัน` + `ประชุมใหญ่ ≤ 150 วัน` | จุดแข็ง |
+| M4: ไม่มีแผนกลยุทธ์ | `hasStrategicPlan = false` | จุดควรพัฒนา + กิจกรรม |
+| M4: ควบคุมดีมาก | `internalControlLevel = ดีมาก` | จุดแข็ง |
+| AUD: ไม่มีจุดอ่อน | `hasInternalControlWeakness = false` | จุดแข็ง |
+| AUD: มีจุดอ่อน + ยังไม่แก้ | `hasInternalControlWeakness = true` + `correctionStatus = ยังไม่ได้ดำเนินการ` | จุดควรพัฒนา + กิจกรรม + **คำเตือน** |
+
+### ผลทดสอบ Production
+
+| สหกรณ์ | จุดแข็ง | จุดควรพัฒนา | กิจกรรม | คำเตือน |
+|---------|---------|-------------|---------|---------|
+| สอ.โตโยต้า | 8 | 3 | 3 | 0 |
+| สอ.ผู้เลี้ยงไก่ไข่ชลบุรี | 3 | 3 | 3 | 0 |
