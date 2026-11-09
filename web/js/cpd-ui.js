@@ -3008,7 +3008,7 @@
     var focusBusiness = benchmark.focusBusiness || [];
     
     focusBusiness.forEach(function(bizKey) {
-      if (S.num(biz[bizKey].netBusinessProfit) < 0) {
+      if (biz[bizKey] && S.num(biz[bizKey].netBusinessProfit) < 0) {
         var bizNames = {
           'credit': 'เงินให้กู้',
           'trading': 'จัดหาสินค้า',
