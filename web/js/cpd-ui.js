@@ -124,6 +124,7 @@
     }
     if (name === 'dashboard') {
       loadDashboard();
+      renderMisReports();
     }
   }
 
@@ -827,6 +828,33 @@
       '        <th>#</th><th style="min-width:220px">ชื่อรายงาน (แบบสั้น)</th><th style="min-width:180px">ผู้มีหน้าที่จัดส่ง</th><th>ข้อมูล ณ วันที่</th><th style="min-width:180px">กำหนดส่ง</th><th>ความถี่</th><th>กลุ่มงาน</th><th>ลิงก์</th>' +
       '      </tr></thead><tbody id="cpd5ReportRows"></tbody>' +
       '    </table>' +
+      '  </div>' +
+      '</div>' +
+
+      // MIS Report Tracking Section
+      '<div class="card shadow-sm mb-3 border-primary"><div class="card-header py-2 d-flex justify-content-between align-items-center bg-primary bg-opacity-10">' +
+      '  <span class="fw-bold text-primary">📊 ติดตามรายงานระบบ MIS กรมส่งเสริมสหกรณ์ (ปีงบประมาณ 2570)</span>' +
+      '  <span class="badge bg-primary" id="cpd5MisCount">0 สหกรณ์</span></div>' +
+      '  <div class="card-body py-3 no-print"><div class="row g-2">' +
+      '    <div class="col-md-6"><label class="form-label small fw-bold mb-1">🔍 ค้นหาชื่อสหกรณ์</label><input type="text" class="form-control form-control-sm" id="cpd5MisSearch" placeholder="พิมพ์ชื่อสหกรณ์..."></div>' +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">เดือน</label><select class="form-select form-select-sm" id="cpd5MisMonth"><option value="">ทุกเดือน</option></select></div>' +
+      '    <div class="col-md-3"><label class="form-label small fw-bold mb-1">ประเภทสหกรณ์</label><select class="form-select form-select-sm" id="cpd5MisType"><option value="">ทุกประเภท</option></select></div>' +
+      '  </div></div>' +
+      '  <div class="card-body py-2 table-responsive">' +
+      '    <table class="table table-bordered table-hover table-sm align-middle mb-0" style="font-size:0.75rem;">' +
+      '      <thead class="table-light text-center"><tr>' +
+      '        <th rowspan="2" style="min-width:200px;vertical-align:middle">ชื่อสหกรณ์</th>' +
+      '        <th rowspan="2" style="min-width:120px;vertical-align:middle">ประเภท</th>' +
+      '        <th colspan="12" class="text-center">เดือน (จำนวนรายงานที่ต้องส่ง)</th>' +
+      '      </tr><tr>' +
+      '        <th>ม.ค.</th><th>ก.พ.</th><th>มี.ค.</th><th>เม.ย.</th><th>พ.ค.</th><th>มิ.ย.</th>' +
+      '        <th>ก.ค.</th><th>ส.ค.</th><th>ก.ย.</th><th>ต.ค.</th><th>พ.ย.</th><th>ธ.ค.</th>' +
+      '      </tr></thead><tbody id="cpd5MisRows"></tbody>' +
+      '    </table>' +
+      '  </div>' +
+      '  <div class="card-footer bg-light small">' +
+      '    <div class="fw-bold mb-1">📋 รายงานในระบบ MIS (34 รายการ):</div>' +
+      '    <div class="text-muted" style="font-size:0.72rem;" id="cpd5MisReportList"></div>' +
       '  </div>' +
       '</div>' +
 
@@ -2247,6 +2275,9 @@
 
     // Task 4: ทะเบียนเอกสาร/รายงาน
     renderReportRegistry();
+
+    // MIS Report Tracking
+    renderMisReports();
   }
 
   UI.loadCoopForEdit = function (index) {
@@ -3520,6 +3551,109 @@
   }
 
   // =========================================================================
+  // MIS Report Tracking (ติดตามรายงานระบบ MIS กรมส่งเสริมสหกรณ์)
+  // =========================================================================
+
+  var MIS_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+    'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+
+  function renderMisReports() {
+    var mis = global.CPD_MIS_REPORTS;
+    if (!mis || !mis.coops) {
+      var box = $('cpd5MisRows');
+      if (box) box.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-3">กำลังโหลดข้อมูล MIS...</td></tr>';
+      return;
+    }
+
+    // Wire event listeners (once)
+    if (!renderMisReports._wired) {
+      renderMisReports._wired = true;
+      ['cpd5MisSearch', 'cpd5MisMonth', 'cpd5MisType'].forEach(function (id) {
+        var el = $(id);
+        if (el) {
+          var evt = id === 'cpd5MisSearch' ? 'input' : 'change';
+          el.addEventListener(evt, renderMisReports);
+        }
+      });
+    }
+
+    var R = mis.reports || [];
+    var C = mis.coops || {};
+
+    // Populate month filter
+    var monthSel = $('cpd5MisMonth');
+    if (monthSel && monthSel.options.length <= 1) {
+      MIS_MONTHS.forEach(function (m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        monthSel.appendChild(opt);
+      });
+    }
+
+    // Populate type filter
+    var typeSel = $('cpd5MisType');
+    if (typeSel && typeSel.options.length <= 1) {
+      var types = {};
+      Object.keys(C).forEach(function (name) { types[C[name].t || 'ไม่ระบุ'] = 1; });
+      Object.keys(types).sort().forEach(function (t) {
+        var opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        typeSel.appendChild(opt);
+      });
+    }
+
+    // Read filters
+    var search = ($('cpd5MisSearch') && $('cpd5MisSearch').value || '').toLowerCase().trim();
+    var monthFilter = ($('cpd5MisMonth') && $('cpd5MisMonth').value) || '';
+    var typeFilter = ($('cpd5MisType') && $('cpd5MisType').value) || '';
+
+    // Build rows
+    var coopNames = Object.keys(C).sort();
+    var filtered = coopNames.filter(function (name) {
+      if (search && name.toLowerCase().indexOf(search) === -1) return false;
+      var d = C[name];
+      if (typeFilter && (d.t || 'ไม่ระบุ') !== typeFilter) return false;
+      if (monthFilter && (!d.m || !d.m[monthFilter])) return false;
+      return true;
+    });
+
+    var tbody = $('cpd5MisRows');
+    if (tbody) {
+      tbody.innerHTML = filtered.length > 0 ? filtered.map(function (name) {
+        var d = C[name];
+        var monthCells = MIS_MONTHS.map(function (m) {
+          var reports = (d.m && d.m[m]) || [];
+          var count = reports.length;
+          if (count === 0) return '<td class="text-center text-muted">-</td>';
+          var color = count >= 10 ? 'bg-danger' : (count >= 5 ? 'bg-warning text-dark' : 'bg-info text-dark');
+          return '<td class="text-center"><span class="badge ' + color + ' rounded-pill" title="' +
+            h(reports.map(function (ri) { return R[ri] || ''; }).join('\n')) + '">' + count + '</span></td>';
+        }).join('');
+        var typeLabel = d.t || 'ไม่ระบุ';
+        return '<tr>' +
+          '<td>' + h(name) + '</td>' +
+          '<td class="text-center">' + h(typeLabel) + '</td>' +
+          monthCells +
+          '</tr>';
+      }).join('') : '<tr><td colspan="14" class="text-center text-muted py-3">ไม่พบข้อมูลตามตัวกรอง</td></tr>';
+    }
+
+    // Update count badge
+    var count = $('cpd5MisCount');
+    if (count) count.textContent = filtered.length + ' สหกรณ์';
+
+    // Show report list in footer
+    var reportList = $('cpd5MisReportList');
+    if (reportList) {
+      reportList.innerHTML = R.map(function (r, i) {
+        return '<span class="badge bg-light text-dark me-1 mb-1" style="font-size:0.68rem;">' + (i + 1) + '. ' + h(r) + '</span>';
+      }).join('');
+    }
+  }
+
+  // =========================================================================
   // PUBLIC + BOOT
   // =========================================================================
 
@@ -3538,6 +3672,7 @@
   UI.clearAutoGeneratedActivities = clearAutoGeneratedActivities;
   UI.renderReportRegistry = renderReportRegistry;
   UI.renderReportRows = renderReportRows;
+  UI.renderMisReports = renderMisReports;
   global.CPD_UI = UI;
   global.CPD_autoPipeline = autoPipeline4M;
 
