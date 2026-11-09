@@ -3125,6 +3125,7 @@
   UI.renderDashboard = renderDashboard;
   UI.analyze4M = analyze4M;
   UI.populate4MFromBaseForm = populate4MFromBaseForm;
+  UI.addWeaknessActivitiesFrom4M = addWeaknessActivitiesFrom4M;
   UI.renderReportRegistry = renderReportRegistry;
   UI.renderReportRows = renderReportRows;
   global.CPD_UI = UI;
