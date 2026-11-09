@@ -411,6 +411,7 @@
       '    <span>การวิเคราะห์ข้อมูลสหกรณ์/กลุ่มเกษตรกร (4M)</span>' +
       '    <span class="no-print d-flex gap-1 flex-wrap">' +
       '      <button type="button" class="btn btn-sm btn-success py-0 fw-bold" data-action="analyze-4m">✨ ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติ</button>' +
+      '      <button type="button" class="btn btn-sm btn-warning py-0 fw-bold" data-action="add-weakness-activities">🎯 ส่งแนวทางแก้ไขจุดอ่อนไปยังตารางเป้าหมาย (5.2)</button>' +
       '      <button type="button" class="btn btn-sm btn-light py-0 fw-bold" data-action="insert-4m">➕ แทรกโครงสร้างหัวข้อ 4M ตั้งต้น</button>' +
       '    </span></div>' +
       '    <div class="card-body py-3"><div class="row g-3">' +
@@ -1325,6 +1326,8 @@
       insert4MStructure();
     } else if (action === 'analyze-4m') {
       populate4MFromBaseForm();
+    } else if (action === 'add-weakness-activities') {
+      addWeaknessActivitiesFrom4M();
     } else if (action === 'sync-to-base') {
       syncTotalsToBaseForm();
     } else if (action === 'save-plan') {
@@ -2277,64 +2280,155 @@
     org.push('- สหกรณ์ยังไม่มีการนำ Application Smart 4M มาใช้ในการบริหารจัดการในสหกรณ์');
     org.push('');
     org.push('3. หัวข้อ: การเงิน');
-    org.push('- ในรอบ 3 ปีบัญชีย้อนหลังสหกรณ์ดำเนินงานมีกำไรทุกปีเฉลี่ยปีละ ' + fmtBahtTxt(avgProfit3));
-    org.push('- สำหรับปีสิ้นสุดวันที่ ' + fiscalEndDate + ' สหกรณ์มีรายได้รวมทั้งสิ้น ' +
-      fmtBahtTxt(income) +
-      ' มีต้นทุนและค่าใช้จ่ายทั้งสิ้น จำนวน ' +
-      fmtBahtTxt(expense) +
-      ' ผลการดำเนินงานมีกำไรสุทธิ จำนวน ' +
-      fmtBahtTxt(profit) +
-      (diffPhrase(profit, profitPrev) ? ' ' + diffPhrase(profit, profitPrev) : ''));
-    org.push('- ณ วันที่ ' + fiscalEndDate + ' สหกรณ์มีทุนดำเนินงานทั้งสิ้น ' +
-      fmtBahtTxt(workingCapital) +
-      (diffPhrase(workingCapital, N1.workingCapital) ? ' ' + diffPhrase(workingCapital, N1.workingCapital) : '') +
-      ' ทุนดำเนินงานดังกล่าวมาจากทุนของสหกรณ์ จำนวน ' +
-      fmtBahtTxt(coopCapital) +
-      ' เป็นหนี้สิน จำนวน ' +
-      fmtBahtTxt(liabilities) +
-      ' ซึ่งมาจากการกู้ยืม จำนวน ' +
-      fmtBahtTxt(loans) +
-      ' รองลงมา คือเจ้าหนี้การค้า จำนวน ' +
-      fmtBahtTxt(payables));
-    org.push('- สหกรณ์มีสินทรัพย์ทั้งสิ้นจำนวน ' +
-      fmtBahtTxt(assets) +
-      ' ส่วนใหญ่อยู่ในรูปของเงินสดและเงินฝากธนาคาร จำนวน ' +
-      fmtBahtTxt(cash) +
-      ' รองลงมาเป็นสินค้าคงเหลือ จำนวน ' +
-      fmtBahtTxt(inventory) +
-      ' ที่ดินอาคารและอุปกรณ์-สุทธิ จำนวน ' +
-      fmtBahtTxt(ppe) +
-      ' ลูกหนี้การค้า จำนวน ' +
-      fmtBahtTxt(receivables) +
-      ' และสินทรัพย์อื่นๆ จำนวน ' +
-      fmtBahtTxt(otherAssets));
-    org.push('- ธุรกิจจัดหาสินค้ามาจำหน่าย ระหว่างปี สหกรณ์จัดหาสินค้ามาจำหน่าย จำนวน ' +
-      fmtBahtTxt(salesTrading) +
-      ' ' + planComparePhrase(salesTrading, planTrading) +
-      ' ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้ ' +
-      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้') +
-      ' ' + profitPhrase(profitTrading) +
-      (diffPhrase(profitTrading, profitTradingPrev) ? ' ' + diffPhrase(profitTrading, profitTradingPrev) : ''));
-    org.push('- ธุรกิจแปรรูปและผลิตสินค้า ระหว่างปี สหกรณ์ดำเนินธุรกิจ จำนวน ' +
-      fmtBahtTxt(salesProcessing) +
-      ' ' + planComparePhrase(salesProcessing, planProcessing) +
-      ' ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้ ' +
-      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้') +
-      ' ' + profitPhrase(profitProcessing) +
-      (diffPhrase(profitProcessing, profitProcessingPrev) ? ' ' + diffPhrase(profitProcessing, profitProcessingPrev) : ''));
-    org.push('- การรับฝากเงิน ระหว่างปี สหกรณ์รับฝากเงินจากสมาชิก จำนวน ' +
-      fmtBahtTxt(depositAmount) +
-      ' ' + (profitDeposit ? profitPhrase(profitDeposit) : 'สหกรณ์รับฝากเงินเพื่อเป็นทุนหมุนเวียนในการดำเนินงาน'));
-    org.push('- เมื่อเปรียบเทียบเงินออมเฉลี่ยต่อสมาชิก ' +
-      fmtBahtTxt(avgSaving) + ' ต่อคน' +
-      ' กับหนี้สินเฉลี่ยต่อสมาชิก ' +
-      fmtBahtTxt(avgDebt) + ' ต่อคน' +
-      ' พบว่า ' +
-      (S.num(avgSaving) > 0 && S.num(avgDebt) > 0
-        ? (S.num(avgSaving) >= S.num(avgDebt)
+    
+    // 3.1 กำไรเฉลี่ย 3 ปีย้อนหลัง
+    if (avgProfit3 > 0) {
+      org.push('- ในรอบ 3 ปีบัญชีย้อนหลัง สหกรณ์ดำเนินงานมีกำไรทุกปี เฉลี่ยปีละ ' + valOrText(avgProfit3));
+    } else if (avgProfit3 < 0) {
+      org.push('- ในรอบ 3 ปีบัญชีย้อนหลัง สหกรณ์มีผลขาดทุนเฉลี่ยปีละ ' + valOrText(Math.abs(avgProfit3)) + ' ต้องเร่งฟื้นฟูฐานะการเงิน');
+    } else {
+      org.push('- ในรอบ 3 ปีบัญชีย้อนหลัง สหกรณ์ยังไม่มีข้อมูลกำไรเฉลี่ย');
+    }
+    
+    // 3.2 รายได้และค่าใช้จ่ายปีล่าสุด
+    org.push('- สำหรับปีสิ้นสุดวันที่ ' + fiscalEndDate + ' สหกรณ์มีรายได้รวมทั้งสิ้น ' + 
+      valOrText(income, 'บาท', 'ไม่ระบุ') +
+      (income > 0 && S.num(N1.totalIncome) > 0 ? ' ' + yoyText(income, N1.totalIncome) : '') +
+      ' มีต้นทุนและค่าใช้จ่ายทั้งสิ้น ' + valOrText(expense, 'บาท', 'ไม่ระบุ') +
+      (expense > 0 && S.num(N1.totalExpense) > 0 ? ' ' + yoyText(expense, N1.totalExpense) : ''));
+    
+    // 3.3 ผลกำไรสุทธิ
+    if (profit > 0) {
+      org.push('- ผลการดำเนินงานมีกำไรสุทธิ ' + valOrText(profit) + 
+        (profitPrev > 0 ? ' ' + yoyText(profit, profitPrev) : ''));
+    } else if (profit < 0) {
+      org.push('- ผลการดำเนินงานมีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit)) + 
+        ' ต้องทบทวนกลยุทธ์การดำเนินงานและควบคุมต้นทุน' +
+        (profitPrev > 0 ? ' ' + yoyText(profit, profitPrev) : ''));
+    } else {
+      org.push('- ผลการดำเนินงานไม่มีกำไรหรือขาดทุนสุทธิ');
+    }
+    
+    // 3.4 ทุนดำเนินงานและโครงสร้างเงินทุน
+    org.push('- ณ วันที่ ' + fiscalEndDate + ' สหกรณ์มีทุนดำเนินงานทั้งสิ้น ' + valOrText(workingCapital, 'บาท', 'ไม่ระบุ') +
+      (workingCapital > 0 && S.num(N1.workingCapital) > 0 ? ' ' + yoyText(workingCapital, N1.workingCapital) : ''));
+    org.push('  ทุนดำเนินงานดังกล่าวมาจากทุนของสหกรณ์ จำนวน ' + valOrText(coopCapital, 'บาท', 'ไม่ระบุ') +
+      (coopCapital > 0 && S.num(N1.coopCapital) > 0 ? ' ' + yoyText(coopCapital, N1.coopCapital) : ''));
+    org.push('  เป็นหนี้สิน จำนวน ' + valOrText(liabilities, 'บาท', 'ไม่ระบุ') +
+      (liabilities > 0 && S.num(N1.loans) > 0 ? ' ' + yoyText(liabilities, N1.loans) : ''));
+    
+    // 3.5 โครงสร้างหนี้สิน
+    if (loans > 0 || payables > 0) {
+      var debtStructure = '  โครงสร้างหนี้สิน:';
+      if (loans > 0) debtStructure += ' เงินกู้ยืม ' + valOrText(loans) + 
+        (liabilities > 0 ? ' (' + S.fmt(loans / liabilities * 100, 1) + '%)' : '');
+      if (payables > 0) debtStructure += ' เจ้าหนี้การค้า ' + valOrText(payables) +
+        (liabilities > 0 ? ' (' + S.fmt(payables / liabilities * 100, 1) + '%)' : '');
+      org.push(debtStructure);
+    }
+    
+    // 3.6 องค์ประกอบสินทรัพย์
+    org.push('- องค์ประกอบสินทรัพย์รวม ' + valOrText(assets, 'บาท', 'ไม่ระบุ') + ':');
+    var assetItems = [];
+    if (cash > 0) assetItems.push('เงินสดและเงินฝากธนาคาร ' + valOrText(cash) + ' (' + S.fmt(cash / assets * 100, 1) + '%)');
+    if (receivables > 0) assetItems.push('ลูกหนี้การค้า ' + valOrText(receivables) + ' (' + S.fmt(receivables / assets * 100, 1) + '%)');
+    if (inventory > 0) assetItems.push('สินค้าคงเหลือ ' + valOrText(inventory) + ' (' + S.fmt(inventory / assets * 100, 1) + '%)');
+    if (ppe > 0) assetItems.push('ที่ดินอาคารและอุปกรณ์-สุทธิ ' + valOrText(ppe) + ' (' + S.fmt(ppe / assets * 100, 1) + '%)');
+    if (otherAssets > 0) assetItems.push('สินทรัพย์อื่น ' + valOrText(otherAssets) + ' (' + S.fmt(otherAssets / assets * 100, 1) + '%)');
+    if (assetItems.length > 0) {
+      org.push('  ' + assetItems.join(', '));
+    }
+    
+    // 3.7 Rule-based Financial Ratios Analysis
+    org.push('- การวิเคราะห์อัตราส่วนทางการเงิน:');
+    
+    // Current Ratio = สินทรัพย์หมุนเวียน / หนี้สินหมุนเวียน
+    var currentRatio = bs.currentAssets && bs.currentLiabilities ? 
+      (S.num(bs.currentAssets) / S.num(bs.currentLiabilities)) : 0;
+    if (currentRatio > 0) {
+      if (currentRatio < 1.0) {
+        org.push('  อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + 
+          ' สภาพคล่องทางการเงินอยู่ในเกณฑ์ตึงตัว มีความเสี่ยงในการชำระหนี้ระยะสั้น ต้องเร่งบริหารกระแสเงินสด');
+      } else if (currentRatio <= 2.5) {
+        org.push('  อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + 
+          ' มีสภาพคล่องทางการเงินอยู่ในเกณฑ์เหมาะสม');
+      } else {
+        org.push('  อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + 
+          ' มีสภาพคล่องส่วนเกินหรือสินทรัพย์หมุนเวียนค้างมือสูง ควรวางแผนบริหารเงินทุนหมุนเวียนเพื่อสร้างผลตอบแทนเพิ่ม');
+      }
+    }
+    
+    // D/E Ratio = หนี้สินรวม / ทุนรวม
+    var deRatio = liabilities > 0 && coopCapital > 0 ? (liabilities / coopCapital) : 0;
+    if (deRatio > 0) {
+      if (deRatio > 1.5) {
+        org.push('  อัตราส่วนหนี้สินต่อทุน (D/E Ratio) = ' + S.fmt(deRatio, 2) + 
+          ' พึ่งพิงทุนภายนอกค่อนข้างสูง ควรควบคุมภาระหนี้สินและต้นทุนทางการเงิน');
+      } else {
+        org.push('  อัตราส่วนหนี้สินต่อทุน (D/E Ratio) = ' + S.fmt(deRatio, 2) + 
+          ' โครงสร้างเงินทุนมีความมั่นคง พึ่งพาทุนของสหกรณ์เป็นหลัก');
+      }
+    }
+    
+    // Short-term Loan Collection Rate (ถ้ามีข้อมูลลูกหนี้)
+    if (receivables > 0 && assets > 0) {
+      var receivablesRatio = (receivables / assets) * 100;
+      if (receivablesRatio > 15) {
+        org.push('  อัตราส่วนลูกหนี้ต่อสินทรัพย์ = ' + S.fmt(receivablesRatio, 1) + 
+          '% ต้องเฝ้าระวังคุณภาพลูกหนี้ เนื่องจากอาจกระทบการตั้งค่าเผื่อหนี้สงสัยจะสูญและคะแนนความเข้มแข็งมิติที่ 2 และ 4');
+      }
+    }
+    
+    // Operating Expense Ratio
+    if (expense > 0 && income > 0) {
+      var opexRatio = (expense / income) * 100;
+      if (opexRatio > 95) {
+        org.push('  อัตราค่าใช้จ่ายดำเนินงานต่อยอดขาย = ' + S.fmt(opexRatio, 1) + 
+          '% ค่อนข้างสูง ควรควบคุมค่าใช้จ่ายในการบริหารจัดการ');
+      }
+    }
+    
+    // Profitability Warning
+    if (profit < 0) {
+      org.push('  สหกรณ์มีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit)) + 
+        ' ต้องทบทวนกลยุทธ์การดำเนินงานและควบคุมต้นทุน');
+    }
+    if (bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0) {
+      org.push('  สหกรณ์มีขาดทุนสะสม ' + valOrText(bs.accumulatedLoss) + 
+        ' ควรเร่งฟื้นฟูฐานะการเงินและทบทวนแผนธุรกิจ');
+    }
+    
+    // 3.8 ธุรกิจหลัก
+    if (salesTrading > 0) {
+      org.push('- ธุรกิจจัดหาสินค้ามาจำหน่าย ระหว่างปี สหกรณ์จัดหาสินค้ามาจำหน่าย ' + valOrText(salesTrading) +
+        (planTrading > 0 ? ' ' + planComparePhrase(salesTrading, planTrading) : ' โดยไม่ได้กำหนดแผนงานไว้') +
+        ' ' + profitPhrase(profitTrading) +
+        (profitTradingPrev > 0 ? ' ' + yoyText(profitTrading, profitTradingPrev) : ''));
+    }
+    
+    if (salesProcessing > 0) {
+      org.push('- ธุรกิจแปรรูปและผลิตสินค้า ระหว่างปี สหกรณ์ดำเนินธุรกิจ ' + valOrText(salesProcessing) +
+        (planProcessing > 0 ? ' ' + planComparePhrase(salesProcessing, planProcessing) : ' โดยไม่ได้กำหนดแผนงานไว้') +
+        ' ' + profitPhrase(profitProcessing) +
+        (profitProcessingPrev > 0 ? ' ' + yoyText(profitProcessing, profitProcessingPrev) : ''));
+    }
+    
+    if (depositAmount > 0) {
+      org.push('- การรับฝากเงิน ระหว่างปี สหกรณ์รับฝากเงินจากสมาชิก ' + valOrText(depositAmount) +
+        (profitDeposit ? ' ' + profitPhrase(profitDeposit) : ' สหกรณ์รับฝากเงินเพื่อเป็นทุนหมุนเวียนในการดำเนินงาน'));
+    }
+    
+    // 3.9 เงินออม vs หนี้สินเฉลี่ยต่อสมาชิก
+    if (avgSaving > 0 && avgDebt > 0) {
+      org.push('- เมื่อเปรียบเทียบเงินออมเฉลี่ยต่อสมาชิก ' + valOrText(avgSaving) + ' ต่อคน' +
+        ' กับหนี้สินเฉลี่ยต่อสมาชิก ' + valOrText(avgDebt) + ' ต่อคน' +
+        ' พบว่า ' +
+        (avgSaving >= avgDebt
           ? 'สมาชิกมีเงินออมเฉลี่ยสูงกว่าหนี้สิน แสดงให้เห็นถึงสมาชิกมีศักยภาพทางการเงินที่ดี'
-          : 'สมาชิกมีหนี้สินเฉลี่ยสูงกว่าเงินออม จึงควรติดตามและบริหารจัดการภาระหนี้สินของสมาชิกอย่างต่อเนื่อง')
-        : '......'));
+          : 'สมาชิกมีหนี้สินเฉลี่ยสูงกว่าเงินออม จึงควรติดตามและบริหารจัดการภาระหนี้สินของสมาชิกอย่างต่อเนื่อง'));
+    }
+    
+    // 3.10 ข้อสรุปทั่วไป
     org.push('- สินทรัพย์หมุนเวียนส่วนใหญ่ของสหกรณ์ คือ เงินสดและเงินฝากธนาคาร สินค้าคงเหลือ และลูกหนี้การค้า ดังนั้น สภาพคล่องทางการเงินของสหกรณ์จึงขึ้นอยู่กับการบริหารจัดการด้านสินค้าให้มีการขายในระยะเวลาที่เหมาะสมและบริหารจัดการลูกหนี้การค้าให้ชำระหนี้เป็นไปตามเงื่อนไข');
     org.push('- สหกรณ์ต้องติดตามข้อมูลข่าวสารจากภายนอกเพื่อเป็นข้อมูลในการตัดสินใจดำเนินธุรกิจ และลดความเสี่ยงที่อาจส่งผลกระทบต่อการดำเนินงานของสหกรณ์ โดยภาวการณ์แข่งขันในตลาดเป็นปัจจัยภายนอกที่สหกรณ์ไม่สามารถควบคุมได้ รวมทั้งนโยบายของรัฐทั้งด้านราคาผลผลิต ราคาอาหาร และยาส่งผลกระทบต่อต้นทุนการดำเนินงานของสหกรณ์');
     org.push('');
@@ -2353,60 +2447,161 @@
       (quorumOk ? ' ครบองค์ประชุม' : ''));
 
     // -------------------------------------------------------------------
-    // 2) ด้านการบริหารจัดการธุรกิจ
+    // 2) ด้านการบริหารจัดการธุรกิจ (วิเคราะห์ 5 ธุรกิจแยกตามประเภท)
     // -------------------------------------------------------------------
     var business = [];
     business.push('- ผลการวิเคราะห์ข้อมูลด้านการบริหารจัดการธุรกิจ');
     business.push('ด้านการบริหารจัดการธุรกิจ');
     business.push('');
-    business.push('1. หัวข้อ: ธุรกิจรับฝากเงิน');
-    business.push('- ในรอบปี ' + planYear + ' สหกรณ์' + (depositAmount ? 'ได้กำหนด' : 'ไม่ได้กำหนด') + 'แผนธุรกิจรับฝากเงินไว้' + (depositAmount ? 'เพื่อรองรับการออมของสมาชิก' : 'เช่นเดียวกับปีก่อน'));
-    business.push('- สหกรณ์รับฝากเงินจากสมาชิกประเภทเงินรับฝากออมทรัพย์ เพื่อเป็นทุนหมุนเวียนในการดำเนินงานของสหกรณ์');
-    business.push('- การมีส่วนร่วมของสมาชิก สหกรณ์รับฝากเงินออมทรัพย์จำนวน ' +
-      fmtCountTxt(membersDeposit) +
-      ' จากสมาชิกทั้งหมด ' +
-      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
-      ' คิดเป็นร้อยละ ' + pctText(membersDeposit, membersTotal) +
-      ' ของจำนวนสมาชิกทั้งหมด ระหว่างปีรับฝากเงิน จำนวน ' +
-      fmtBahtTxt(depositAmount));
-    business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
-    business.push('- สหกรณ์ยังไม่มีนโยบายในการที่จะเพิ่มประเภทเงินรับฝากนอกจากที่ดำเนินการอยู่ในปัจจุบัน');
-    business.push('');
-    business.push('2. หัวข้อ: ธุรกิจจัดหาสินค้ามาจำหน่าย');
-    business.push('- สหกรณ์ดำเนินธุรกิจจัดหาสินค้ามาจำหน่ายปริมาณธุรกิจรวม ' +
-      fmtBahtTxt(salesTrading) +
-      ' มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน ' +
-      profitPhrase(profitTrading) +
-      (diffPhrase(profitTrading, profitTradingPrev) ? ' ' + diffPhrase(profitTrading, profitTradingPrev) : ''));
-    business.push('- สหกรณ์กำหนดแผนงานไว้ ' +
-      (planTrading ? 'จำนวน ' + fmtBahtTxt(planTrading) : 'โดยไม่ได้กำหนดแผนงานไว้') +
-      ' ' + planComparePhrase(salesTrading, planTrading));
-    business.push('- สหกรณ์ใช้โปรแกรมบันทึกรายการซื้อขาย/สต๊อกสินค้า และมีระบบการควบคุมสินค้าคงเหลือตามระเบียบที่เกี่ยวข้อง');
-    business.push('- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน ' +
-      fmtCountTxt(membersTrading) +
-      ' จากจำนวนสมาชิกทั้งหมด ' +
-      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
-      ' ระหว่างปีมีการจำหน่ายสินค้าเป็นเงิน ' +
-      fmtBahtTxt(salesTrading));
-    business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
-    business.push('');
-    business.push('3. หัวข้อ: ธุรกิจแปรรูป');
-    business.push('- สหกรณ์ดำเนินธุรกิจแปรรูปและผลิตสินค้า ระหว่างปีมีมูลค่าธุรกิจ จำนวน ' +
-      fmtBahtTxt(salesProcessing) +
-      ' มีต้นทุนขายและค่าใช้จ่ายเฉพาะธุรกิจตามที่ปรากฏในงบการเงิน ' +
-      profitPhrase(profitProcessing) +
-      (diffPhrase(profitProcessing, profitProcessingPrev) ? ' ' + diffPhrase(profitProcessing, profitProcessingPrev) : ''));
-    business.push('- ในรอบปี ' + planYear + ' สหกรณ์ประมาณการแผนงานไว้ ' +
-      (planProcessing ? 'จำนวน ' + fmtBahtTxt(planProcessing) : 'โดยไม่ได้กำหนดแผนงานไว้') +
-      ' ' + planComparePhrase(salesProcessing, planProcessing));
-    business.push('- สหกรณ์กำหนดแนวทางปฏิบัติงานด้านการผลิตอย่างต่อเนื่อง และควรจัดทำระเบียบรองรับให้ครอบคลุมการดำเนินธุรกิจ');
-    business.push('- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน ' +
-      fmtCountTxt(membersProcessing) +
-      ' จากจำนวนสมาชิกทั้งหมด ' +
-      fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
-      ' ระหว่างปีมีมูลค่าการขาย ' +
-      fmtBahtTxt(salesProcessing));
-    business.push('- สหกรณ์ไม่ได้จัดจ้างเจ้าหน้าที่ในการปฏิบัติงานในธุรกิจนี้โดยเฉพาะ');
+    
+    // ดึงข้อมูลธุรกิจ 5 ประเภทจาก state
+    var biz = f.businesses || {};
+    var creditBiz = biz.credit || {};
+    var tradingBiz = biz.trading || {};
+    var collectionBiz = biz.collection || {};
+    var processingBiz = biz.processing || {};
+    var serviceBiz = biz.service || {};
+    
+    // 1. ธุรกิจเงินให้กู้ (Credit)
+    if (S.num(creditBiz.interestIncome) > 0 || S.num(creditBiz.netBusinessProfit) !== 0) {
+      business.push('1. หัวข้อ: ธุรกิจเงินให้กู้');
+      business.push('- สหกรณ์ดำเนินธุรกิจเงินให้กู้ มีรายได้ดอกเบี้ย ' + valOrText(creditBiz.interestIncome, 'บาท', 'ไม่ระบุ') +
+        ' ต้นทุนการให้บริการ ' + valOrText(creditBiz.serviceCost, 'บาท', 'ไม่ระบุ'));
+      business.push('- ผลกำไรจากธุรกิจเงินให้กู้ ' + valOrText(creditBiz.grossProfit, 'บาท', 'ไม่ระบุ') +
+        ' รายได้เฉพาะกิจการ ' + valOrText(creditBiz.specificIncome, 'บาท', 'ไม่ระบุ') +
+        ' ค่าใช้จ่ายเฉพาะกิจการ ' + valOrText(creditBiz.specificExpense, 'บาท', 'ไม่ระบุ'));
+      business.push('- ผลกำไรสุทธิจากธุรกิจ ' + valOrText(creditBiz.netBusinessProfit, 'บาท', 'ไม่ระบุ'));
+      if (S.num(creditBiz.netBusinessProfit) < 0) {
+        business.push('  ** พบจุดอ่อนจากการที่ธุรกิจมีผลขาดทุน ' + valOrText(Math.abs(creditBiz.netBusinessProfit)) + 
+          ' ต้องทบทวนการกำหนดราคา ต้นทุนจม และการควบคุมจุดรั่วไหล **');
+      }
+      business.push('');
+    }
+    
+    // 2. ธุรกิจจัดหาสินค้ามาจำหน่าย (Trading)
+    if (S.num(tradingBiz.sales) > 0 || S.num(tradingBiz.netBusinessProfit) !== 0) {
+      business.push('2. หัวข้อ: ธุรกิจจัดหาสินค้ามาจำหน่าย');
+      business.push('- สหกรณ์ดำเนินธุรกิจจัดหาสินค้ามาจำหน่าย มียอดขาย ' + valOrText(tradingBiz.sales, 'บาท', 'ไม่ระบุ') +
+        (S.num(N1.salesTrading) > 0 ? ' ' + yoyText(tradingBiz.sales, N1.salesTrading) : '') +
+        ' ต้นทุนขาย ' + valOrText(tradingBiz.cogs, 'บาท', 'ไม่ระบุ'));
+      
+      var tradingMargin = S.num(tradingBiz.sales) > 0 ? (S.num(tradingBiz.grossProfit) / S.num(tradingBiz.sales) * 100) : 0;
+      business.push('- กำไรขั้นต้น ' + valOrText(tradingBiz.grossProfit, 'บาท', 'ไม่ระบุ') +
+        ' อัตรากำไรขั้นต้น ' + S.fmt(tradingMargin, 1) + '%');
+      business.push('- รายได้เฉพาะกิจการ ' + valOrText(tradingBiz.specificIncome, 'บาท', 'ไม่ระบุ') +
+        ' ค่าใช้จ่ายเฉพาะกิจการ ' + valOrText(tradingBiz.specificExpense, 'บาท', 'ไม่ระบุ'));
+      business.push('- ผลกำไรสุทธิจากธุรกิจ ' + valOrText(tradingBiz.netBusinessProfit, 'บาท', 'ไม่ระบุ') +
+        (S.num(N1.profitTrading) > 0 ? ' ' + yoyText(tradingBiz.netBusinessProfit, N1.profitTrading) : ''));
+      if (S.num(tradingBiz.netBusinessProfit) < 0) {
+        business.push('  ** พบจุดอ่อนจากการที่ธุรกิจมีผลขาดทุน ' + valOrText(Math.abs(tradingBiz.netBusinessProfit)) + 
+          ' ต้องทบทวนการกำหนดราคา ต้นทุนจม และการควบคุมจุดรั่วไหล **');
+      }
+      
+      // การมีส่วนร่วมของสมาชิก
+      if (membersTrading > 0) {
+        business.push('- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน ' + fmtCountTxt(membersTrading) +
+          ' จากจำนวนสมาชิกทั้งหมด ' +
+          fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+          ' ระหว่างปีมีการจำหน่ายสินค้าเป็นเงิน ' + valOrText(tradingBiz.sales, 'บาท', 'ไม่ระบุ'));
+      }
+      business.push('');
+    }
+    
+    // 3. ธุรกิจรวบรวมผลผลิต (Collection)
+    if (S.num(collectionBiz.sales) > 0 || S.num(collectionBiz.netBusinessProfit) !== 0) {
+      business.push('3. หัวข้อ: ธุรกิจรวบรวมผลผลิต');
+      business.push('- สหกรณ์ดำเนินธุรกิจรวบรวมผลผลิต มียอดขาย ' + valOrText(collectionBiz.sales, 'บาท', 'ไม่ระบุ') +
+        ' ต้นทุนขาย ' + valOrText(collectionBiz.cogs, 'บาท', 'ไม่ระบุ'));
+      
+      var collectionMargin = S.num(collectionBiz.sales) > 0 ? (S.num(collectionBiz.grossProfit) / S.num(collectionBiz.sales) * 100) : 0;
+      business.push('- กำไรขั้นต้น ' + valOrText(collectionBiz.grossProfit, 'บาท', 'ไม่ระบุ') +
+        ' อัตรากำไรขั้นต้น ' + S.fmt(collectionMargin, 1) + '%');
+      business.push('- รายได้เฉพาะกิจการ ' + valOrText(collectionBiz.specificIncome, 'บาท', 'ไม่ระบุ') +
+        ' ค่าใช้จ่ายเฉพาะกิจการ ' + valOrText(collectionBiz.specificExpense, 'บาท', 'ไม่ระบุ'));
+      business.push('- ผลกำไรสุทธิจากธุรกิจ ' + valOrText(collectionBiz.netBusinessProfit, 'บาท', 'ไม่ระบุ'));
+      if (S.num(collectionBiz.netBusinessProfit) < 0) {
+        business.push('  ** พบจุดอ่อนจากการที่ธุรกิจมีผลขาดทุน ' + valOrText(Math.abs(collectionBiz.netBusinessProfit)) + 
+          ' ต้องทบทวนการกำหนดราคา ต้นทุนจม และการควบคุมจุดรั่วไหล **');
+      }
+      business.push('');
+    }
+    
+    // 4. ธุรกิจแปรรูปผลผลิต (Processing)
+    if (S.num(processingBiz.sales) > 0 || S.num(processingBiz.netBusinessProfit) !== 0) {
+      business.push('4. หัวข้อ: ธุรกิจแปรรูปและผลิตสินค้า');
+      business.push('- สหกรณ์ดำเนินธุรกิจแปรรูปและผลิตสินค้า มียอดขาย ' + valOrText(processingBiz.sales, 'บาท', 'ไม่ระบุ') +
+        (S.num(N1.salesProcessing) > 0 ? ' ' + yoyText(processingBiz.sales, N1.salesProcessing) : '') +
+        ' ต้นทุนขาย ' + valOrText(processingBiz.cogs, 'บาท', 'ไม่ระบุ'));
+      
+      var processingMargin = S.num(processingBiz.sales) > 0 ? (S.num(processingBiz.grossProfit) / S.num(processingBiz.sales) * 100) : 0;
+      business.push('- กำไรขั้นต้น ' + valOrText(processingBiz.grossProfit, 'บาท', 'ไม่ระบุ') +
+        ' อัตรากำไรขั้นต้น ' + S.fmt(processingMargin, 1) + '%');
+      business.push('- รายได้เฉพาะกิจการ ' + valOrText(processingBiz.specificIncome, 'บาท', 'ไม่ระบุ') +
+        ' ค่าใช้จ่ายเฉพาะกิจการ ' + valOrText(processingBiz.specificExpense, 'บาท', 'ไม่ระบุ'));
+      business.push('- ผลกำไรสุทธิจากธุรกิจ ' + valOrText(processingBiz.netBusinessProfit, 'บาท', 'ไม่ระบุ') +
+        (S.num(N1.profitProcessing) > 0 ? ' ' + yoyText(processingBiz.netBusinessProfit, N1.profitProcessing) : ''));
+      if (S.num(processingBiz.netBusinessProfit) < 0) {
+        business.push('  ** พบจุดอ่อนจากการที่ธุรกิจมีผลขาดทุน ' + valOrText(Math.abs(processingBiz.netBusinessProfit)) + 
+          ' ต้องทบทวนการกำหนดราคา ต้นทุนจม และการควบคุมจุดรั่วไหล **');
+      }
+      
+      // การมีส่วนร่วมของสมาชิก
+      if (membersProcessing > 0) {
+        business.push('- การมีส่วนร่วมของสมาชิกในธุรกิจนี้ มีจำนวน ' + fmtCountTxt(membersProcessing) +
+          ' จากจำนวนสมาชิกทั้งหมด ' +
+          fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+          ' ระหว่างปีมีมูลค่าการขาย ' + valOrText(processingBiz.sales, 'บาท', 'ไม่ระบุ'));
+      }
+      business.push('');
+    }
+    
+    // 5. ธุรกิจบริการ (Service)
+    if (S.num(serviceBiz.serviceIncome) > 0 || S.num(serviceBiz.netBusinessProfit) !== 0) {
+      business.push('5. หัวข้อ: ธุรกิจบริการ');
+      business.push('- สหกรณ์ดำเนินธุรกิจบริการ มีรายได้จากการบริการ ' + valOrText(serviceBiz.serviceIncome, 'บาท', 'ไม่ระบุ') +
+        ' ต้นทุนการให้บริการ ' + valOrText(serviceBiz.serviceCost, 'บาท', 'ไม่ระบุ'));
+      
+      var serviceMargin = S.num(serviceBiz.serviceIncome) > 0 ? (S.num(serviceBiz.grossProfit) / S.num(serviceBiz.serviceIncome) * 100) : 0;
+      business.push('- กำไรขั้นต้น ' + valOrText(serviceBiz.grossProfit, 'บาท', 'ไม่ระบุ') +
+        ' อัตรากำไรขั้นต้น ' + S.fmt(serviceMargin, 1) + '%');
+      business.push('- รายได้เฉพาะกิจการ ' + valOrText(serviceBiz.specificIncome, 'บาท', 'ไม่ระบุ') +
+        ' ค่าใช้จ่ายเฉพาะกิจการ ' + valOrText(serviceBiz.specificExpense, 'บาท', 'ไม่ระบุ'));
+      business.push('- ผลกำไรสุทธิจากธุรกิจ ' + valOrText(serviceBiz.netBusinessProfit, 'บาท', 'ไม่ระบุ'));
+      if (S.num(serviceBiz.netBusinessProfit) < 0) {
+        business.push('  ** พบจุดอ่อนจากการที่ธุรกิจมีผลขาดทุน ' + valOrText(Math.abs(serviceBiz.netBusinessProfit)) + 
+          ' ต้องทบทวนการกำหนดราคา ต้นทุนจม และการควบคุมจุดรั่วไหล **');
+      }
+      business.push('');
+    }
+    
+    // 6. ธุรกิจรับฝากเงิน (Deposit)
+    if (depositAmount > 0 || profitDeposit !== 0) {
+      business.push('6. หัวข้อ: ธุรกิจรับฝากเงิน');
+      business.push('- สหกรณ์ดำเนินธุรกิจรับฝากเงินจากสมาชิก มีเงินรับฝาก ' + valOrText(depositAmount, 'บาท', 'ไม่ระบุ') +
+        ' เพื่อเป็นทุนหมุนเวียนในการดำเนินงาน');
+      if (profitDeposit !== 0) {
+        business.push('- ผลกำไร/ขาดทุนจากธุรกิจรับฝากเงิน ' + valOrText(profitDeposit, 'บาท', 'ไม่ระบุ'));
+        if (S.num(profitDeposit) < 0) {
+          business.push('  ** ธุรกิจรับฝากเงินมีผลขาดทุน ต้องทบทวนนโยบายการรับฝากเงินและอัตราดอกเบี้ย **');
+        }
+      }
+      
+      // การมีส่วนร่วมของสมาชิก
+      if (membersDeposit > 0) {
+        business.push('- การมีส่วนร่วมของสมาชิก สหกรณ์รับฝากเงินออมทรัพย์จำนวน ' + fmtCountTxt(membersDeposit) +
+          ' จากสมาชิกทั้งหมด ' +
+          fmtTextOrPlaceholder(membersTotal ? S.fmtInt(membersTotal) + ' คน' : '') +
+          ' คิดเป็นร้อยละ ' + pctText(membersDeposit, membersTotal) +
+          ' ของจำนวนสมาชิกทั้งหมด');
+      }
+      business.push('');
+    }
+    
+    // ถ้าไม่มีข้อมูลธุรกิจเลย
+    if (business.length <= 3) {
+      business.push('- สหกรณ์ยังไม่มีข้อมูลผลการดำเนินงานแยกตามธุรกิจ');
+      business.push('');
+    }
 
     // -------------------------------------------------------------------
     // 3) ด้านการจัดสวัสดิการและสาธารณประโยชน์
@@ -2420,28 +2615,105 @@
     welfare.push('- สหกรณ์มีการช่วยเหลือสนับสนุนกิจกรรมด้านสาธารณประโยชน์ เช่น สนับสนุนงานวันสหกรณ์ฯ และร่วมอนุโมทนาการถวายผ้ากฐินพระราชทานของกรมส่งเสริมสหกรณ์');
 
     // -------------------------------------------------------------------
-    // 4) สรุปผลการวิเคราะห์
+    // 4) สรุปผลการวิเคราะห์ (Rule-based Summary)
     // -------------------------------------------------------------------
     var summary = [];
     summary.push('สรุปผลการวิเคราะห์');
-    summary.push('สหกรณ์แห่งนี้มีประสิทธิภาพในการจัดการองค์กรดี คณะกรรมการมีความรู้ความสามารถและประสบการณ์เพียงพอ ' +
-      'ผู้ตรวจสอบกิจการชื่อ ' + fmtTextOrPlaceholder(p.inspectorName) + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ ' +
-      'มีเจ้าหน้าที่ปฏิบัติงาน ' + fmtTextOrPlaceholder(staffCount ? 'จำนวน ' + S.fmtInt(staffCount) + ' คน' : '') +
-      ' และมีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์');
-    summary.push('อัตราส่วนทางการเงินที่ปรากฏสะท้อนถึงผลการดำเนินธุรกิจที่ดี ' +
-      (profit > 0 ? 'มีผลกำไรต่อเนื่อง ' : '') +
-      'มีสภาพคล่องการเงินที่เพียงพอ สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์ ' +
-      'มีการประชุมคณะกรรมการดำเนินการเป็นประจำ และในด้านการจัดสวัสดิการสหกรณ์มีการจัดสวัสดิการได้สอดคล้องกับผลประกอบการ');
-    summary.push('ทั้งนี้ ผลการดำเนินงานที่ผ่านมาในปีบัญชี ' + String(acctYear) +
+    
+    // 4.1 ด้านการจัดการองค์กร
+    summary.push('ด้านการจัดการองค์กร:');
+    summary.push('- คณะกรรมการดำเนินการมีจำนวน ' + fmtTextOrPlaceholder(p.boardCount ? S.fmtInt(p.boardCount) + ' คน' : 'ไม่ระบุ') + 
+      ' มีความรู้ความสามารถและประสบการณ์เพียงพอในการบริหารงาน');
+    summary.push('- ผู้ตรวจสอบกิจการชื่อ ' + fmtTextOrPlaceholder(p.inspectorName) + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ');
+    if (staffCount > 0) {
+      summary.push('- มีเจ้าหน้าที่ปฏิบัติงาน ' + S.fmtInt(staffCount) + ' คน');
+    }
+    summary.push('- มีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์');
+    summary.push('');
+    
+    // 4.2 ด้านการเงิน (Rule-based)
+    summary.push('ด้านการเงิน:');
+    if (profit > 0) {
+      summary.push('- สหกรณ์มีผลกำไรสุทธิ ' + valOrText(profit) + 
+        (profitPrev > 0 ? ' ' + yoyText(profit, profitPrev) : '') +
+        ' แสดงถึงผลการดำเนินงานที่ดี');
+    } else if (profit < 0) {
+      summary.push('- สหกรณ์มีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit)) + 
+        ' ต้องเร่งทบทวนกลยุทธ์การดำเนินงานและควบคุมต้นทุน');
+    } else {
+      summary.push('- สหกรณ์ยังไม่มีผลกำไรหรือขาดทุนสุทธิ');
+    }
+    
+    // Current Ratio assessment
+    if (currentRatio > 0) {
+      if (currentRatio < 1.0) {
+        summary.push('- สภาพคล่องทางการเงินอยู่ในเกณฑ์ตึงตัว (อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ') ต้องเร่งบริหารกระแสเงินสด');
+      } else if (currentRatio <= 2.5) {
+        summary.push('- มีสภาพคล่องทางการเงินอยู่ในเกณฑ์เหมาะสม (อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ')');
+      } else {
+        summary.push('- มีสภาพคล่องส่วนเกิน (อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ') ควรวางแผนบริหารเงินทุนหมุนเวียนเพื่อสร้างผลตอบแทนเพิ่ม');
+      }
+    }
+    
+    // D/E Ratio assessment
+    if (deRatio > 0) {
+      if (deRatio > 1.5) {
+        summary.push('- พึ่งพิงทุนภายนอกค่อนข้างสูง (D/E Ratio ' + S.fmt(deRatio, 2) + ') ควรควบคุมภาระหนี้สิน');
+      } else {
+        summary.push('- โครงสร้างเงินทุนมีความมั่นคง (D/E Ratio ' + S.fmt(deRatio, 2) + ')');
+      }
+    }
+    
+    // ขาดทุนสะสม
+    if (bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0) {
+      summary.push('- สหกรณ์มีขาดทุนสะสม ' + valOrText(bs.accumulatedLoss) + ' ควรเร่งฟื้นฟูฐานะการเงิน');
+    }
+    summary.push('');
+    
+    // 4.3 ด้านเทคโนโลยี
+    summary.push('ด้านเทคโนโลยี:');
+    summary.push('- สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์');
+    summary.push('- ยังไม่มีการนำ Application Smart 4M มาใช้ในการบริหารจัดการ ควรพิจารณาส่งเสริมการนำ Smart 4M มาใช้เพื่อเพิ่มประสิทธิภาพการทำงาน');
+    summary.push('');
+    
+    // 4.4 การจัดชั้นความเข้มแข็ง
+    summary.push('ผลการจัดชั้นความเข้มแข็ง:');
+    summary.push('- ผลการดำเนินงานในปีบัญชี ' + String(acctYear) +
       ' ส่งผลให้สหกรณ์มีผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(latestStrengthYear) +
       ' ในระดับชั้น ' + fmtTextOrPlaceholder(classLatest) +
-      ' และ ณ ปัจจุบัน สหกรณ์แห่งนี้ได้ส่งงบการเงินให้ผู้สอบบัญชีได้ภายใน 30 วัน');
-    summary.push('ดังนั้น เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ. ' + String(planYear) +
+      (totalLatest > 0 ? ' คะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : ''));
+    summary.push('- เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ. ' + String(planYear) +
       ' คือ สหกรณ์สามารถรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
-      ' ปี ' + String(targetStrengthYear) +
-      ' สหกรณ์มีการจัดทำแผนกลยุทธ์ และสหกรณ์ยังคงรักษาผลการดำเนินงานในระดับที่มีกำไร ไม่มีการทุจริต และปฏิบัติงานตามกฎหมาย ' +
-      'เพื่อให้ผลการประเมินความเข้มแข็ง ปี ' + String(assessmentYear) +
-      ' ยังคงอยู่ในระดับชั้น ' + fmtTextOrPlaceholder(classTarget));
+      ' ปี ' + String(targetStrengthYear));
+    summary.push('- สหกรณ์ยังคงรักษาผลการดำเนินงานในระดับที่มีกำไร ไม่มีการทุจริต และปฏิบัติงานตามกฎหมาย');
+    summary.push('');
+    
+    // 4.5 จุดอ่อนที่ต้องแก้ไข (Actionable Items)
+    var weaknesses = [];
+    if (currentRatio < 1.0) weaknesses.push('สภาพคล่องทางการเงินตึงตัว');
+    if (currentRatio > 2.5) weaknesses.push('สภาพคล่องส่วนเกินควรบริหารเงินทุนหมุนเวียน');
+    if (deRatio > 1.5) weaknesses.push('พึ่งพิงทุนภายนอกสูง');
+    if (profit < 0) weaknesses.push('ผลขาดทุนสุทธิ');
+    if (bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0) weaknesses.push('ขาดทุนสะสม');
+    
+    // ตรวจสอบธุรกิจขาดทุน
+    var lossBiz = [];
+    if (S.num(creditBiz.netBusinessProfit) < 0) lossBiz.push('เงินให้กู้');
+    if (S.num(tradingBiz.netBusinessProfit) < 0) lossBiz.push('จัดหาสินค้า');
+    if (S.num(collectionBiz.netBusinessProfit) < 0) lossBiz.push('รวบรวมผลผลิต');
+    if (S.num(processingBiz.netBusinessProfit) < 0) lossBiz.push('แปรรูป');
+    if (S.num(serviceBiz.netBusinessProfit) < 0) lossBiz.push('บริการ');
+    if (S.num(profitDeposit) < 0) lossBiz.push('รับฝากเงิน');
+    
+    if (weaknesses.length > 0 || lossBiz.length > 0) {
+      summary.push('จุดอ่อนที่ต้องเร่งแก้ไข:');
+      if (weaknesses.length > 0) {
+        summary.push('- ' + weaknesses.join(', '));
+      }
+      if (lossBiz.length > 0) {
+        summary.push('- ธุรกิจที่มีผลขาดทุน: ' + lossBiz.join(', ') + ' ต้องทบทวนการกำหนดราคาและควบคุมต้นทุน');
+      }
+    }
 
     return {
       orgAnalysis4M: org.join('\n'),
@@ -2471,6 +2743,204 @@
     });
     if (!silent) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
     return result;
+  }
+
+  /**
+   * addWeaknessActivitiesFrom4M() - ส่งแนวทางแก้ไขจุดอ่อนจาก 4M ไปยังตารางเป้าหมาย (5.2)
+   * วิเคราะห์ข้อมูลทางการเงินและเพิ่มกิจกรรมแก้ไขจุดอ่อนอัตโนมัติ
+   */
+  function addWeaknessActivitiesFrom4M() {
+    var s = A();
+    var f = s.financials || {};
+    var bs = f.balanceSheet || {};
+    var activities = s.scheduleAndActivities.activities || [];
+    
+    // วิเคราะห์จุดอ่อนจากข้อมูลทางการเงิน
+    var weaknesses = [];
+    
+    // 1. Current Ratio < 1.0 -> สภาพคล่องตึงตัว
+    var currentRatio = bs.currentAssets && bs.currentLiabilities ? 
+      (S.num(bs.currentAssets) / S.num(bs.currentLiabilities)) : 0;
+    if (currentRatio > 0 && currentRatio < 1.0) {
+      weaknesses.push({
+        code: '3.1',
+        goal: 'ทบทวนแผนบริหารสภาพคล่องและกระแสเงินสด เนื่องจากอัตราส่วนทุนหมุนเวียนต่ำกว่า 1.0 (' + S.fmt(currentRatio, 2) + ') มีความเสี่ยงในการชำระหนี้ระยะสั้น',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 2. Current Ratio > 2.5 -> สภาพคล่องส่วนเกิน
+    if (currentRatio > 2.5) {
+      weaknesses.push({
+        code: '3.2',
+        goal: 'วางแผนบริหารเงินทุนหมุนเวียนส่วนเกิน (อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ') เพื่อสร้างผลตอบแทนเพิ่ม',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 3. D/E Ratio > 1.5 -> พึ่งพิงทุนภายนอกสูง
+    var liabilities = S.num(f.summary2Years.liabilitiesLatest) || S.num(bs.totalLiabilities);
+    var equity = S.num(f.summary2Years.assetsLatest) - liabilities;
+    var deRatio = equity > 0 ? (liabilities / equity) : 0;
+    if (deRatio > 1.5) {
+      weaknesses.push({
+        code: '3.3',
+        goal: 'ควบคุมภาระหนี้สินและต้นทุนทางการเงิน เนื่องจากอัตราส่วนหนี้สินต่อทุนสูงกว่า 1.5 (' + S.fmt(deRatio, 2) + ')',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 4. Short-term collection rate < 85%
+    var receivables = S.num(f.operatingResults.latest.receivables);
+    var assets = S.num(f.summary2Years.assetsLatest) || S.num(bs.totalAssets);
+    if (receivables > 0 && assets > 0) {
+      var receivablesRatio = (receivables / assets) * 100;
+      if (receivablesRatio > 15) {
+        weaknesses.push({
+          code: '3.4',
+          goal: 'เร่งรัดติดตามลูกหนี้และ restructuring หนี้ค้างชำระ เนื่องจากอัตราส่วนลูกหนี้ต่อสินทรัพย์สูง (' + S.fmt(receivablesRatio, 1) + '%)',
+          target: '1',
+          unit: 'ครั้ง',
+          startDate: '',
+          endDate: '',
+          operator: 'เจ้าหน้าที่ส่งเสริม'
+        });
+      }
+    }
+    
+    // 5. Operating Expense Ratio > 95%
+    var income = S.num(f.operatingResults.latest.totalIncome);
+    var expense = S.num(f.operatingResults.latest.totalExpense);
+    if (income > 0 && expense > 0) {
+      var opexRatio = (expense / income) * 100;
+      if (opexRatio > 95) {
+        weaknesses.push({
+          code: '3.5',
+          goal: 'ควบคุมค่าใช้จ่ายดำเนินงานเนื่องจากสูงกว่าร้อยละ 95 ของรายได้ (' + S.fmt(opexRatio, 1) + '%)',
+          target: '1',
+          unit: 'ครั้ง',
+          startDate: '',
+          endDate: '',
+          operator: 'เจ้าหน้าที่ส่งเสริม'
+        });
+      }
+    }
+    
+    // 6. Net loss
+    var profit = S.num(f.summary2Years.netProfitLatest) || S.num(bs.netProfitYear);
+    if (profit < 0) {
+      weaknesses.push({
+        code: '3.6',
+        goal: 'ทบทวนกลยุทธ์การดำเนินงานและควบคุมต้นทุน เนื่องจากสหกรณ์มีผลขาดทุนสุทธิ ' + S.fmt(Math.abs(profit), 2) + ' บาท',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 7. Accumulated loss
+    if (bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0) {
+      weaknesses.push({
+        code: '3.7',
+        goal: 'เร่งฟื้นฟูฐานะการเงินและทบทวนแผนธุรกิจ เนื่องจากมีขาดทุนสะสม ' + S.fmt(bs.accumulatedLoss, 2) + ' บาท',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 8. Business losses
+    var biz = f.businesses || {};
+    var lossBiz = [];
+    if (S.num(biz.credit.netBusinessProfit) < 0) lossBiz.push('เงินให้กู้');
+    if (S.num(biz.trading.netBusinessProfit) < 0) lossBiz.push('จัดหาสินค้า');
+    if (S.num(biz.collection.netBusinessProfit) < 0) lossBiz.push('รวบรวมผลผลิต');
+    if (S.num(biz.processing.netBusinessProfit) < 0) lossBiz.push('แปรรูป');
+    if (S.num(biz.service.netBusinessProfit) < 0) lossBiz.push('บริการ');
+    if (S.num(f.operatingResults.latest.profitDeposit) < 0) lossBiz.push('รับฝากเงิน');
+    
+    if (lossBiz.length > 0) {
+      weaknesses.push({
+        code: '3.8',
+        goal: 'วิเคราะห์จุด盈亏และทบทวนการกำหนดราคา ต้นทุนจม และการควบคุมจุดรั่วไหลในธุรกิจ: ' + lossBiz.join(', '),
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 9. Auditor observations/defects
+    var auditorObs = s.analysis.auditorObservations || '';
+    var coopDefects = s.analysis.coopDefects || '';
+    if (auditorObs.trim().length > 0 || coopDefects.trim().length > 0) {
+      weaknesses.push({
+        code: '3.9',
+        goal: 'ติดตามการแก้ไขข้อสังเกตของผู้สอบบัญชีและข้อบกพร่องของสหกรณ์ ตามมาตรา 22 และแนวทางการตรวจการสหกรณ์',
+        target: '1',
+        unit: 'ครั้ง',
+        startDate: '',
+        endDate: '',
+        operator: 'เจ้าหน้าที่ส่งเสริม'
+      });
+    }
+    
+    // 10. Smart 4M adoption
+    weaknesses.push({
+      code: '3.10',
+      goal: 'ส่งเสริมการนำ Application Smart 4M มาใช้ในการบริหารจัดการสหกรณ์เพื่อเพิ่มประสิทธิภาพการทำงาน',
+      target: '1',
+      unit: 'ครั้ง',
+      startDate: '',
+      endDate: '',
+      operator: 'เจ้าหน้าที่ส่งเสริม'
+    });
+    
+    // ตรวจสอบว่ามีกิจกรรมซ้ำแล้วหรือไม่
+    var existingGoals = activities.map(function(a) { return (a.goal || '').toLowerCase(); });
+    var newActivities = weaknesses.filter(function(w) {
+      return !existingGoals.some(function(g) { 
+        return g.indexOf(w.goal.substring(0, 30).toLowerCase()) !== -1; 
+      });
+    });
+    
+    if (newActivities.length === 0) {
+      showToast('ไม่พบจุดอ่อนใหม่ที่ต้องเพิ่มกิจกรรม', 'info');
+      return;
+    }
+    
+    // เพิ่มกิจกรรมใหม่ลงใน activities array
+    newActivities.forEach(function(activity) {
+      activities.push(activity);
+    });
+    
+    // อัปเดต state
+    s.scheduleAndActivities.activities = activities;
+    
+    // Re-render activities table
+    renderActivities();
+    
+    // Schedule draft save
+    S.scheduleLocalDraftSave(500);
+    
+    showToast('เพิ่ม ' + newActivities.length + ' กิจกรรมแก้ไขจุดอ่อนจาก 4M ไปยังตารางเป้าหมายแล้ว', 'success');
   }
 
   // =========================================================================
