@@ -64,6 +64,7 @@
     var restored = null;
     try { restored = S.restoreLocalDraft(); } catch (e) { console.warn('Restore draft:', e); }
     buildTab2();
+    fill4MFieldsFromState(); // เติมค่าจาก state ลง 4M structured form
     // Task 1: แท็บ 3 (ติดตามรายเดือน) และแท็บ 4 (รายงานปิดบัญชี) ถูกยุบรวมแล้ว
     buildTab5();
     bindGlobalEvents();
@@ -79,6 +80,7 @@
     setTimeout(function () {
       selectStateCoopInDropdown();
       S.syncFromBaseFormToAllTabs();
+      fill4MFieldsFromState(); // เติมค่าอีกครั้งหลังเลือกสหกรณ์
       UI.renderAll();
     }, 300);
   };
@@ -238,6 +240,7 @@
     mergePreloadState(pre, true);
     S.recalcFinancials();
     S.recalcStrength();
+    if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
     UI.renderAll();
     return true;
   }
@@ -562,10 +565,122 @@
       '    <span>การวิเคราะห์ข้อมูลสหกรณ์/กลุ่มเกษตรกร (4M)</span>' +
       '    <span class="no-print d-flex gap-1 flex-wrap">' +
       '      <button type="button" class="btn btn-sm btn-success py-0 fw-bold" data-action="analyze-4m">✨ ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติ</button>' +
+      '      <button type="button" class="btn btn-sm btn-info py-0 fw-bold" data-action="run-4m-engine">🔍 วิเคราะห์จุดแข็ง/จุดอ่อนจาก 4M Engine</button>' +
       '      <button type="button" class="btn btn-sm btn-warning py-0 fw-bold" data-action="add-weakness-activities">🎯 ส่งแนวทางแก้ไขจุดอ่อนไปยังตารางเป้าหมาย (5.2)</button>' +
       '      <button type="button" class="btn btn-sm btn-light py-0 fw-bold" data-action="insert-4m">➕ แทรกโครงสร้างหัวข้อ 4M ตั้งต้น</button>' +
       '    </span></div>' +
-      '    <div class="card-body py-3"><div class="row g-3">' +
+      '    <div class="card-body py-3">' +
+      
+      // === 4M Structured Data Entry Section ===
+      '<div class="card border-primary mb-3">' +
+      '  <div class="card-header bg-primary bg-opacity-10 py-2"><strong>📋 ข้อมูล 4M แบบมีโครงสร้าง (Structured 4M Data)</strong></div>' +
+      '  <div class="card-body py-3">' +
+      
+      // M1: บุคลากรและสมาชิก
+      '    <h6 class="fw-bold text-primary mb-2">M1: บุคลากรและสมาชิก</h6>' +
+      '    <div class="row g-2 mb-3">' +
+      '      <div class="col-md-3"><label class="form-label small">การใช้แผนงานประจำปี</label>' +
+      selectField('fourMDetails.m1.usesAnnualPlan', 'เลือกใช้แผนงานประจำปี', [
+        ['', '-- เลือก --'], ['true', 'มีใช้แผนงานประจำปี'], ['false', 'ไม่มีใช้แผนงานประจำปี']
+      ]) + '</div>' +
+      '      <div class="col-md-3"><label class="form-label small">ความถี่การรายงานของผู้ตรวจสอบกิจการ</label>' +
+      selectField('fourMDetails.m1.inspectorFrequency', 'ความถี่การรายงาน', [
+        ['', '-- เลือก --'], ['monthly', 'ทุกเดือน'], ['quarterly', 'ทุกไตรมาส'], ['irregular', 'ไม่แน่นอน']
+      ]) + '</div>' +
+      '      <div class="col-md-3"><label class="form-label small">จำนวนสมาชิกที่กู้เงิน (ราย)</label>' +
+      numberField('fourMDetails.m1.membersBorrow', '0') + '</div>' +
+      '      <div class="col-md-3"><label class="form-label small">จำนวนสมาชิกที่ฝากเงิน (ราย)</label>' +
+      numberField('fourMDetails.m1.membersDeposit', '0') + '</div>' +
+      '    </div>' +
+      
+      // M2: สำนักงานและอุปกรณ์
+      '    <h6 class="fw-bold text-primary mb-2">M2: สำนักงานและอุปกรณ์</h6>' +
+      '    <div class="row g-2 mb-3">' +
+      '      <div class="col-md-4"><label class="form-label small">ความเหมาะสมของสถานที่</label>' +
+      selectField('fourMDetails.m2.facilityCondition', 'สภาพสถานที่', [
+        ['', '-- เลือก --'], ['good', 'เหมาะสมมาก'], ['moderate', 'ปานกลาง'], ['poor', 'ควรปรับปรุง']
+      ]) + '</div>' +
+      '      <div class="col-md-4"><label class="form-label small">โปรแกรมบัญชีที่ใช้</label>' +
+      selectField('fourMDetails.m2.accountingSoftware', 'โปรแกรมบัญชี', [
+        ['', '-- เลือก --'], ['manual', 'บันทึกด้วยมือ'], ['cpd_software', 'โปรแกรม CPD (กรมตรวจบัญชี)'], ['private_software', 'โปรแกรมเอกชน (เช่น Teller)']
+      ]) + '</div>' +
+      '    </div>' +
+      
+      // M4: การจัดการ
+      '    <h6 class="fw-bold text-primary mb-2">M4: การจัดการ และการควบคุมภายใน</h6>' +
+      '    <div class="row g-2 mb-3">' +
+      '      <div class="col-md-2"><label class="form-label small">มีแผนประจำปี</label>' +
+      selectField('fourMDetails.m4.hasAnnualPlan', 'แผนประจำปี', [
+        ['', '-- เลือก --'], ['true', 'มี'], ['false', 'ไม่มี']
+      ]) + '</div>' +
+      '      <div class="col-md-2"><label class="form-label small">มีแผนกลยุทธ์ระยะยาว</label>' +
+      selectField('fourMDetails.m4.hasStrategicPlan', 'แผนกลยุทธ์', [
+        ['', '-- เลือก --'], ['true', 'มี'], ['false', 'ไม่มี']
+      ]) + '</div>' +
+      '      <div class="col-md-2"><label class="form-label small">ระดับการควบคุมภายใน</label>' +
+      selectField('fourMDetails.m4.internalControlLevel', 'ระดับ', [
+        ['', '-- เลือก --'], ['ดีมาก', 'ดีมาก'], ['ดี', 'ดี'], ['พอใช้', 'พอใช้'], ['ควรปรับปรุง', 'ควรปรับปรุง']
+      ]) + '</div>' +
+      '      <div class="col-md-2"><label class="form-label small">จำนวนวันปิดบัญชี</label>' +
+      numberField('fourMDetails.m4.closeAccountDays', '0') + '</div>' +
+      '      <div class="col-md-2"><label class="form-label small">จำนวนวันประชุมใหญ่</label>' +
+      numberField('fourMDetails.m4.agmDays', '0') + '</div>' +
+      '      <div class="col-md-2"><label class="form-label small">พบข้อบกพร่อง/ทุจริต</label>' +
+      selectField('fourMDetails.m4.hasFraud', 'ข้อบกพร่อง', [
+        ['', '-- เลือก --'], ['true', 'พบ'], ['false', 'ไม่พบ']
+      ]) + '</div>' +
+      '    </div>' +
+      
+      // ข้อสังเกตผู้สอบบัญชี
+      '    <h6 class="fw-bold text-danger mb-2">📝 ข้อสังเกตผู้สอบบัญชี (รายงานผลการตรวจสอบบัญชี หัวข้อที่ 1)</h6>' +
+      '    <div class="row g-2 mb-2">' +
+      '      <div class="col-md-4"><label class="form-label small">พบจุดอ่อนของการควบคุมภายในหรือไม่</label>' +
+      selectField('fourMDetails.auditorObservations.hasInternalControlWeakness', 'จุดอ่อน', [
+        ['', '-- เลือก --'], ['false', 'ไม่มีข้อสังเกต (ไม่พบจุดอ่อน)'], ['true', 'พบข้อสังเกต (มีจุดอ่อน)']
+      ]) + '</div>' +
+      '      <div class="col-md-4"><label class="form-label small">สถานะการแก้ไข</label>' +
+      selectField('fourMDetails.auditorObservations.correctionStatus', 'สถานะ', [
+        ['', '-- เลือก --'], ['แก้ไขแล้ว', 'แก้ไขแล้ว'], ['อยู่ระหว่างดำเนินการ', 'อยู่ระหว่างดำเนินการ'], ['ยังไม่ได้ดำเนินการ', 'ยังไม่ได้ดำเนินการ']
+      ]) + '</div>' +
+      '    </div>' +
+      '    <div class="mb-2"><label class="form-label small">หมวดหมู่จุดอ่อนที่พบ (เลือกได้หลายข้อ)</label>' +
+      '      <div class="d-flex flex-wrap gap-2">' +
+      '        <label class="form-check-label small"><input type="checkbox" data-4m-cat="ด้านการเงินและการบัญชี"> การเงินและการบัญชี</label>' +
+      '        <label class="form-check-label small"><input type="checkbox" data-4m-cat="ด้านสินเชื่อและลูกหนี้"> สินเชื่อและลูกหนี้</label>' +
+      '        <label class="form-check-label small"><input type="checkbox" data-4m-cat="ด้านเงินฝาก"> เงินฝาก</label>' +
+      '        <label class="form-check-label small"><input type="checkbox" data-4m-cat="ด้านเทคโนโลยีสารสนเทศ/โปรแกรมบัญชี"> IT/โปรแกรมบัญชี</label>' +
+      '        <label class="form-check-label small"><input type="checkbox" data-4m-cat="ด้านการปฏิบัติตามระเบียบ/ข้อบังคับ"> ระเบียบ/ข้อบังคับ</label>' +
+      '      </div>' +
+      '    </div>' +
+      '    <div class="mb-2"><label class="form-label small">รายละเอียดข้อสังเกต</label>' +
+      textarea('fourMDetails.auditorObservations.details', 'ระบุรายละเอียดข้อสังเกตจาก laporanผลการตรวจสอบบัญชี...', 3, 12) +
+      '    </div>' +
+      
+      '  </div>' + // end card-body
+      '</div>' + // end card border-primary
+      
+      // === 4M Engine Analysis Result Section ===
+      '<div class="card border-info mb-3" id="cpd4MEngineResultCard" style="display:none;">' +
+      '  <div class="card-header bg-info bg-opacity-10 py-2"><strong>🔍 ผลการวิเคราะห์จาก 4M Engine</strong></div>' +
+      '  <div class="card-body py-3">' +
+      '    <div id="cpd4MEngineWarnings" class="mb-2"></div>' +
+      '    <div class="row g-3">' +
+      '      <div class="col-md-6">' +
+      '        <h6 class="fw-bold text-success">✓ จุดแข็ง (Strengths)</h6>' +
+      '        <div id="cpd4MEngineStrengths" class="small"></div>' +
+      '      </div>' +
+      '      <div class="col-md-6">' +
+      '        <h6 class="fw-bold text-warning">▸ จุดที่ควรส่งเสริม/พัฒนา (Improvements)</h6>' +
+      '        <div id="cpd4MEngineImprovements" class="small"></div>' +
+      '      </div>' +
+      '    </div>' +
+      '    <hr>' +
+      '    <h6 class="fw-bold text-primary">📋 แผนกิจกรรมแนะนำ (Recommended Actions)</h6>' +
+      '    <div id="cpd4MEngineActions" class="small"></div>' +
+      '  </div>' +
+      '</div>' +
+      
+      '    <div class="row g-3">' +
       textarea('analysis.orgAnalysis4M', '1. ด้านการบริหารจัดการองค์กร (หลัก 4M)', 7) +
       textarea('analysis.businessAnalysis', '2. ด้านการบริหารจัดการธุรกิจ', 6) +
       textarea('analysis.welfareAnalysis', '3. ด้านการจัดสวัสดิการและสาธารณประโยชน์', 4) +
@@ -575,6 +690,23 @@
       '    </div></div>' +
       '  </div>' +
       '</div>';
+  }
+
+  // Helper functions for 4M Structured Form
+  function selectField(path, label, options) {
+    var val = S.getPath(A(), path);
+    var html = '<select class="form-select form-select-sm" data-4m-field="' + path + '">';
+    options.forEach(function (opt) {
+      var selected = String(val) === opt[0] ? ' selected' : '';
+      html += '<option value="' + opt[0] + '"' + selected + '>' + opt[1] + '</option>';
+    });
+    html += '</select>';
+    return html;
+  }
+
+  function numberField(path, placeholder) {
+    var val = S.getPath(A(), path);
+    return '<input type="number" class="form-control form-control-sm" data-4m-field="' + path + '" value="' + (val || '') + '" placeholder="' + placeholder + '">';
   }
 
   function buildTab2Schedule() {
@@ -1455,6 +1587,12 @@
     var el = e.target;
     if (!el || !el.matches) return;
 
+    // 4M Structured Form fields — sync ลง state อัตโนมัติ
+    if (el.matches('[data-4m-field]') || el.matches('[data-4m-cat]')) {
+      sync4MFieldsToState();
+      return;
+    }
+
     // ตัวกรอง Dashboard — โหลดข้อมูลใหม่ทันทีเมื่อเปลี่ยนค่า
     if (el.id === 'cpd5FilterYear' ||
       el.id === 'cpd5FilterDistrict' || el.id === 'cpd5FilterType' ||
@@ -1617,6 +1755,8 @@
       insert4MStructure();
     } else if (action === 'analyze-4m') {
       populate4MFromBaseForm();
+    } else if (action === 'run-4m-engine') {
+      run4MEngine();
     } else if (action === 'add-weakness-activities') {
       addWeaknessActivitiesFrom4M();
     } else if (action === 'sync-to-base') {
@@ -3070,6 +3210,7 @@
     refreshPreloadProfile();
     if (typeof S.recalcFinancials === 'function') S.recalcFinancials();
     if (typeof S.recalcStrength === 'function') S.recalcStrength();
+    if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
     var result = analyze4M();
     var overwrite = force || !silent;
     Object.keys(result).forEach(function (key) {
@@ -3654,6 +3795,129 @@
   }
 
   // =========================================================================
+  // 4M Structured Form + 4M Engine
+  // =========================================================================
+
+  /**
+   * sync4MFieldsToState() — อ่านค่าจาก 4M structured form แล้วเขียนลง state
+   */
+  function sync4MFieldsToState() {
+    var s = A();
+    if (!s.coopProfile.fourMDetails) {
+      s.coopProfile.fourMDetails = {
+        m1: { usesAnnualPlan: false, inspectorFrequency: '', membersBorrow: 0, membersDeposit: 0 },
+        m2: { facilityCondition: '', accountingSoftware: '' },
+        m4: { hasAnnualPlan: false, hasStrategicPlan: false, internalControlLevel: '', closeAccountDays: 0, agmDays: 0, hasFraud: false },
+        auditorObservations: { hasInternalControlWeakness: false, weaknessCategories: [], details: '', correctionStatus: '' }
+      };
+    }
+
+    // Sync select/number fields
+    document.querySelectorAll('[data-4m-field]').forEach(function (el) {
+      var fullPath = el.getAttribute('data-4m-field');
+      var path = fullPath.replace(/^fourMDetails\./, '');
+      var val = el.value;
+      if (el.type === 'number') {
+        S.setPath(s.coopProfile.fourMDetails, path, S.num(val));
+      } else if (val === 'true') {
+        S.setPath(s.coopProfile.fourMDetails, path, true);
+      } else if (val === 'false') {
+        S.setPath(s.coopProfile.fourMDetails, path, false);
+      } else {
+        S.setPath(s.coopProfile.fourMDetails, path, val);
+      }
+    });
+
+    // Sync checkboxes for weakness categories
+    var categories = [];
+    document.querySelectorAll('[data-4m-cat]').forEach(function (el) {
+      if (el.checked) categories.push(el.getAttribute('data-4m-cat'));
+    });
+    s.coopProfile.fourMDetails.auditorObservations.weaknessCategories = categories;
+  }
+
+  /**
+   * fill4MFieldsFromState() — อ่านค่าจาก state แล้วเขียนลง 4M structured form
+   */
+  function fill4MFieldsFromState() {
+    var fourM = (A().coopProfile || {}).fourMDetails || {};
+    document.querySelectorAll('[data-4m-field]').forEach(function (el) {
+      var fullPath = el.getAttribute('data-4m-field');
+      // Strip "fourMDetails." prefix if present
+      var path = fullPath.replace(/^fourMDetails\./, '');
+      var val = S.getPath(fourM, path);
+      if (val === undefined || val === null) val = '';
+      if (el.type === 'number') {
+        el.value = val || '';
+      } else if (typeof val === 'boolean') {
+        el.value = String(val);
+      } else {
+        el.value = val;
+      }
+    });
+
+    // Fill checkboxes for weakness categories
+    var cats = (fourM.auditorObservations || {}).weaknessCategories || [];
+    document.querySelectorAll('[data-4m-cat]').forEach(function (el) {
+      el.checked = cats.indexOf(el.getAttribute('data-4m-cat')) !== -1;
+    });
+  }
+
+  /**
+   * run4MEngine() — เรียก 4M Engine วิเคราะห์จุดแข็ง/จุดอ่อน และแสดงผล
+   */
+  function run4MEngine() {
+    sync4MFieldsToState();
+    if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
+
+    var engine = global.CPD_4M_ENGINE;
+    if (!engine || typeof engine.analyze !== 'function') {
+      showToast('4M Engine ยังไม่พร้อมใช้งาน', 'warning');
+      return;
+    }
+
+    var result = engine.analyze(A());
+
+    // แสดงผล
+    var card = $('cpd4MEngineResultCard');
+    if (card) card.style.display = '';
+
+    // Warnings
+    var warnBox = $('cpd4MEngineWarnings');
+    if (warnBox) {
+      warnBox.innerHTML = result.warnings.length > 0
+        ? result.warnings.map(function (w) { return '<div class="alert alert-warning py-1 small mb-1">' + h(w.text) + '</div>'; }).join('')
+        : '';
+    }
+
+    // Strengths
+    var strBox = $('cpd4MEngineStrengths');
+    if (strBox) {
+      strBox.innerHTML = result.strengths.length > 0
+        ? '<ul class="mb-0">' + result.strengths.map(function (s) { return '<li class="text-success">' + h(s.text) + '</li>'; }).join('') + '</ul>'
+        : '<div class="text-muted">ไม่พบจุดแข็งจากการวิเคราะห์</div>';
+    }
+
+    // Improvements
+    var impBox = $('cpd4MEngineImprovements');
+    if (impBox) {
+      impBox.innerHTML = result.improvements.length > 0
+        ? '<ul class="mb-0">' + result.improvements.map(function (s) { return '<li class="text-warning">' + h(s.text) + '</li>'; }).join('') + '</ul>'
+        : '<div class="text-muted">ไม่พบจุดที่ควรพัฒนาจากการวิเคราะห์</div>';
+    }
+
+    // Actions
+    var actBox = $('cpd4MEngineActions');
+    if (actBox) {
+      actBox.innerHTML = result.actions.length > 0
+        ? '<ol class="mb-0">' + result.actions.map(function (a) { return '<li>' + h(a.goal) + '</li>'; }).join('') + '</ol>'
+        : '<div class="text-muted">ไม่พบแผนกิจกรรมแนะนำจากการวิเคราะห์</div>';
+    }
+
+    showToast('วิเคราะห์ 4M เสร็จสิ้น: ' + result.strengths.length + ' จุดแข็ง, ' + result.improvements.length + ' จุดควรพัฒนา, ' + result.actions.length + ' กิจกรรมแนะนำ', 'success');
+  }
+
+  // =========================================================================
   // PUBLIC + BOOT
   // =========================================================================
 
@@ -3673,6 +3937,9 @@
   UI.renderReportRegistry = renderReportRegistry;
   UI.renderReportRows = renderReportRows;
   UI.renderMisReports = renderMisReports;
+  UI.run4MEngine = run4MEngine;
+  UI.sync4MFieldsToState = sync4MFieldsToState;
+  UI.fill4MFieldsFromState = fill4MFieldsFromState;
   global.CPD_UI = UI;
   global.CPD_autoPipeline = autoPipeline4M;
 

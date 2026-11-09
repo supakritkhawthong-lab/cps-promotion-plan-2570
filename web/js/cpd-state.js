@@ -153,6 +153,33 @@
           regularMale: 0, regularFemale: 0, regularTotal: 0,
           associateMale: 0, associateFemale: 0, associateTotal: 0,
           prevYearTotal: 0
+        },
+        // === 4M Extended Fields (Optional, Default = empty/0/false) ===
+        fourMDetails: {
+          m1: {
+            usesAnnualPlan: false,
+            inspectorFrequency: '', // monthly|quarterly|irregular
+            membersBorrow: 0,
+            membersDeposit: 0
+          },
+          m2: {
+            facilityCondition: '', // good|moderate|poor
+            accountingSoftware: '' // manual|cpd_software|private_software
+          },
+          m4: {
+            hasAnnualPlan: false,
+            hasStrategicPlan: false,
+            internalControlLevel: '', // ดีมาก|ดี|พอใช้|ควรปรับปรุง
+            closeAccountDays: 0,
+            agmDays: 0,
+            hasFraud: false
+          },
+          auditorObservations: {
+            hasInternalControlWeakness: false,
+            weaknessCategories: [],
+            details: '',
+            correctionStatus: '' // แก้ไขแล้ว|อยู่ระหว่างดำเนินการ|ยังไม่ได้ดำเนินการ
+          }
         }
       },
       financials: {
@@ -747,6 +774,7 @@
     applyAutoDeadlines();
     recalcFinancials();
     recalcStrength();
+    recalc4MRatios();
     return AppState;
   }
 
@@ -830,6 +858,7 @@
     applyAutoDeadlines();
     recalcFinancials();
     recalcStrength();
+    recalc4MRatios();
     applyStateToBaseForm();
     if (payload.form && typeof global.loadFormFromSavedData === 'function') {
       global.loadFormFromSavedData(payload.form);
@@ -1042,6 +1071,97 @@
     return st;
   }
 
+  /**
+   * recalc4MRatios() — คำนวณอัตราส่วน CAMELS เพิ่มเติมจากข้อมูลการเงินที่มีอยู่
+   * ไม่กระทบ logic เดิม แค่เติมค่าใน financials.ratios
+   */
+  function recalc4MRatios() {
+    var s = AppState;
+    var f = s.financials || {};
+    var sum = f.summary2Years || {};
+    var bs = f.balanceSheet || {};
+    var op = f.operatingResults || {};
+    var N = op.latest || {};
+    var N1 = op.prev || {};
+    if (!f.ratios) f.ratios = {};
+
+    var assets = num(sum.assetsLatest) || num(bs.totalAssets);
+    var assetsPrev = num(sum.assetsPrev);
+    var liabilities = num(sum.liabilitiesLatest) || num(bs.totalLiabilities);
+    var profit = num(sum.netProfitLatest) || num(bs.netProfitYear);
+    var profitPrev = num(sum.netProfitPrev);
+    var equity = assets > 0 ? assets - liabilities : 0;
+    var reserve = num(sum.reserveFundLatest);
+    var income = num(N.totalIncome);
+    var expense = num(N.totalExpense);
+
+    // D/E
+    if (equity > 0 && !f.ratios.deRatio) {
+      f.ratios.deRatio = liabilities / equity;
+    }
+
+    // ROE (%)
+    if (equity > 0 && profit !== 0) {
+      f.ratios.roe = (profit / equity) * 100;
+    }
+
+    // ROA (%)
+    if (assets > 0 && profit !== 0) {
+      f.ratios.roa = (profit / assets) * 100;
+    }
+
+    // Current Ratio
+    if (bs.currentAssets && bs.currentLiabilities && !f.ratios.currentRatio) {
+      f.ratios.currentRatio = num(bs.currentAssets) / num(bs.currentLiabilities);
+    }
+
+    // Reserve to Asset Ratio
+    if (assets > 0 && !f.ratios.reserveToAssetRatio) {
+      f.ratios.reserveToAssetRatio = reserve / assets;
+    }
+
+    // OPEX to Gross Profit Ratio
+    var grossProfit = income - expense;
+    if (grossProfit > 0 && expense > 0 && !f.ratios.opexToGrossProfitRatio) {
+      f.ratios.opexToGrossProfitRatio = (expense / grossProfit) * 100;
+    }
+
+    // === 4M Extended Ratios (เติมเฉพาะถ้ายังไม่มีค่า) ===
+
+    // Asset Turnover = รายได้ / สินทรัพย์
+    if (assets > 0 && income > 0 && !f.ratios.assetTurnover) {
+      f.ratios.assetTurnover = income / assets;
+    }
+
+    // Asset Growth Rate (%)
+    if (assetsPrev > 0 && !f.ratios.assetGrowthRate) {
+      f.ratios.assetGrowthRate = ((assets - assetsPrev) / assetsPrev) * 100;
+    }
+
+    // Profit Growth Rate (%)
+    if (profitPrev > 0 && !f.ratios.profitGrowthRate) {
+      f.ratios.profitGrowthRate = ((profit - profitPrev) / profitPrev) * 100;
+    }
+
+    // Net Profit per Member (เงินออมเฉลี่ย/กำไรเฉลี่ย)
+    var membersTotal = num(s.coopProfile.members.regularTotal) + num(s.coopProfile.members.associateTotal);
+    if (membersTotal > 0 && profit > 0 && !f.ratios.profitPerMember) {
+      f.ratios.profitPerMember = profit / membersTotal;
+    }
+
+    // Avg Saving per Member
+    if (membersTotal > 0 && num(N.avgSaving) > 0 && !f.ratios.avgSavingPerMember) {
+      f.ratios.avgSavingPerMember = num(N.avgSaving);
+    }
+
+    // Avg Debt per Member
+    if (membersTotal > 0 && num(N.avgDebt) > 0 && !f.ratios.avgDebtPerMember) {
+      f.ratios.avgDebtPerMember = num(N.avgDebt);
+    }
+
+    return f.ratios;
+  }
+
   // -------------------------------------------------------------------------
   // Apply state -> Tab 1 (for dashboard "load to edit" / saved record)
   // -------------------------------------------------------------------------
@@ -1177,6 +1297,7 @@
     applyAutoDeadlines();
     recalcFinancials();
     recalcStrength();
+    recalc4MRatios();
     applyStateToBaseForm();
     if (global.CPD_UI && typeof global.CPD_UI.renderAll === 'function') {
       global.CPD_UI.renderAll();
@@ -1213,6 +1334,7 @@
     syncFromBaseFormToAllTabs: syncFromBaseFormToAllTabs,
     recalcFinancials: recalcFinancials,
     recalcStrength: recalcStrength,
+    recalc4MRatios: recalc4MRatios,
     applyStateToBaseForm: applyStateToBaseForm,
     loadStateFromRecord: loadStateFromRecord,
     localDraftKey: localDraftKey,

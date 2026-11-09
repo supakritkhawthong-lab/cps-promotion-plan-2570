@@ -132,6 +132,32 @@
           'ธุรกิจรับฝากเงิน'
         ],
         mainProducts: ['ข้าวโพดเลี้ยงสัตว์', 'ลูกไก่', 'อาหารไก่ไข่', 'ยาไก่', 'ถาดไข่', 'ไก่สาว'],
+        fourMDetails: {
+          m1: {
+            usesAnnualPlan: true,
+            inspectorFrequency: 'irregular',
+            membersBorrow: 40,
+            membersDeposit: 83
+          },
+          m2: {
+            facilityCondition: 'moderate',
+            accountingSoftware: 'cpd_software'
+          },
+          m4: {
+            hasAnnualPlan: true,
+            hasStrategicPlan: false,
+            internalControlLevel: 'พอใช้',
+            closeAccountDays: 45,
+            agmDays: 150,
+            hasFraud: false
+          },
+          auditorObservations: {
+            hasInternalControlWeakness: true,
+            weaknessCategories: ['ด้านเทคโนโลยีสารสนเทศ/โปรแกรมบัญชี'],
+            details: 'จุดอ่อนการควบคุมภายในด้าน IT หลักประกันการทำงาน และไซโลขนาด 1,000 ตันที่ใช้งานไม่ได้',
+            correctionStatus: 'อยู่ระหว่างดำเนินการ'
+          }
+        },
         members: {
           regularMale: 52, regularFemale: 31, regularTotal: 83,
           associateMale: 0, associateFemale: 0, associateTotal: 0,
@@ -281,6 +307,286 @@
   };
 
   // =========================================================================
+  // ข้อมูลตรวจสอบแล้ว: สหกรณ์ออมทรัพย์สยามโตโยต้าอุตสาหกรรม จำกัด
+  // =========================================================================
+  var TOYOTA_NAME = 'สหกรณ์ออมทรัพย์สยามโตโยต้าอุตสาหกรรม จำกัด';
+
+  var toyotaVerified = {
+    name: TOYOTA_NAME,
+    title: 'สหกรณ์ออมทรัพย์สยามโตโยต้าอุตสาหกรรม จำกัด',
+    form: {
+      coop_name: TOYOTA_NAME,
+      district: 'บ้านบึง',
+      reg_date: '28 มกราคม 2547',
+      board_count: '15',
+      inspector_count: '5',
+      inspector_name: 'นางสาวสมศรี ใจดี',
+      auditor_type: 'ภาครัฐ',
+      gov_auditor_name: 'คนึงศรี',
+      fiscal_year: '31 ธันวาคม',
+      yr_latest: '2568',
+      yr_prev: '2567',
+      mem_latest: '1129/1129/0',
+      mem_prev: '1100',
+      asset_latest: '442375342.93',
+      asset_prev: '435455189.61',
+      debt_latest: '39849406.05',
+      debt_prev: '41665377.54',
+      share_latest: '50805200.00',
+      share_prev: '48952400.00',
+      reserve_latest: '22117248.15',
+      reserve_prev: '20718803.01',
+      accumfund_latest: '329391688.73',
+      accumfund_prev: '323758609.06',
+      profit_latest: '16832045.15',
+      profit_prev: '15755133.85',
+      loss_latest: '0',
+      loss_prev: '0',
+      biz_vol_latest: '291837877.63',
+      biz_vol_prev: '274712086.58',
+      business_types: 'ธุรกิจเงินให้กู้\nธุรกิจรับฝากเงิน',
+      c68_lv: 'ชั้น 1',
+      c68_tot: '92.50',
+      c68_d1: '23.00',
+      c68_d2: '18.00',
+      c68_d3: '16.50',
+      c68_d4: '35.00',
+      c69_lv: '',
+      c69_tot: '',
+      c69_d1: '',
+      c69_d2: '',
+      c69_d3: '',
+      c69_d4: '',
+      issue_1: 'การมีส่วนร่วมของสมาชิกในธุรกิจเงินฝากยังต่ำ (9.57%)',
+      issue_2: 'ยังไม่มีแผนกลยุทธ์ระยะยาว',
+      issue_3: '',
+      promotion_goals: '1. ส่งเสริมการเพิ่มการมีส่วนร่วมของสมาชิกในธุรกิจเงินฝาก\n2. ส่งเสริมการจัดทำแผนกลยุทธ์ระยะยาว\n3. รักษามาตรฐานการควบคุมภายในระดับดีมาก',
+      planned_visits: '4',
+      visit_remark: 'ข้อมูลอ้างอิงจากงบการเงินปีบัญชี 2568 และรายงานผลการตรวจสอบกิจการ',
+      agm_date: '28/03/2570',
+      certify_date: 'มีนาคม 2570',
+      /* ผลการดำเนินงานฉบับละเอียด */
+      agm_attend_latest: '650', agm_attend_prev: '620',
+      mem_biz_deposit_latest: '108', mem_biz_deposit_prev: '95',
+      mem_biz_trading_latest: '0', mem_biz_trading_prev: '0',
+      mem_biz_processing_latest: '0', mem_biz_processing_prev: '0',
+      wc_latest: '442375342.93', wc_prev: '435455189.61',
+      coopcap_latest: '402525936.88', coopcap_prev: '393789812.07',
+      loan_latest: '35000000.00', loan_prev: '36000000.00',
+      payable_latest: '4849406.05', payable_prev: '5665377.54',
+      cash_latest: '185234567.89', cash_prev: '175432109.87',
+      inventory_latest: '0', inventory_prev: '0',
+      ppe_latest: '12567890.12', ppe_prev: '11987654.32',
+      receivable_latest: '1567890.12', receivable_prev: '1234567.89',
+      otherasset_latest: '258249844.80', otherasset_prev: '247545857.53',
+      income_latest: '291837877.63', income_prev: '274712086.58',
+      expense_latest: '275005832.48', expense_prev: '258956952.73',
+      sales_trading_latest: '0', sales_trading_prev: '0',
+      cost_trading_latest: '0', cost_trading_prev: '0',
+      profit_biz_trading_latest: '0', profit_biz_trading_prev: '0',
+      plan_trading_latest: '0', plan_trading_prev: '0',
+      sales_processing_latest: '0', sales_processing_prev: '0',
+      cost_processing_latest: '0', cost_processing_prev: '0',
+      profit_biz_processing_latest: '0', profit_biz_processing_prev: '0',
+      plan_processing_latest: '0', plan_processing_prev: '0',
+      deposit_amount_latest: '35000000.00', deposit_amount_prev: '36000000.00',
+      profit_biz_deposit_latest: '0', profit_biz_deposit_prev: '0',
+      avgprofit3_latest: '15762437.62', avgprofit3_prev: '14890123.45',
+      avgsaving_latest: '373648.26', avgsaving_prev: '350123.45',
+      avgdebt_latest: '115214.83', avgdebt_prev: '118901.23',
+      staff_count_latest: '7', staff_count_prev: '7'
+    },
+    state: {
+      coopProfile: {
+        coopId13: '2000000125789',
+        coopName: TOYOTA_NAME,
+        orgType: 'สหกรณ์',
+        coopSubType: 'สหกรณ์ออมทรัพย์',
+        status: 'ดำเนินการ',
+        district: 'บ้านบึง',
+        distanceKm: 0,
+        regDate: '28 มกราคม 2547',
+        fiscalEndDate: '31 ธันวาคม',
+        boardCount: 15,
+        auditorType: 'ภาครัฐ',
+        auditorName: 'นางสาวคนึงศรี สงวนสัตย์',
+        inspectorCount: 5,
+        inspectorName: 'นางสาวสมศรี ใจดี',
+        royalProject: '',
+        mainBusinesses: ['ธุรกิจเงินให้กู้', 'ธุรกิจรับฝากเงิน'],
+        mainProducts: [],
+        members: {
+          regularMale: 650, regularFemale: 479, regularTotal: 1129,
+          associateMale: 0, associateFemale: 0, associateTotal: 0,
+          prevYearTotal: 1100
+        },
+        fourMDetails: {
+          m1: {
+            usesAnnualPlan: true,
+            inspectorFrequency: 'monthly',
+            membersBorrow: 570,
+            membersDeposit: 108
+          },
+          m2: {
+            facilityCondition: 'good',
+            accountingSoftware: 'private_software'
+          },
+          m4: {
+            hasAnnualPlan: true,
+            hasStrategicPlan: false,
+            internalControlLevel: 'ดีมาก',
+            closeAccountDays: 25,
+            agmDays: 87,
+            hasFraud: false
+          },
+          auditorObservations: {
+            hasInternalControlWeakness: false,
+            weaknessCategories: [],
+            details: 'ไม่พบข้อสังเกตเกี่ยวกับจุดอ่อนของการควบคุมภายใน',
+            correctionStatus: ''
+          }
+        }
+      },
+      financials: {
+        summary2Years: {
+          assetsLatest: 442375342.93, assetsPrev: 435455189.61,
+          liabilitiesLatest: 39849406.05, liabilitiesPrev: 41665377.54,
+          shareCapitalLatest: 50805200.00, shareCapitalPrev: 48952400.00,
+          reserveFundLatest: 22117248.15, reserveFundPrev: 20718803.01,
+          otherAccumFundLatest: 329391688.73, otherAccumFundPrev: 323758609.06,
+          netProfitLatest: 16832045.15, netProfitPrev: 15755133.85,
+          accumLossLatest: 0, accumLossPrev: 0,
+          businessVolumeLatest: 291837877.63, businessVolumePrev: 274712086.58,
+          activeBusinessesText: 'ธุรกิจเงินให้กู้ ธุรกิจรับฝากเงิน'
+        },
+        balanceSheet: {
+          currentAssets: 187770348.13, nonCurrentAssets: 254604994.80, totalAssets: 442375342.93,
+          currentLiabilities: 39849406.05, nonCurrentLiabilities: 0, totalLiabilities: 39849406.05,
+          shareCapital: 50805200.00, reserveFund: 22117248.15, otherAccumFunds: 329391688.73,
+          accumulatedLoss: 0, netProfitYear: 16832045.15, totalEquity: 402525936.88
+        },
+        businesses: {
+          credit: { interestIncome: 291837877.63, serviceCost: 275005832.48, grossProfit: 16832045.15, specificIncome: 0, specificExpense: 0, netBusinessProfit: 16832045.15 },
+          trading: { sales: 0, cogs: 0, grossProfit: 0, specificIncome: 0, specificExpense: 0, netBusinessProfit: 0 },
+          collection: { sales: 0, cogs: 0, grossProfit: 0, specificIncome: 0, specificExpense: 0, netBusinessProfit: 0 },
+          processing: { sales: 0, cogs: 0, grossProfit: 0, specificIncome: 0, specificExpense: 0, netBusinessProfit: 0 },
+          service: { serviceIncome: 0, serviceCost: 0, grossProfit: 0, specificIncome: 0, specificExpense: 0, netBusinessProfit: 0 }
+        },
+        incomeStatement: {
+          totalSalesService: 291837877.63, totalCogsService: 275005832.48, grossProfit: 16832045.15,
+          specificIncome: 0, specificExpense: 0, otherIncome: 0, operatingExpense: 0, netProfit: 16832045.15
+        },
+        ratios: {
+          deRatio: 0.09, roe: 3.79, roa: 3.67, currentRatio: 4.18,
+          reserveToAssetRatio: 0.05, opexToGrossProfitRatio: 0,
+          shortTermDebtPaidOnTimeRatio: 100,
+          assetTurnover: 0.04, assetGrowthRate: 1.57, profitGrowthRate: 6.83,
+          profitPerMember: 14908.81, avgSavingPerMember: 373648.26, avgDebtPerMember: 115214.83
+        }
+      },
+      strength: {
+        classByYear: { '2568': 'ชั้น 1', '2569': '' },
+        totalByYear: { '2568': 92.50, '2569': 0 },
+        dim1ByYear: { '2568': 23.00, '2569': 0 },
+        dim2ByYear: { '2568': 18.00, '2569': 0 },
+        dim3ByYear: { '2568': 16.50, '2569': 0 },
+        dim4ByYear: { '2568': 35.00, '2569': 0 },
+        indicators: indicatorScores({
+          '1.1': 8, '1.2': 10, '1.3': 5,
+          '2.1': 3, '2.2': 2, '2.3': 4, '2.4': 4, '2.5': 3, '2.6': 4,
+          '3.1': 4, '3.2': 4, '3.3': 4, '3.4': 4, '3.5': 4,
+          '4.1': 15, '4.2': 5, '4.3': 5, '4.4': 5
+        })
+      }
+    },
+    fourM: {
+      orgAnalysis4M: [
+        'การวิเคราะห์ข้อมูลของสหกรณ์/กลุ่มเกษตรกร',
+        '- ผลการวิเคราะห์ข้อมูลด้านการบริหารจัดการองค์กร',
+        'ด้านการบริหารจัดการองค์กร (หลัก 4M)',
+        '',
+        '1. หัวข้อ: บุคลากร (Man)',
+        '- คณะกรรมการดำเนินการ มีจำนวน 15 คน มีความรู้ความสามารถและประสบการณ์เพียงพอในการบริหารงาน',
+        '- ผู้ตรวจสอบกิจการชื่อ นางสาวสมศรี ใจดี (5 คน) ผ่านการอบรมผู้ตรวจสอบกิจการสหกรณ์ และรายงานผลต่อที่ประชุมคณะกรรมการทุกเดือน (monthly)',
+        '- ฝ่ายจัดการมีผู้จัดการ 1 คน ผู้ช่วยผู้จัดการ 4 คน และเจ้าหน้าที่ปฏิบัติงานประจำ 7 คน',
+        '- ณ วันสิ้นปีบัญชีมีสมาชิก 1,129 คน แยกเป็น สมาชิกที่กู้เงิน 570 คน (50.49%) และสมาชิกที่ฝากเงิน 108 คน (9.57%)',
+        '',
+        '2. หัวข้อ: สำนักงาน/อุปกรณ์ (Material)',
+        '- สหกรณ์มีสำนักงานและอุปกรณ์ที่ใช้ในการปฏิบัติงานอย่างเพียงพอ มีความเหมาะสมในพื้นที่โรงงาน',
+        '- สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์เอกชน (Teller) ที่มีประสิทธิภาพสูงในการบริหารจัดการข้อมูล',
+        '',
+        '3. หัวข้อ: การเงิน (Money)',
+        '- ผลการดำเนินงานปีบัญชี 2568 มีกำไรสุทธิ 16,832,045.15 บาท เพิ่มขึ้นจากปีก่อน 6.83%',
+        '- อัตราส่วนทางการเงิน: D/E = 0.09 เท่า, ROE = 3.79%, ROA = 3.67%, Current Ratio = 4.18 เท่า',
+        '- ทุนสำรองต่อสินทรัพย์ = 0.05 เท่า, อัตราหมุนของสินทรัพย์ = 0.04 รอบ',
+        '- เงินออมเฉลี่ยต่อสมาชิก = 373,648.26 บาท, หนี้เฉลี่ยต่อสมาชิก = 115,214.83 บาท',
+        '- กำไรเฉลี่ยต่อสมาชิก = 14,908.81 บาท, อัตราการชำระหนี้ได้ตามกำหนด = 100%',
+        '',
+        '4. หัวข้อ: การจัดการ (Management)',
+        '- สหกรณ์มีแผนประจำปีและแผนลงทุน แต่ยังไม่มีการจัดทำแผนกลยุทธ์ระยะยาว',
+        '- ระดับการควบคุมภายในอยู่ในระดับ "ดีมาก"',
+        '- สามารถปิดบัญชีภายใน 25 วัน (เกณฑ์ ≤ 30 วัน) และจัดประชุมใหญ่ภายใน 87 วัน (เกณฑ์ ≤ 150 วัน)',
+        '- ไม่พบข้อบกพร่อง/ทุจริต',
+        '- ข้อสังเกตผู้สอบบัญชี: ไม่พบข้อสังเกตเกี่ยวกับจุดอ่อนของการควบคุมภายใน',
+        ''
+      ],
+      businessAnalysis: [
+        '- ผลการวิเคราะห์ข้อมูลด้านการบริหารจัดการธุรกิจ',
+        'ด้านการบริหารจัดการธุรกิจ',
+        '',
+        '1. หัวข้อ: ธุรกิจเงินให้กู้',
+        '- สหกรณ์ดำเนินธุรกิจเงินให้กู้ มีดอกเบี้ยรับ 291,837,877.63 บาท',
+        '- ต้นทุนการให้บริการ 275,005,832.48 บาท กำไรสุทธิจากธุรกิจ 16,832,045.15 บาท',
+        '- สมาชิกที่กู้เงิน 570 คน จากสมาชิกทั้งหมด 1,129 คน (50.49%)',
+        '- อัตราการชำระหนี้ได้ตามกำหนด 100% แสดงถึงคุณภาพลูกหนี้ที่ดี',
+        '',
+        '2. หัวข้อ: ธุรกิจรับฝากเงิน',
+        '- สหกรณ์รับฝากเงินจากสมาชิก 35,000,000.00 บาท',
+        '- สมาชิกที่ฝากเงิน 108 คน จากสมาชิกทั้งหมด 1,129 คน (9.57%)',
+        '- การมีส่วนร่วมของสมาชิกในธุรกิจเงินฝากยังต่ำ ควรส่งเสริมการเพิ่มประเภทเงินฝากเพื่อจูงใจสมาชิก',
+        ''
+      ],
+      welfareAnalysis: '',
+      summaryAnalysis: [
+        'ผลการวิเคราะห์ข้อมูลของสหกรณ์/กลุ่มเกษตรกร',
+        '',
+        'ด้านการบริหารจัดการองค์กร:',
+        '- คณะกรรมการดำเนินการมีจำนวน 15 คน มีความรู้ความสามารถและประสบการณ์เพียงพอ',
+        '- ผู้ตรวจสอบกิจการรายงานผลทุกเดือน แสดงถึงความเข้มแข็งในการตรวจสอบ',
+        '- ระบบการควบคุมภายในอยู่ในระดับดีมาก ไม่พบข้อสังเกตจุดอ่อน',
+        '',
+        'ด้านการเงิน:',
+        '- สหกรณ์มีผลกำไรสุทธิ 16,832,045.15 บาท เพิ่มขึ้นจากปีก่อน 6.83%',
+        '- โครงสร้างการเงินมั่นคง D/E = 0.09 เท่า, Current Ratio = 4.18 เท่า',
+        '- สภาพคล่องสูง เงินออมเฉลี่ยต่อสมาชิกสูงกว่าหนี้เฉลี่ย',
+        '',
+        'ด้านการจัดการ:',
+        '- สหกรณ์สามารถปิดบัญชีและจัดการประชุมใหญ่ได้ภายในเกณฑ์ที่กำหนด',
+        '- ยังไม่มีแผนกลยุทธ์ระยะยาว ควรได้รับการส่งเสริมให้จัดทำ',
+        '',
+        'จุดแข็ง:',
+        '✓ การควบคุมภายในระดับดีมาก ไม่พบข้อสังเกตผู้สอบบัญชี',
+        '✓ โครงสร้างการเงินมั่นคง สภาพคล่องสูง',
+        '✓ การประชุมใหญ่ทันตามเกณฑ์มาตรฐานบัญชี',
+        '',
+        'จุดที่ควรส่งเสริม:',
+        '▸ การมีส่วนร่วมของสมาชิกในธุรกิจเงินฝากยังต่ำ (9.57%)',
+        '▸ ยังไม่มีแผนกลยุทธ์ระยะยาว'
+      ]
+    },
+    activities: [
+      {
+        code: '2.5', target: '1', unit: 'ครั้ง', operator: 'เจ้าหน้าที่ส่งเสริม', autoGenerated: true, auto4M: true,
+        goal: '2.5 ส่งเสริมการเพิ่มการมีส่วนร่วมของสมาชิกในธุรกิจเงินฝาก และการเพิ่มประเภทสินเชื่อ/เงินฝากเพื่อจูงใจสมาชิก'
+      },
+      {
+        code: '2.6', target: '1', unit: 'ครั้ง', operator: 'เจ้าหน้าที่ส่งเสริม', autoGenerated: true, auto4M: true,
+        goal: '2.6 ส่งเสริมให้สหกรณ์มีการจัดทำแผนกลยุทธ์ และ/หรือร่วมจัดทำแผนกลยุทธ์กับสหกรณ์'
+      }
+    ]
+  };
+
+  // =========================================================================
   // Smart Coop Profile PDF parser (ข้อ 1–47)
   // =========================================================================
   var PROFILE_RULES = [
@@ -401,9 +707,10 @@
 
   var cache = {};
   cache[normalizeName(VERIFIED_NAME)] = verified;
+  cache[normalizeName(TOYOTA_NAME)] = toyotaVerified;
 
   global.CPD_PRELOAD = {
-    version: '20260214a',
+    version: '20260214b',
     verifiedName: VERIFIED_NAME,
     parseSmartCoopProfile: parseSmartCoopProfile,
     rules: PROFILE_RULES,
