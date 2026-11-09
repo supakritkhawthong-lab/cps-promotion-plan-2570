@@ -1712,7 +1712,10 @@
 
   function matchFilter(value, filter) {
     if (!filter) return true;
-    return String(value || '').trim().toLowerCase() === String(filter).trim().toLowerCase();
+    // Normalize ช่องว่างและ trim ก่อนเปรียบเทียบ (ตรงกับ cpdFilterMatch_ ใน backend)
+    var cleanValue = String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    var cleanFilter = String(filter || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return cleanValue === cleanFilter;
   }
 
   /** คำนวณจำนวนวันจาก today ถึง targetDate (วว/ดด/ปปปป หรือ Date) คืนค่า null ถ้า parse ไม่ได้ */
