@@ -182,6 +182,116 @@
           }
         }
       },
+      businessDetails: {
+        // รายการธุรกิจที่สหกรณ์ดำเนินการ (เลือกได้หลายธุรกิจ)
+        activeList: ['deposit', 'loan'], // default: รับฝากเงิน + สินเชื่อ
+        
+        // รายละเอียดแต่ละธุรกิจ (7 ประเด็นมาตรฐาน)
+        deposit: {
+          enabled: true,
+          hasPlan: false,
+          depositTypesDesc: 'ออมทรัพย์, ฝากประจำ',
+          specialDepositRate: 0,
+          fixedDepositRate: 0,
+          depositDuringYear: 0,
+          depositEndAccounts: 0,
+          depositEndBalance: 0,
+          depositInterestCostPct: 0,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 0,
+          staffCompetencyNote: '',
+          opportunityOrIssueNote: ''
+        },
+        loan: {
+          enabled: true,
+          hasPlan: false,
+          loanTypesCount: 3,
+          ordinaryLoanRate: 0,
+          specialLoanRate: 0,
+          emergencyLoanRate: 0,
+          loanDisbursedYear: 0,
+          loanEndBorrowers: 0,
+          loanEndBalance: 0,
+          interestIncomeTotal: 0,
+          interestIncomePct: 0,
+          repaymentRate: 100,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 0,
+          staffCompetencyNote: '',
+          opportunityOrIssueNote: ''
+        },
+        trading: {
+          enabled: false,
+          hasPlan: false,
+          productTypes: 'ปุ๋ย, เมล็ดพันธุ์, อาหารสัตว์',
+          salesTerms: 'เงินสดและเงินเชื่อ',
+          salesVolumeYear: 0,
+          costOfGoodsSold: 0,
+          grossProfit: 0,
+          grossMarginPct: 0,
+          netBusinessResult: 0,
+          tradeReceivables: 0,
+          inventoryEnd: 0,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 0,
+          memberSalesAmount: 0,
+          staffCompetencyNote: '',
+          opportunityOrIssueNote: ''
+        },
+        collection: {
+          enabled: false,
+          hasPlan: false,
+          cropTypes: 'ข้าวเปลือก, มันสำปะหลัง',
+          collectionMethod: 'ซื้อขาดตามราคาตลาด',
+          collectionQuantity: 0,
+          collectionValueYear: 0,
+          collectionSalesValue: 0,
+          grossProfit: 0,
+          grossMarginPct: 0,
+          netBusinessResult: 0,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 0,
+          staffCompetencyNote: '',
+          opportunityOrIssueNote: ''
+        },
+        processing: {
+          enabled: false,
+          hasPlan: false,
+          processedProducts: 'ข้าวสาร, ยางแผ่นรมควัน',
+          qualityStandards: 'GAP, OTOP',
+          marketingChannels: 'ร้านสหกรณ์, ขายตรง',
+          capacityUtilizationPct: 0,
+          processingSalesYear: 0,
+          productionCost: 0,
+          grossProfit: 0,
+          grossMarginPct: 0,
+          netBusinessResult: 0,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 0,
+          memberParticipationValue: 0,
+          staffCompetencyNote: '',
+          opportunityOrIssueNote: ''
+        },
+        service: {
+          enabled: false,
+          hasPlan: false,
+          serviceTypes: 'รถไถ, รถเกี่ยว, ลานตาก',
+          serviceFeeRateDesc: 'ตามอัตราที่คณะกรรมการกำหนด',
+          serviceIncomeYear: 0,
+          serviceCost: 0,
+          netBusinessResult: 0,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 0,
+          staffCompetencyNote: '',
+          opportunityOrIssueNote: ''
+        }
+      },
       financials: {
         summary2Years: {
           assetsLatest: 0, assetsPrev: 0,

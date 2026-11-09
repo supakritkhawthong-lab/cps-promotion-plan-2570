@@ -497,6 +497,44 @@
           '3.1': 4, '3.2': 4, '3.3': 4, '3.4': 4, '3.5': 4,
           '4.1': 15, '4.2': 5, '4.3': 5, '4.4': 5
         })
+      },
+      businessDetails: {
+        activeList: ['deposit', 'loan'],
+        deposit: {
+          enabled: true,
+          hasPlan: false,
+          depositTypesDesc: 'ออมทรัพย์, ฝากประจำ 3 เดือน, ฝากประจำ 6 เดือน',
+          specialDepositRate: 1.5,
+          fixedDepositRate: 2.25,
+          depositDuringYear: 35000000,
+          depositEndAccounts: 108,
+          depositEndBalance: 35000000,
+          depositInterestCostPct: 2.8,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 108,
+          staffCompetencyNote: 'เจ้าหน้าที่มีความรู้ด้านผลิตภัณฑ์เงินฝากและให้บริการได้ดี',
+          opportunityOrIssueNote: 'ควรส่งเสริมการออมและจูงใจให้สมาชิกเข้ามาใช้บริการฝากเงินกับสหกรณ์เพิ่มขึ้น เนื่องจากมีสมาชิกเพียง 9.57% ที่ใช้บริการ'
+        },
+        loan: {
+          enabled: true,
+          hasPlan: false,
+          loanTypesCount: 3,
+          ordinaryLoanRate: 9,
+          specialLoanRate: 7.5,
+          emergencyLoanRate: 10.5,
+          loanDisbursedYear: 130000000,
+          loanEndBorrowers: 570,
+          loanEndBalance: 130000000,
+          interestIncomeTotal: 11700000,
+          interestIncomePct: 4,
+          repaymentRate: 100,
+          isCompliant: true,
+          nonCompliantNote: '',
+          participatingMembers: 570,
+          staffCompetencyNote: 'เจ้าหน้าที่สินเชื่อมีความรู้ความสามารถในการประเมินความเสี่ยงและบริหารจัดการลูกหนี้',
+          opportunityOrIssueNote: 'ควรเพิ่มประเภทสินเชื่อเพื่อดึงดูดให้สมาชิกมากู้เงิน เนื่องจากสมาชิกที่กู้เงินเป็นกลุ่มรายได้น้อย เงินฝากน้อย แต่สมาชิกที่ถือหุ้นเยอะและมีเงินฝากเยอะไม่ค่อยกู้เงิน'
+        }
       }
     },
     fourM: {
