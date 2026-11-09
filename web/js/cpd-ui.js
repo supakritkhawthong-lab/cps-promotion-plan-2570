@@ -2097,6 +2097,41 @@
     return s ? s : '......';
   }
 
+  /**
+   * valOrText(v, unit, fallback) — แสดงค่าตัวเลขหรือข้อความ fallback
+   * ถ้า v > 0: แสดงค่าตัวเลข + unit
+   * ถ้า v = 0 หรือว่าง: แสดง fallback
+   */
+  function valOrText(v, unit, fallback) {
+    unit = unit || 'บาท';
+    fallback = fallback || 'ไม่มีรายการ';
+    var n = S.num(v);
+    if (n > 0) {
+      return S.fmt(n, 2) + ' ' + unit;
+    }
+    return fallback;
+  }
+
+  /**
+   * yoyText(curr, prev, unit) — คำนวณ YoY change พร้อม %
+   * ถ้าทั้ง curr และ prev > 0: คำนวณ diff และ pct
+   * คืนค่า: "(เพิ่มขึ้น/ลดลงจากปีก่อน X บาท หรือร้อยละ Y%)"
+   */
+  function yoyText(curr, prev, unit) {
+    unit = unit || 'บาท';
+    var c = S.num(curr);
+    var p = S.num(prev);
+    if (c <= 0 || p <= 0) return '';
+    
+    var diff = c - p;
+    var pct = ((diff / p) * 100).toFixed(2);
+    var phrase = diff >= 0 ? 'เพิ่มขึ้น' : 'ลดลง';
+    
+    return '(' + phrase + 'จากปีก่อน ' + 
+      Math.abs(diff).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + 
+      ' ' + unit + ' หรือร้อยละ ' + Math.abs(pct) + ')';
+  }
+
   function diffPhrase(latest, prev) {
     var l = S.num(latest);
     var p = S.num(prev);
