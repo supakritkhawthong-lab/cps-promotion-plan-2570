@@ -597,45 +597,28 @@
   }
 
   /**
-   * buildBusinessSection() — สร้างส่วนเลือกธุรกิจและฟอร์มกรอกข้อมูล 6 ธุรกิจ
+   * buildBusinessSection() — สร้างส่วนฟอร์มกรอกข้อมูล 6 ธุรกิจ (แสดงทั้งหมด ไม่ใช้ checkbox)
    */
   function buildBusinessSection() {
-    var businesses = [
-      { key: 'deposit', name: 'รับฝากเงิน', icon: '💰' },
-      { key: 'loan', name: 'ให้สินเชื่อ / เงินกู้', icon: '🏦' },
-      { key: 'trading', name: 'จัดหาสินค้ามาจำหน่าย', icon: '🛒' },
-      { key: 'collection', name: 'รวบรวมผลิตผล', icon: '🌾' },
-      { key: 'processing', name: 'แปรรูปผลผลิต', icon: '🏭' },
-      { key: 'service', name: 'ให้บริการ', icon: '🚛' }
-    ];
-
     var html = '<div class="col-12"><div class="card border-primary mb-3">';
     html += '<div class="card-header bg-primary bg-opacity-10 py-2">';
-    html += '<strong>2. ด้านการบริหารจัดการธุรกิจ (เลือกธุรกิจที่สหกรณ์ดำเนินการ)</strong>';
-    html += '<button type="button" class="btn btn-sm btn-info float-end" data-action="generate-business-analysis">✨ สร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติ</button>';
+    html += '<strong>2. ด้านการบริหารจัดการธุรกิจ</strong>';
+    html += '<div class="float-end">';
+    html += '<span class="badge bg-info me-2" id="bizAutoDetectBadge">ตรวจพบ 0 ธุรกิจ</span>';
+    html += '<button type="button" class="btn btn-sm btn-info" data-action="generate-business-analysis">✨ สร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติ</button>';
+    html += '</div>';
     html += '</div>';
     html += '<div class="card-body py-3">';
     
-    // Checkboxes เลือกธุรกิจ
-    html += '<div class="row g-2 mb-3">';
-    businesses.forEach(function (biz) {
-      html += '<div class="col-md-4 col-lg-2">';
-      html += '<div class="form-check form-check-inline">';
-      html += '<input class="form-check-input" type="checkbox" data-biz-toggle="' + biz.key + '" id="bizCheck_' + biz.key + '">';
-      html += '<label class="form-check-label" for="bizCheck_' + biz.key + '">' + biz.icon + ' ' + biz.name + '</label>';
-      html += '</div></div>';
-    });
-    html += '</div>';
-
-    // ฟอร์มแต่ละธุรกิจ (ซ่อนไว้ก่อน)
-    html += '<div id="bizFormsContainer">';
+    // แสดงฟอร์มทุกธุรกิจทันที (ไม่ใช้ checkbox)
+    html += '<div class="text-muted small mb-3">กรอกข้อมูลธุรกิจที่สหกรณ์ดำเนินการ ระบบจะตรวจพบธุรกิจที่ดำเนินการอัตโนมัติจากข้อมูลที่กรอก</div>';
+    
     html += buildDepositForm();
     html += buildLoanForm();
     html += buildTradingForm();
     html += buildCollectionForm();
     html += buildProcessingForm();
     html += buildServiceForm();
-    html += '</div>';
 
     html += '</div></div></div>';
     return html;
@@ -645,7 +628,7 @@
    * สร้างฟอร์มกรอกข้อมูลธุรกิจรับฝากเงิน (2.1)
    */
   function buildDepositForm() {
-    return '<div id="bizForm_deposit" class="biz-form" style="display:none;">' +
+    return '<div id="bizForm_deposit" class="biz-form">' +
       '<h6 class="fw-bold text-primary mt-3 mb-2">💰 2.1 ธุรกิจรับฝากเงิน</h6>' +
       '<div class="row g-2">' +
       buildCheckField('businessDetails.deposit.hasPlan', 'มีแผนธุรกิจรับฝากเงิน') +
@@ -667,7 +650,7 @@
    * สร้างฟอร์มกรอกข้อมูลธุรกิจให้สินเชื่อ (2.2)
    */
   function buildLoanForm() {
-    return '<div id="bizForm_loan" class="biz-form" style="display:none;">' +
+    return '<div id="bizForm_loan" class="biz-form">' +
       '<h6 class="fw-bold text-primary mt-3 mb-2">🏦 2.2 ธุรกิจให้สินเชื่อ / เงินกู้</h6>' +
       '<div class="row g-2">' +
       buildCheckField('businessDetails.loan.hasPlan', 'มีแผนธุรกิจสินเชื่อ') +
@@ -692,7 +675,7 @@
    * สร้างฟอร์มกรอกข้อมูลธุรกิจจัดหาสินค้า (2.3)
    */
   function buildTradingForm() {
-    return '<div id="bizForm_trading" class="biz-form" style="display:none;">' +
+    return '<div id="bizForm_trading" class="biz-form">' +
       '<h6 class="fw-bold text-primary mt-3 mb-2">🛒 2.3 ธุรกิจจัดหาสินค้ามาจำหน่าย</h6>' +
       '<div class="row g-2">' +
       buildCheckField('businessDetails.trading.hasPlan', 'มีแผนธุรกิจจัดหาสินค้า') +
@@ -717,7 +700,7 @@
    * สร้างฟอร์มกรอกข้อมูลธุรกิจรวบรวมผลิตผล (2.4)
    */
   function buildCollectionForm() {
-    return '<div id="bizForm_collection" class="biz-form" style="display:none;">' +
+    return '<div id="bizForm_collection" class="biz-form">' +
       '<h6 class="fw-bold text-primary mt-3 mb-2">🌾 2.4 ธุรกิจรวบรวมผลิตผล</h6>' +
       '<div class="row g-2">' +
       buildCheckField('businessDetails.collection.hasPlan', 'มีแผนรวบรวมผลิตผล') +
@@ -740,7 +723,7 @@
    * สร้างฟอร์มกรอกข้อมูลธุรกิจแปรรูป (2.5)
    */
   function buildProcessingForm() {
-    return '<div id="bizForm_processing" class="biz-form" style="display:none;">' +
+    return '<div id="bizForm_processing" class="biz-form">' +
       '<h6 class="fw-bold text-primary mt-3 mb-2">🏭 2.5 ธุรกิจแปรรูปผลผลิต</h6>' +
       '<div class="row g-2">' +
       buildCheckField('businessDetails.processing.hasPlan', 'มีแผนแปรรูป') +
@@ -765,7 +748,7 @@
    * สร้างฟอร์มกรอกข้อมูลธุรกิจให้บริการ (2.6)
    */
   function buildServiceForm() {
-    return '<div id="bizForm_service" class="biz-form" style="display:none;">' +
+    return '<div id="bizForm_service" class="biz-form">' +
       '<h6 class="fw-bold text-primary mt-3 mb-2">🚛 2.6 ธุรกิจให้บริการ</h6>' +
       '<div class="row g-2">' +
       buildCheckField('businessDetails.service.hasPlan', 'มีแผนบริการ') +
@@ -808,28 +791,32 @@
   }
 
   /**
-   * toggleBusinessForm() - แสดง/ซ่อนฟอร์มเมื่อติ๊ก checkbox ธุรกิจ
+   * isBusinessActive() - ตรวจสอบว่าธุรกิจมีข้อมูลจริงหรือไม่ (Auto-Detection)
    */
-  function toggleBusinessForm(checkbox) {
-    var bizKey = checkbox.getAttribute('data-biz-toggle');
-    var form = document.getElementById('bizForm_' + bizKey);
-    if (!form) return;
+  function isBusinessActive(bizKey) {
+    var bd = A().businessDetails || {};
+    var biz = bd[bizKey];
+    if (!biz) return false;
     
-    var isChecked = checkbox.checked;
-    form.style.display = isChecked ? '' : 'none';
+    // เช็กจากมูลค่าเงิน (สำคัญที่สุด)
+    var valueFields = {
+      deposit: ['depositDuringYear', 'depositEndBalance'],
+      loan: ['loanDisbursedYear', 'loanEndBalance', 'interestIncomeTotal'],
+      trading: ['salesVolumeYear', 'memberSalesAmount'],
+      collection: ['collectionValueYear', 'collectionSalesValue'],
+      processing: ['processingSalesYear', 'productionCost'],
+      service: ['serviceIncomeYear', 'serviceCost']
+    };
     
-    // อัปเดต state
-    var bd = A().businessDetails || (A().businessDetails = {});
-    var activeList = bd.activeList || (bd.activeList = []);
-    
-    if (isChecked) {
-      if (activeList.indexOf(bizKey) === -1) activeList.push(bizKey);
-      if (bd[bizKey]) bd[bizKey].enabled = true;
-    } else {
-      var idx = activeList.indexOf(bizKey);
-      if (idx !== -1) activeList.splice(idx, 1);
-      if (bd[bizKey]) bd[bizKey].enabled = false;
+    var fields = valueFields[bizKey] || [];
+    for (var i = 0; i < fields.length; i++) {
+      if (biz[fields[i]] && Number(biz[fields[i]]) > 0) return true;
     }
+    
+    // เช็กจากจำนวนสมาชิกที่เข้าร่วม
+    if (biz.participatingMembers && Number(biz.participatingMembers) > 0) return true;
+    
+    return false;
   }
 
   /**
@@ -853,28 +840,35 @@
       
       S.setPath(bd, path, value);
     });
+    
+    // อัปเดต badge แสดงจำนวนธุรกิจที่ตรวจพบ
+    updateBizAutoDetectBadge();
   }
 
   /**
-   * fillBusinessFormsFromState() - เติมข้อมูลจาก state ลงฟอร์มธุรกิจ
+   * updateBizAutoDetectBadge() - อัปเดต badge แสดงจำนวนธุรกิจที่ตรวจพบ
+   */
+  function updateBizAutoDetectBadge() {
+    var badge = document.getElementById('bizAutoDetectBadge');
+    if (!badge) return;
+    
+    var bizKeys = ['deposit', 'loan', 'trading', 'collection', 'processing', 'service'];
+    var activeCount = 0;
+    
+    bizKeys.forEach(function (key) {
+      if (isBusinessActive(key)) activeCount++;
+    });
+    
+    badge.textContent = 'ตรวจพบ ' + activeCount + ' ธุรกิจ';
+  }
+
+  /**
+   * fillBusinessFormsFromState() - เติมข้อมูลจาก state ลงฟอร์มธุรกิจ (แสดงทั้งหมด)
    */
   function fillBusinessFormsFromState() {
     var bd = A().businessDetails || {};
-    var activeList = bd.activeList || [];
     
-    // Sync active list with checkboxes
-    document.querySelectorAll('[data-biz-toggle]').forEach(function (checkbox) {
-      var bizKey = checkbox.getAttribute('data-biz-toggle');
-      var isEnabled = activeList.indexOf(bizKey) !== -1 || (bd[bizKey] && bd[bizKey].enabled);
-      checkbox.checked = isEnabled;
-      
-      var form = document.getElementById('bizForm_' + bizKey);
-      if (form) {
-        form.style.display = isEnabled ? '' : 'none';
-      }
-    });
-    
-    // Fill form fields
+    // Fill form fields (แสดงทั้งหมด ไม่ต้องซ่อน)
     document.querySelectorAll('[data-biz-field]').forEach(function (el) {
       var fullPath = el.getAttribute('data-biz-field');
       var type = el.getAttribute('data-type');
@@ -890,6 +884,9 @@
         el.value = value || '';
       }
     });
+    
+    // อัปเดต badge
+    updateBizAutoDetectBadge();
   }
 
   /**
@@ -1861,10 +1858,6 @@
     } else if (el.matches('[data-biz-field]')) {
       // Business form fields
       syncBusinessFieldsToState();
-      changed = true;
-    } else if (el.matches('[data-biz-toggle]')) {
-      // Business checkbox toggle
-      toggleBusinessForm(el);
       changed = true;
     } else if (el.matches('[data-indicator]')) {
       var ind = el.getAttribute('data-indicator');

@@ -316,32 +316,55 @@
     return lines.join('\n');
   }
 
+  /**
+   * isBusinessActive() - ตรวจสอบว่าธุรกิจมีข้อมูลจริงหรือไม่ (Auto-Detection)
+   */
+  function isBusinessActive(bizKey, state) {
+    var bd = state && state.businessDetails || {};
+    var biz = bd[bizKey];
+    if (!biz) return false;
+    
+    // เช็กจากมูลค่าเงิน (สำคัญที่สุด)
+    var valueFields = {
+      deposit: ['depositDuringYear', 'depositEndBalance'],
+      loan: ['loanDisbursedYear', 'loanEndBalance', 'interestIncomeTotal'],
+      trading: ['salesVolumeYear', 'memberSalesAmount'],
+      collection: ['collectionValueYear', 'collectionSalesValue'],
+      processing: ['processingSalesYear', 'productionCost'],
+      service: ['serviceIncomeYear', 'serviceCost']
+    };
+    
+    var fields = valueFields[bizKey] || [];
+    for (var i = 0; i < fields.length; i++) {
+      if (biz[fields[i]] && Number(biz[fields[i]]) > 0) return true;
+    }
+    
+    // เช็กจากจำนวนสมาชิกที่เข้าร่วม
+    if (biz.participatingMembers && Number(biz.participatingMembers) > 0) return true;
+    
+    return false;
+  }
+
   // =========================================================================
   // Generate All Analyses
   // =========================================================================
   function generateAllAnalyses(state) {
-    var bd = (state && state.businessDetails) || {};
-    var activeList = bd.activeList || [];
     var result = {};
+    var bizKeys = ['deposit', 'loan', 'trading', 'collection', 'processing', 'service'];
 
-    if (activeList.indexOf('deposit') !== -1) {
-      result.deposit = generateDepositAnalysis(state);
-    }
-    if (activeList.indexOf('loan') !== -1) {
-      result.loan = generateLoanAnalysis(state);
-    }
-    if (activeList.indexOf('trading') !== -1) {
-      result.trading = generateTradingAnalysis(state);
-    }
-    if (activeList.indexOf('collection') !== -1) {
-      result.collection = generateCollectionAnalysis(state);
-    }
-    if (activeList.indexOf('processing') !== -1) {
-      result.processing = generateProcessingAnalysis(state);
-    }
-    if (activeList.indexOf('service') !== -1) {
-      result.service = generateServiceAnalysis(state);
-    }
+    bizKeys.forEach(function (key) {
+      if (isBusinessActive(key, state)) {
+        var fn = {
+          deposit: generateDepositAnalysis,
+          loan: generateLoanAnalysis,
+          trading: generateTradingAnalysis,
+          collection: generateCollectionAnalysis,
+          processing: generateProcessingAnalysis,
+          service: generateServiceAnalysis
+        }[key];
+        if (fn) result[key] = fn(state);
+      }
+    });
 
     return result;
   }
@@ -351,11 +374,13 @@
   // =========================================================================
   function generateBusinessSummary(state) {
     var bd = (state && state.businessDetails) || {};
-    var activeList = bd.activeList || [];
     var issues = [];
+    var bizKeys = ['deposit', 'loan', 'trading', 'collection', 'processing', 'service'];
 
-    // Check each active business
-    activeList.forEach(function (bizKey) {
+    // Check each active business (auto-detect)
+    bizKeys.forEach(function (bizKey) {
+      if (!isBusinessActive(bizKey, state)) return;
+
       var biz = bd[bizKey] || {};
       var bizNames = {
         deposit: 'รับฝากเงิน',
@@ -402,6 +427,7 @@
   // =========================================================================
 
   global.CPD_BIZ_ENGINE = {
+    isBusinessActive: isBusinessActive,
     generateDepositAnalysis: generateDepositAnalysis,
     generateLoanAnalysis: generateLoanAnalysis,
     generateTradingAnalysis: generateTradingAnalysis,
@@ -410,7 +436,7 @@
     generateServiceAnalysis: generateServiceAnalysis,
     generateAllAnalyses: generateAllAnalyses,
     generateBusinessSummary: generateBusinessSummary,
-    version: '20260214b'
+    version: '20260214f'
   };
 
 })(window);

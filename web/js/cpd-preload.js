@@ -499,9 +499,7 @@
         })
       },
       businessDetails: {
-        activeList: ['deposit', 'loan'],
         deposit: {
-          enabled: true,
           hasPlan: false,
           depositTypesDesc: 'ออมทรัพย์, ฝากประจำ 3 เดือน, ฝากประจำ 6 เดือน',
           specialDepositRate: 1.5,
@@ -517,7 +515,6 @@
           opportunityOrIssueNote: 'ควรส่งเสริมการออมและจูงใจให้สมาชิกเข้ามาใช้บริการฝากเงินกับสหกรณ์เพิ่มขึ้น เนื่องจากมีสมาชิกเพียง 9.57% ที่ใช้บริการ'
         },
         loan: {
-          enabled: true,
           hasPlan: false,
           loanTypesCount: 3,
           ordinaryLoanRate: 9,
