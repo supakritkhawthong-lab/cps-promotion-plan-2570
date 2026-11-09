@@ -956,6 +956,11 @@
     return Math.round((Number(n) || 0) * 10000) / 10000;
   }
 
+  // round2 - รักษาทศนิยม 2 ตำแหน่งโดยไม่ปัดเศษลง (ใช้ Number(sum.toFixed(2)))
+  function round2(n) {
+    return Number((Number(n) || 0).toFixed(2));
+  }
+
   // -------------------------------------------------------------------------
   // Strength 18 indicators
   // -------------------------------------------------------------------------
@@ -1020,19 +1025,19 @@
           
           indicatorsInDim.forEach(function (ind) {
             if (!st.indicators[ind.id]) st.indicators[ind.id] = {};
-            var distributed = round4(dimTotal * ind.weight / totalWeight);
+            var distributed = round2(dimTotal * ind.weight / totalWeight);
             st.indicators[ind.id][y] = distributed;
             st.indicators[ind.id]._autoDistributed = true;
           });
         }
       }
       
-      // ตั้งค่า dim totals หลังคำนวณเสร็จ
-      st.dim1ByYear[y] = round4(dims[1]);
-      st.dim2ByYear[y] = round4(dims[2]);
-      st.dim3ByYear[y] = round4(dims[3]);
-      st.dim4ByYear[y] = round4(dims[4]);
-      st.totalByYear[y] = round4(dims[1] + dims[2] + dims[3] + dims[4]);
+      // ตั้งค่า dim totals หลังคำนวณเสร็จ (ใช้ round2 เพื่อรักษาทศนิยม 2 ตำแหน่ง)
+      st.dim1ByYear[y] = round2(dims[1]);
+      st.dim2ByYear[y] = round2(dims[2]);
+      st.dim3ByYear[y] = round2(dims[3]);
+      st.dim4ByYear[y] = round2(dims[4]);
+      st.totalByYear[y] = round2(dims[1] + dims[2] + dims[3] + dims[4]);
     });
     return st;
   }

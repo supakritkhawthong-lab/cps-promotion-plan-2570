@@ -806,11 +806,11 @@
     });
 
     S.YEARS.forEach(function (y) {
-      map['st.dim1.' + y] = int(st.dim1ByYear[y]);
-      map['st.dim2.' + y] = int(st.dim2ByYear[y]);
-      map['st.dim3.' + y] = int(st.dim3ByYear[y]);
-      map['st.dim4.' + y] = int(st.dim4ByYear[y]);
-      map['st.total.' + y] = int(st.totalByYear[y]);
+      map['st.dim1.' + y] = S.fmt(st.dim1ByYear[y], 2);
+      map['st.dim2.' + y] = S.fmt(st.dim2ByYear[y], 2);
+      map['st.dim3.' + y] = S.fmt(st.dim3ByYear[y], 2);
+      map['st.dim4.' + y] = S.fmt(st.dim4ByYear[y], 2);
+      map['st.total.' + y] = S.fmt(st.totalByYear[y], 2);
       map['st.class.' + y] = st.classByYear[y] || '-';
     });
 
