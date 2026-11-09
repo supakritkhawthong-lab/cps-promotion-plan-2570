@@ -640,7 +640,8 @@
       certDate = new Date(agmDate.getFullYear(), agmDate.getMonth(), 1);
     }
     const certInput = document.getElementById('certify_date');
-    if (certInput) certInput.value = formatDateObj(certDate);
+    const thaiMonths = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+    if (certInput) certInput.value = thaiMonths[certDate.getMonth() + 1] + ' ' + certDate.getFullYear();
     return {
       agmDate: formatDateObj(agmDate),
       certDate: formatDateObj(certDate),
@@ -1010,10 +1011,13 @@
 
         // หากไฟล์ PDF มีข้อความดิจิทัลชัดเจน ส่งเฉพาะ Text ที่สกัดได้ไปให้ AI (เร็วกว่าส่งไฟล์ PDF 5 เท่า!)
         if (totalChars > 250 && extractedPagesText.length > 0) {
+          var profileText = extractedPagesText.join('\n');
           return {
             name: file.name,
             category: category,
-            extractedText: extractedPagesText.join('\n').substring(0, 35000)
+            extractedText: profileText.substring(0, 35000),
+            profileExtract: (window.CPD_PRELOAD && typeof window.CPD_PRELOAD.parseSmartCoopProfile === 'function')
+              ? window.CPD_PRELOAD.parseSmartCoopProfile(profileText) : null
           };
         }
       }
@@ -1029,7 +1033,7 @@
           const copiedPages = await newDoc.copyPages(srcDoc, indices);
           copiedPages.forEach(page => newDoc.addPage(page));
           const base64Sliced = await newDoc.saveAsBase64();
-          return { name: file.name, category: category, mimeType: 'application/pdf', base64: base64Sliced };
+          return { name: file.name, category: category, mimeType: 'application/pdf', base64: base64Sliced, lowTextPdf: true };
         }
       }
     } catch (e) {
@@ -1038,6 +1042,7 @@
 
     const fallback = await fileToBase64(file);
     fallback.category = category;
+    fallback.lowTextPdf = true;
     return fallback;
   }
 
@@ -1107,6 +1112,16 @@
       // ประมวลผลทุกไฟล์พร้อมกันแบบขนาน (Parallel Processing)
       const filesToUpload = await Promise.all(tasks);
 
+      // TASK 4: PDF สแกนภาพ (ข้อความ < 50 ตัวอักษร) + ข้อมูลจากใบโปรไฟล์ Smart Coop
+      const hasLowTextPdf = filesToUpload.some(f => f && f.lowTextPdf);
+      const profileExtract = filesToUpload.reduce((acc, f) => {
+        if (f && f.profileExtract) {
+          Object.assign(acc.form, f.profileExtract.form || {});
+          Object.assign(acc.details, f.profileExtract.details || {});
+        }
+        return acc;
+      }, { form: {}, details: {} });
+
       const payload = {
         coopName: c.name,
         coopCategoryName: c.coopCategoryName,
@@ -1121,6 +1136,14 @@
       google.script.run.withSuccessHandler(res => {
         btn.disabled = false;
         btn.textContent = "⚡ ประมวลผลเอกสารความเร็วสูงด้วย AI (ดึงตัวเลขและเกลาสำนวนราชการ)";
+
+        // TASK 4: ถ้าเป็น PDF สแกนภาพ ห้ามเขียนทับตัวเลขเดิม/ข้อมูล preload ด้วยค่า 0
+        if (hasLowTextPdf && res && typeof res === 'object') {
+          Object.keys(res).forEach(k => {
+            if (/(Latest|Prev)$/.test(k) && (res[k] === 0 || res[k] === '0' || res[k] === '0.00')) delete res[k];
+          });
+        }
+
         if (res.district) document.getElementById('district').value = res.district;
         if (res.regDate) document.getElementById('reg_date').value = res.regDate;
         if (res.boardCount) document.getElementById('board_count').value = res.boardCount;
@@ -1191,9 +1214,47 @@
         if (res.promotionGoals) document.getElementById('promotion_goals').value = res.promotionGoals;
         if (res.visitRemark) document.getElementById('visit_remark').value = res.visitRemark;
 
+        // TASK 4: ผสานข้อมูลจากใบโปรไฟล์ Smart Coop (regex ข้อ 1–47) เฉพาะช่องที่ยังว่าง
+        if (profileExtract && (Object.keys(profileExtract.form).length || Object.keys(profileExtract.details).length)) {
+          Object.keys(profileExtract.form).forEach(k => {
+            const el = document.getElementById(k);
+            if (el && !String(el.value || '').trim()) el.value = profileExtract.form[k];
+          });
+          Object.keys(profileExtract.details).forEach(k => {
+            const el = document.getElementById(k);
+            if (el && !String(el.value || '').trim()) el.value = profileExtract.details[k];
+          });
+          const memberMale = profileExtract.form.member_male;
+          const memberFemale = profileExtract.form.member_female;
+          const memEl = document.getElementById('mem_latest');
+          if (memEl && !String(memEl.value || '').trim() && memberMale !== undefined && memberFemale !== undefined) {
+            const total = Number(profileExtract.form.mem_latest ? String(profileExtract.form.mem_latest).split('/')[0] : 0) || (Number(memberMale) + Number(memberFemale));
+            memEl.value = total + '/' + total + '/0';
+          }
+          onAuditorTypeChange();
+          validateAccountingEquation();
+        }
+
         alertBox.className = "alert alert-success mt-3";
         alertBox.textContent = "✅ ประมวลผลเอกสารความเร็วสูง สกัดตัวเลขงบการเงิน และเกลาสำนวนราชการสำเร็จ!";
         if (typeof window.CPD_scheduleSync === 'function') window.CPD_scheduleSync();
+
+        // TASK 4: แจ้งเตือนกรณีไฟล์ PDF สแกนภาพ
+        if (hasLowTextPdf) {
+          const scannedMsg = 'ตรวจพบไฟล์ PDF แบบสแกนภาพ ระบบผสานข้อมูลฐานข้อมูลสหกรณ์และใบโปรไฟล์ให้อัตโนมัติแล้ว';
+          if (window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
+            window.CPD_UI.showToast(scannedMsg, 'warning');
+          } else {
+            alertBox.className = "alert alert-warning mt-3";
+            alertBox.textContent = scannedMsg;
+          }
+        }
+
+        // TASK 6: Zero-Click Pipeline — ซิงค์ → อัตราส่วน → 4M → 5.2 อัตโนมัติหลัง AI ประมวลผล
+        setTimeout(function () {
+          if (typeof window.CPD_autoPipeline === 'function') window.CPD_autoPipeline();
+          else if (window.CPD_UI && typeof window.CPD_UI.autoPipeline4M === 'function') window.CPD_UI.autoPipeline4M();
+        }, 300);
       }).withFailureHandler(err => {
         btn.disabled = false;
         btn.textContent = "⚡ ประมวลผลเอกสารความเร็วสูงด้วย AI (ดึงตัวเลขและเกลาสำนวนราชการ)";
@@ -1305,8 +1366,9 @@
   }
 </script>
 <!-- State + UI ของแท็บ 2-5 (โหลดหลังโค้ดเดิมเสมอ) -->
-<script src="js/cpd-report-registry.js?v=20260213c"></script>
-<script src="js/cpd-state.js?v=20260213c"></script>
-<script src="js/cpd-ui.js?v=20260213c"></script>
+<script src="js/cpd-report-registry.js?v=20260214a"></script>
+<script src="js/cpd-preload.js?v=20260214a"></script>
+<script src="js/cpd-state.js?v=20260214a"></script>
+<script src="js/cpd-ui.js?v=20260214a"></script>
 </body>
 </html>

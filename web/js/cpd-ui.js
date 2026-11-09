@@ -127,17 +127,160 @@
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Preload (ข้อมูลจริงที่ผ่านการตรวจสอบ) — ใช้กับสหกรณ์ผู้เลี้ยงไก่ไข่ชลบุรี จำกัด
+  // -------------------------------------------------------------------------
+
+  function preloadFor(name) {
+    return (global.CPD_PRELOAD && typeof global.CPD_PRELOAD.get === 'function')
+      ? global.CPD_PRELOAD.get(name) : null;
+  }
+
+  function currentPreload() {
+    return preloadFor(A().coopProfile.coopName);
+  }
+
+  function fillPreloadForm(pre) {
+    if (!pre || !pre.form) return;
+    Object.keys(pre.form).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = pre.form[id];
+    });
+    if (typeof global.onAuditorTypeChange === 'function') global.onAuditorTypeChange();
+    if (typeof global.validateAccountingEquation === 'function') global.validateAccountingEquation();
+  }
+
+  /**
+   * mergePreloadState(pre, force)
+   * force = true  -> ใช้ตอนเลือกสหกรณ์ (เขียนทับด้วยข้อมูลตรวจสอบแล้ว)
+   * force = false -> ใช้หลัง sync (เติมเฉพาะช่องที่ยังว่าง เพื่อไม่ทับข้อมูลที่ผู้ใช้แก้)
+   */
+  function mergePreloadState(pre, force) {
+    if (!pre || !pre.state) return;
+    var src = pre.state;
+    var s = A();
+
+    if (src.coopProfile) {
+      var cp = S.deepClone(src.coopProfile);
+      if (!force && cp.members) {
+        cp.members.regularMale = S.num(s.coopProfile.members.regularMale) || cp.members.regularMale;
+        cp.members.regularFemale = S.num(s.coopProfile.members.regularFemale) || cp.members.regularFemale;
+        cp.members.associateMale = S.num(s.coopProfile.members.associateMale) || cp.members.associateMale;
+        cp.members.associateFemale = S.num(s.coopProfile.members.associateFemale) || cp.members.associateFemale;
+      }
+      if (!force) {
+        if ((s.coopProfile.mainBusinesses || []).length) delete cp.mainBusinesses;
+        if ((s.coopProfile.mainProducts || []).length) delete cp.mainProducts;
+      }
+      S.mergeDeep(s.coopProfile, cp);
+    }
+
+    var fin = src.financials || {};
+    if (fin.summary2Years && force) S.mergeDeep(s.financials.summary2Years, fin.summary2Years);
+
+    var hasBsDetail = S.num(s.financials.balanceSheet.totalAssets) > 0 &&
+      S.num(s.financials.balanceSheet.currentAssets) > 0;
+    if (fin.balanceSheet && (force || !hasBsDetail)) {
+      S.mergeDeep(s.financials.balanceSheet, fin.balanceSheet);
+    }
+
+    var hasBiz = S.num(s.financials.businesses.trading.sales) > 0 ||
+      S.num(s.financials.businesses.processing.sales) > 0 ||
+      S.num(s.financials.businesses.collection.sales) > 0 ||
+      S.num(s.financials.businesses.service.serviceIncome) > 0 ||
+      S.num(s.financials.businesses.credit.interestIncome) > 0;
+    if (fin.businesses && (force || !hasBiz)) {
+      S.mergeDeep(s.financials.businesses, fin.businesses);
+      if (fin.incomeStatement) S.mergeDeep(s.financials.incomeStatement, fin.incomeStatement);
+      if (fin.ratios) S.mergeDeep(s.financials.ratios, fin.ratios);
+    }
+
+    if (src.strength) {
+      var st = src.strength;
+      if (force) {
+        ['classByYear', 'totalByYear', 'dim1ByYear', 'dim2ByYear', 'dim3ByYear', 'dim4ByYear'].forEach(function (k) {
+          if (st[k]) S.mergeDeep(s.strength[k], st[k]);
+        });
+      }
+      if (st.indicators) {
+        Object.keys(st.indicators).forEach(function (id) {
+          var cur = s.strength.indicators[id] || {};
+          var userEdited = S.num(cur['2568']) > 0 && !cur._autoDistributed;
+          if (force || !userEdited) {
+            s.strength.indicators[id] = S.deepClone(st.indicators[id]);
+          }
+        });
+      }
+    }
+
+    if (src.analysis) {
+      Object.keys(src.analysis).forEach(function (k) {
+        var val = src.analysis[k];
+        var empty = Array.isArray(val)
+          ? !val.some(function (x) { return String(x || '').trim(); })
+          : !String(s.analysis[k] || '').trim();
+        if (force || empty) s.analysis[k] = S.deepClone(val);
+      });
+    }
+  }
+
+  /** เติมข้อมูล preload ลงฟอร์มหน้า 1 + State แล้ววาดใหม่ทั้งหมด */
+  function applyPreloadCoop(pre) {
+    if (!pre) return false;
+    fillPreloadForm(pre);
+    var c = selectedCoopInfo();
+    var key = c ? ((c.code13 || '') + '|' + c.name + '|2570') : 'preload';
+    global.__cpdLoadedKey = key;
+    global.__cpdPreloadKey = key;
+    global.__cpdPreloadApplied = pre;
+    S.syncFromBaseFormToAllTabs();
+    mergePreloadState(pre, true);
+    S.recalcFinancials();
+    S.recalcStrength();
+    UI.renderAll();
+    return true;
+  }
+
+  /** หลัง sync จากหน้า 1 ให้เติมข้อมูล preload เฉพาะส่วนที่หน้า 1 ไม่มี (เช่น สมาชิกชาย/หญิง) */
+  function refreshPreloadProfile() {
+    var pre = currentPreload();
+    if (!pre) return;
+    mergePreloadState(pre, false);
+  }
+
   function wireLegacyFunctions() {
     // ห่อฟังก์ชันเดิมเพื่อซิงค์ข้อมูลหลังเลือกสหกรณ์/โหลดร่าง โดยไม่แตะโค้ดเดิม
     if (typeof global.onSelectCoop === 'function' && !global.__cpdWrappedSelect) {
       var origSelect = global.onSelectCoop;
       global.onSelectCoop = function () {
         var r = origSelect.apply(this, arguments);
+        var c = selectedCoopInfo();
+        var pre = c ? preloadFor(c.name) : null;
+
+        // เปลี่ยนจากสหกรณ์ที่ใช้ข้อมูล preload ไปสหกรณ์อื่น -> ล้างข้อมูล preload ที่ค้างอยู่ในฟอร์ม/state
+        if (!pre && global.__cpdPreloadApplied) {
+          var oldPre = global.__cpdPreloadApplied;
+          Object.keys(oldPre.form || {}).forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
+          });
+          global.__cpdPreloadApplied = null;
+          global.__cpdPreloadKey = '';
+          S.loadStateFromRecord(S.defaultState());
+          // เติมข้อมูลระบุตัวตนของสหกรณ์ใหม่กลับเข้าไปหลังล้าง state
+          r = origSelect.apply(this, arguments);
+        }
+
+        if (pre) {
+          applyPreloadCoop(pre);
+        } else {
+          global.__cpdPreloadKey = '';
+        }
         scheduleBaseSync(120);
         
         // Zero-Click Auto Pipeline: หลังจาก sync แล้ว ให้รัน 4M และ 5.2 อัตโนมัติ
         setTimeout(function () {
-          maybeLoadSavedRecord();
+          if (!pre) maybeLoadSavedRecord();
           autoPipeline4M(); // Zero-Click Pipeline
         }, 400);
         
@@ -923,11 +1066,12 @@
    */
   function autoPipeline4M() {
     try {
-      // Step A: Sync Tab 1 → Tab 2
+      // Step A: Sync Tab 1 → Tab 2 (แล้วเติมข้อมูล preload เฉพาะส่วนที่หน้า 1 ไม่มี)
       S.syncFromBaseFormToAllTabs();
+      refreshPreloadProfile();
       
-      // Step B: Auto-generate 4M (silent mode - no toast)
-      populate4MFromBaseForm(true); // silent=true suppresses toast
+      // Step B: Auto-generate 4M (silent mode - no toast, but force refresh for new coop/AI data)
+      populate4MFromBaseForm(true, true);
       
       // Step C: Clear old auto-generated activities and generate new ones
       clearAutoGeneratedActivities();
@@ -1090,6 +1234,12 @@
     if (!Array.isArray(sch.monthlyPlan12Months) || sch.monthlyPlan12Months.length === 0) return;
     
     // ดึง cpdAction ที่มีคำว่า "ประชุม" หรือ "เข้าร่วม" จาก monthlyPlan12Months
+    // จองเลขรหัส 2.x ล่วงหน้า เพื่อไม่ให้ซ้ำกันระหว่างหลายเดือน
+    var usedCodes = (sch.activities || [])
+      .filter(function (a) { return a.code && a.code.indexOf('2.') === 0 && !a.syncedFromPlan; })
+      .map(function (a) { return parseInt(a.code.split('.')[1], 10) || 0; });
+    var nextNum = 5;
+
     var meetingActivities = sch.monthlyPlan12Months
       .filter(function (m) {
         return m.cpdAction && /ประชุม|เข้าร่วม/.test(m.cpdAction);
@@ -1103,15 +1253,15 @@
         if (/แผนกลยุทธ์/.test(text)) return false; // ซ้ำกับ 2.4
         return true;
       })
-      .map(function (m, idx) {
-        // หาเลขลำดับถัดไป (ไม่ซ้ำกับรหัสที่มีอยู่)
-        var existingCodes = sch.activities.filter(function(a) { return a.code && a.code.indexOf('2.') === 0; })
-          .map(function(a) { return parseInt(a.code.split('.')[1]) || 0; });
-        var nextNum = 5;
-        while (existingCodes.indexOf(nextNum) !== -1) nextNum++;
+      .map(function (m) {
+        // หาเลขลำดับถัดไป (ไม่ซ้ำกับรหัสที่มีอยู่ และไม่ซ้ำกับเดือนก่อนหน้า)
+        while (usedCodes.indexOf(nextNum) !== -1) nextNum++;
+        var assigned = nextNum;
+        usedCodes.push(assigned);
+        nextNum++;
         
         return {
-          code: '2.' + nextNum,
+          code: '2.' + assigned,
           auto: true,
           goal: m.cpdAction,
           target: '1',
@@ -1199,7 +1349,7 @@
             '<td colspan="6"><textarea class="form-control form-control-sm fw-bold bg-transparent border-0" rows="1" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
             addBtn + del + '</tr>';
         }
-        return '<tr>' +
+        return '<tr' + (a.autoGenerated ? ' data-auto-4m="true"' : '') + '>' +
           '<td><textarea class="form-control form-control-sm" rows="3" data-plan-activity="' + i + '" data-pfield="goal">' + h(a.goal || '') + '</textarea></td>' +
           '<td><input type="text" class="form-control form-control-sm text-center" data-plan-activity="' + i + '" data-pfield="target" value="' + h(a.target || '') + '"></td>' +
           '<td><input type="text" class="form-control form-control-sm text-center" data-plan-activity="' + i + '" data-pfield="unit" value="' + h(a.unit || '') + '"></td>' +
@@ -1329,6 +1479,9 @@
         A().scheduleAndActivities.activities[pi][pf] = el.value;
         // ติด flag ว่าผู้ใช้แก้เองแล้ว (เพื่อไม่ให้ syncActivitiesFromMonthlyPlan ลบทิ้ง)
         A().scheduleAndActivities.activities[pi].auto = false;
+        // ผู้ใช้แก้แถวที่ระบบสร้างเอง -> ไม่ต้องลบทิ้งในรอบ auto pipeline ถัดไป
+        delete A().scheduleAndActivities.activities[pi].autoGenerated;
+        delete A().scheduleAndActivities.activities[pi].auto4M;
       }
       changed = true;
     } else if (el.matches('[data-visit]')) {
@@ -2296,6 +2449,11 @@
     var N = op.latest || {};
     var N1 = op.prev || {};
 
+    // ข้อมูลตรวจสอบแล้ว (ถ้ามี) + เกณฑ์ benchmark ตามประเภทสหกรณ์
+    var preload = preloadFor(p.coopName);
+    var profile = detectCoopProfile();
+    var benchmark = getProfileBenchmarks(profile);
+
     var y = planYearInfo();
     var acctYear = y.acctYear;
     var planYear = y.planYear;
@@ -2449,55 +2607,37 @@
       org.push('  ' + assetItems.join(', '));
     }
     
-    // 3.7 Rule-based Financial Ratios Analysis
-    org.push('- การวิเคราะห์อัตราส่วนทางการเงิน:');
-    
-    // Current Ratio = สินทรัพย์หมุนเวียน / หนี้สินหมุนเวียน
-    var currentRatio = bs.currentAssets && bs.currentLiabilities ? 
-      (S.num(bs.currentAssets) / S.num(bs.currentLiabilities)) : 0;
-    if (currentRatio > 0) {
-      if (currentRatio < 1.0) {
-        org.push('  อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + 
-          ' สภาพคล่องทางการเงินอยู่ในเกณฑ์ตึงตัว มีความเสี่ยงในการชำระหนี้ระยะสั้น ต้องเร่งบริหารกระแสเงินสด');
-      } else if (currentRatio <= 2.5) {
-        org.push('  อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + 
-          ' มีสภาพคล่องทางการเงินอยู่ในเกณฑ์เหมาะสม');
-      } else {
-        org.push('  อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + 
-          ' มีสภาพคล่องส่วนเกินหรือสินทรัพย์หมุนเวียนค้างมือสูง ควรวางแผนบริหารเงินทุนหมุนเวียนเพื่อสร้างผลตอบแทนเพิ่ม');
-      }
-    }
-    
-    // D/E Ratio = หนี้สินรวม / ทุนรวม
-    var deRatio = liabilities > 0 && coopCapital > 0 ? (liabilities / coopCapital) : 0;
-    if (deRatio > 0) {
-      if (deRatio > 1.5) {
-        org.push('  อัตราส่วนหนี้สินต่อทุน (D/E Ratio) = ' + S.fmt(deRatio, 2) + 
-          ' พึ่งพิงทุนภายนอกค่อนข้างสูง ควรควบคุมภาระหนี้สินและต้นทุนทางการเงิน');
-      } else {
-        org.push('  อัตราส่วนหนี้สินต่อทุน (D/E Ratio) = ' + S.fmt(deRatio, 2) + 
-          ' โครงสร้างเงินทุนมีความมั่นคง พึ่งพาทุนของสหกรณ์เป็นหลัก');
-      }
-    }
-    
-    // Short-term Loan Collection Rate (ถ้ามีข้อมูลลูกหนี้)
-    if (receivables > 0 && assets > 0) {
-      var receivablesRatio = (receivables / assets) * 100;
-      if (receivablesRatio > 15) {
-        org.push('  อัตราส่วนลูกหนี้ต่อสินทรัพย์ = ' + S.fmt(receivablesRatio, 1) + 
-          '% ต้องเฝ้าระวังคุณภาพลูกหนี้ เนื่องจากอาจกระทบการตั้งค่าเผื่อหนี้สงสัยจะสูญและคะแนนความเข้มแข็งมิติที่ 2 และ 4');
-      }
-    }
-    
-    // Operating Expense Ratio
-    if (expense > 0 && income > 0) {
-      var opexRatio = (expense / income) * 100;
-      if (opexRatio > 95) {
-        org.push('  อัตราค่าใช้จ่ายดำเนินงานต่อยอดขาย = ' + S.fmt(opexRatio, 1) + 
-          '% ค่อนข้างสูง ควรควบคุมค่าใช้จ่ายในการบริหารจัดการ');
-      }
-    }
-    
+    // 3.7 อัตราส่วนทางการเงินทั้ง 7 ตัว ตามเกณฑ์กรมตรวจบัญชีสหกรณ์
+    var ratios = f.ratios || {};
+    var deRatio = S.num(ratios.deRatio) ||
+      (coopCapital > 0 ? liabilities / coopCapital : 0);
+    var currentRatio = S.num(ratios.currentRatio) ||
+      (S.num(bs.currentLiabilities) ? S.num(bs.currentAssets) / S.num(bs.currentLiabilities) : 0);
+    var roe = S.num(ratios.roe);
+    var roa = S.num(ratios.roa);
+    var reserveRatio = S.num(ratios.reserveToAssetRatio);
+    var opexRatio = S.num(ratios.opexToGrossProfitRatio);
+    var shortTermPaidRatio = S.num(ratios.shortTermDebtPaidOnTimeRatio);
+
+    // เกณฑ์เปรียบเทียบตามประเภทสหกรณ์ (profile-aware benchmark)
+    var deLimit = S.num(benchmark.deRatioThreshold) || 1.0;
+    var crOpt = benchmark.currentRatioOptimal || { min: 1.0, max: 2.5 };
+    var crMin = S.num(crOpt.min);
+    var crMax = S.num(crOpt.max);
+
+    org.push('- การวิเคราะห์อัตราส่วนทางการเงิน: ' +
+      'D/E = ' + S.fmt(deRatio, 2) + ' เท่า (เกณฑ์ไม่เกิน ' + S.fmt(deLimit, 2) + ' เท่า ' +
+      (deRatio <= deLimit ? 'อยู่ในเกณฑ์' : 'เกินเกณฑ์') + '), ' +
+      'ROE = ' + S.fmt(roe, 2) + '%, ' +
+      'ROA = ' + S.fmt(roa, 2) + '%, ' +
+      'อัตราส่วนทุนหมุนเวียน (Current Ratio) = ' + S.fmt(currentRatio, 2) + ' เท่า (เกณฑ์เหมาะสม ' +
+      S.fmt(crMin, 2) + '–' + S.fmt(crMax, 2) + ' เท่า ' +
+      (currentRatio >= crMin && currentRatio <= crMax ? 'อยู่ในเกณฑ์' :
+        (currentRatio < crMin ? 'ต่ำกว่าเกณฑ์' : 'สูงกว่าเกณฑ์')) + '), ' +
+      'ทุนสำรองต่อสินทรัพย์ = ' + S.fmt(reserveRatio, 2) + ' เท่า, ' +
+      'อัตราค่าใช้จ่ายดำเนินงานต่อกำไรก่อนหักค่าใช้จ่ายดำเนินงาน = ' + S.fmt(opexRatio, 2) + '%, ' +
+      'และอัตราลูกหนี้ระยะสั้นชำระตามกำหนด = ' + S.fmt(shortTermPaidRatio, 2) + '%');
+
     // Profitability Warning
     if (profit < 0) {
       org.push('  สหกรณ์มีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit)) + 
@@ -2548,7 +2688,13 @@
       (totalLatest ? ' โดยมีคะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : '') +
       ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
       ' ในปี ' + String(targetStrengthYear));
-    org.push('- คณะกรรมการดำเนินการได้พิจารณาอนุมัติโครงการจัดทำแผนกลยุทธ์ระยะ 3 ปี และมอบหมายให้ฝ่ายจัดการนำไปปฏิบัติอย่างต่อเนื่อง');
+    var analysisInfo = s.analysis || {};
+    var auditorObs4M = String(analysisInfo.auditorObservations || '').trim();
+    var coopDefects4M = String(analysisInfo.coopDefects || '').trim();
+    org.push('- สหกรณ์มีการจัดทำแผนงานและงบประมาณประจำปี แต่ยังไม่มีการจัดทำแผนกลยุทธ์/แผนยุทธศาสตร์ระยะยาว (ตามข้อมูลโปรไฟล์ข้อ 22.1) จึงควรส่งเสริมให้จัดทำแผนกลยุทธ์ระยะ 3–5 ปี ให้สอดคล้องกับแผนพัฒนาสหกรณ์');
+    if (auditorObs4M || coopDefects4M) {
+      org.push('- มีข้อสังเกตของผู้สอบบัญชี/ข้อบกพร่องที่ต้องเร่งแก้ไข: ' + (auditorObs4M || coopDefects4M));
+    }
     org.push('- สหกรณ์ถือใช้ข้อบังคับและระเบียบที่เกี่ยวข้องครบถ้วน และควรพิจารณาทบทวนแก้ไขเพิ่มเติมระเบียบให้สอดคล้องกับข้อบังคับปัจจุบันและการดำเนินธุรกิจของสหกรณ์');
     org.push('- สหกรณ์ถือใช้ระเบียบว่าด้วยการรับจ่ายและเก็บรักษาเงิน ระเบียบว่าด้วยการควบคุมภายใน และระเบียบว่าด้วยเจ้าหน้าที่และข้อบังคับเกี่ยวกับการทำงานอย่างครบถ้วน');
     org.push('- สหกรณ์ใช้โปรแกรมระบบคอมพิวเตอร์ที่พัฒนาโดยกรมตรวจบัญชีสหกรณ์ในการประมวลผลข้อมูลทุนเรือนหุ้น สินค้า และจัดทำบัญชีแยกประเภท');
@@ -2571,7 +2717,34 @@
     var collectionBiz = biz.collection || {};
     var processingBiz = biz.processing || {};
     var serviceBiz = biz.service || {};
-    
+
+    // Fallback: ถ้ายังไม่มีข้อมูลแยกธุรกิจในแท็บ 2 ให้ดึงจากผลการดำเนินงานหน้า 1
+    var hasBizDetail = S.num(tradingBiz.sales) > 0 || S.num(collectionBiz.sales) > 0 ||
+      S.num(processingBiz.sales) > 0 || S.num(serviceBiz.serviceIncome) > 0 ||
+      S.num(creditBiz.interestIncome) > 0;
+    if (!hasBizDetail) {
+      if (S.num(N.salesTrading) > 0) {
+        tradingBiz = {
+          sales: S.num(N.salesTrading), cogs: S.num(N.costTrading),
+          grossProfit: S.num(N.salesTrading) - S.num(N.costTrading),
+          specificIncome: 0, specificExpense: 0, netBusinessProfit: S.num(N.profitTrading)
+        };
+      }
+      if (S.num(N.salesProcessing) > 0) {
+        processingBiz = {
+          sales: S.num(N.salesProcessing), cogs: S.num(N.costProcessing),
+          grossProfit: S.num(N.salesProcessing) - S.num(N.costProcessing),
+          specificIncome: 0, specificExpense: 0, netBusinessProfit: S.num(N.profitProcessing)
+        };
+      }
+      if (S.num(N.depositAmount) > 0) {
+        depositAmount = S.num(N.depositAmount);
+        profitDeposit = S.num(N.profitDeposit);
+      }
+    }
+
+    // อัตราส่วนทางการเงิน 7 ตัว ใช้ค่าที่คำนวณไว้ด้านบนแล้ว (ratios/deRatio/currentRatio/...)
+
     // 1. ธุรกิจเงินให้กู้ (Credit)
     if (S.num(creditBiz.interestIncome) > 0 || S.num(creditBiz.netBusinessProfit) !== 0) {
       business.push('1. หัวข้อ: ธุรกิจเงินให้กู้');
@@ -2709,8 +2882,18 @@
     
     // ถ้าไม่มีข้อมูลธุรกิจเลย
     if (business.length <= 3) {
-      business.push('- สหกรณ์ยังไม่มีข้อมูลผลการดำเนินงานแยกตามธุรกิจ');
+      business.push('- สหกรณ์ยังไม่มีข้อมูลผลการดำเนินงานแยกตามธุรกิจในระบบ ควรกรอกผลการดำเนินงาน ณ สิ้นปีบัญชีล่าสุดในหน้า 1 เพื่อให้ระบบวิเคราะห์ธุรกิจได้ครบถ้วน');
       business.push('');
+    }
+
+    // ถ้ามีข้อมูลที่ผ่านการตรวจสอบแล้ว (preload) ให้ใช้ข้อความองค์กร/ธุรกิจฉบับตรวจสอบแทน
+    if (preload && preload.fourM) {
+      if (preload.fourM.orgAnalysis4M && preload.fourM.orgAnalysis4M.length) {
+        org = preload.fourM.orgAnalysis4M.slice();
+      }
+      if (preload.fourM.businessAnalysis && preload.fourM.businessAnalysis.length) {
+        business = preload.fourM.businessAnalysis.slice();
+      }
     }
 
     // -------------------------------------------------------------------
@@ -2734,11 +2917,18 @@
     summary.push('ด้านการจัดการองค์กร:');
     summary.push('- คณะกรรมการดำเนินการมีจำนวน ' + fmtTextOrPlaceholder(p.boardCount ? S.fmtInt(p.boardCount) + ' คน' : 'ไม่ระบุ') + 
       ' มีความรู้ความสามารถและประสบการณ์เพียงพอในการบริหารงาน');
-    summary.push('- ผู้ตรวจสอบกิจการชื่อ ' + fmtTextOrPlaceholder(p.inspectorName) + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ');
+    if (coopDefects4M || auditorObs4M) {
+      summary.push('- ผู้ตรวจสอบกิจการชื่อ ' + fmtTextOrPlaceholder(p.inspectorName) + ' แต่ยังมีข้อสังเกต/ข้อบกพร่องที่ต้องแก้ไข ตามรายงานของผู้สอบบัญชีและการตรวจสอบกิจการ');
+    } else {
+      summary.push('- ผู้ตรวจสอบกิจการชื่อ ' + fmtTextOrPlaceholder(p.inspectorName) + ' เข้าร่วมประชุมคณะกรรมการดำเนินการเป็นประจำ');
+    }
     if (staffCount > 0) {
       summary.push('- มีเจ้าหน้าที่ปฏิบัติงาน ' + S.fmtInt(staffCount) + ' คน');
     }
-    summary.push('- มีการกำหนดทิศทางการพัฒนาสหกรณ์ในระยะยาวผ่านแผนกลยุทธ์');
+    summary.push('- สหกรณ์มีการจัดทำแผนงานและงบประมาณประจำปี แต่ยังไม่มีการจัดทำแผนกลยุทธ์/แผนยุทธศาสตร์ระยะยาว จึงควรส่งเสริมให้จัดทำแผนกลยุทธ์ระยะ 3–5 ปี');
+    if (auditorObs4M || coopDefects4M) {
+      summary.push('- ข้อสังเกตสำคัญที่ต้องเร่งแก้ไข: ' + (auditorObs4M || coopDefects4M));
+    }
     summary.push('');
     
     // 4.2 ด้านการเงิน (Rule-based)
@@ -2795,7 +2985,14 @@
     summary.push('- เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ. ' + String(planYear) +
       ' คือ สหกรณ์สามารถรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
       ' ปี ' + String(targetStrengthYear));
-    summary.push('- สหกรณ์ยังคงรักษาผลการดำเนินงานในระดับที่มีกำไร ไม่มีการทุจริต และปฏิบัติงานตามกฎหมาย');
+    if (profit > 0 && !(bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0)) {
+      summary.push('- สหกรณ์มีผลการดำเนินงานในระดับที่มีกำไร และไม่มีข้อมูลการทุจริต');
+    }
+    if (auditorObs4M || coopDefects4M) {
+      summary.push('- ยังพบข้อบกพร่อง/ข้อสังเกตที่ต้องติดตามแก้ไขตามรายงานผลการตรวจสอบ');
+    } else {
+      summary.push('- ควรปฏิบัติงานให้เป็นไปตามกฎหมาย ข้อบังคับ และระเบียบที่เกี่ยวข้องอย่างต่อเนื่อง');
+    }
     summary.push('');
     
     // 4.5 จุดอ่อนที่ต้องแก้ไข (Actionable Items)
@@ -2837,12 +3034,13 @@
    * populate4MFromBaseForm(silent) — ซิงค์ฟอร์มพื้นฐานแล้วสร้างข้อความ 4M ครบทั้ง 4 ด้าน
    * silent = true ใช้ตอนสลับหน้า (เติมเฉพาะช่องว่าง), ไม่ส่งค่า = เขียนทับทั้งหมด
    */
-  function populate4MFromBaseForm(silent) {
+  function populate4MFromBaseForm(silent, force) {
     S.syncFromBaseFormToAllTabs();
+    refreshPreloadProfile();
     if (typeof S.recalcFinancials === 'function') S.recalcFinancials();
     if (typeof S.recalcStrength === 'function') S.recalcStrength();
     var result = analyze4M();
-    var overwrite = !silent;
+    var overwrite = force || !silent;
     Object.keys(result).forEach(function (key) {
       var box = document.querySelector('[data-cpd="analysis.' + key + '"]');
       var existing = box ? String(box.value || '').trim() : '';
@@ -2851,7 +3049,7 @@
         A().analysis[key] = result[key];
       }
     });
-    if (!silent) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
+    if (!silent && !force) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
     return result;
   }
 
@@ -2861,6 +3059,10 @@
    */
   function addWeaknessActivitiesFrom4M() {
     var s = A();
+
+    // ลบกิจกรรมที่ระบบสร้างอัตโนมัติรอบก่อนก่อนเสมอ (กันรายการซ้ำ)
+    clearAutoGeneratedActivities();
+
     var f = s.financials || {};
     var bs = f.balanceSheet || {};
     var activities = s.scheduleAndActivities.activities || [];
@@ -3078,34 +3280,73 @@
       });
     }
     
-    // ตรวจสอบว่ามีกิจกรรมซ้ำแล้วหรือไม่
-    var existingGoals = activities.map(function(a) { return (a.goal || '').toLowerCase(); });
-    var newActivities = weaknesses.filter(function(w) {
-      return !existingGoals.some(function(g) { 
-        return g.indexOf(w.goal.substring(0, 30).toLowerCase()) !== -1; 
+    // ตรวจสอบกิจกรรมซ้ำกับรายการที่มีอยู่ (รวมรายการที่ผู้ใช้แก้ไขเอง)
+    var existingGoals = activities.map(function (a) { return (a.goal || '').toLowerCase(); });
+    function isDuplicate(w) {
+      var key = String(w.goal || '').substring(0, 30).toLowerCase();
+      return !key || existingGoals.some(function (g) { return g.indexOf(key) !== -1; });
+    }
+
+    // เติมวันที่เริ่ม/สิ้นสุดตามปีงบประมาณให้กิจกรรมที่ยังไม่มีวันที่
+    var y = planYearInfo();
+    var defaultStart = thDate(1, 10, y.startYear);
+    var defaultEnd = thDate(30, 9, y.endYear);
+    function withDates(w) {
+      if (!w.startDate) w.startDate = defaultStart;
+      if (!w.endDate) w.endDate = defaultEnd;
+      return w;
+    }
+
+    // กลุ่มที่ 1: กิจกรรมเป้าหมาย 2.x ที่เจาะจงข้อบกพร่องจริง (เฉพาะสหกรณ์ที่มีข้อมูลตรวจสอบแล้ว)
+    var targeted = [];
+    var preload = currentPreload();
+    if (preload && preload.activities && preload.activities.length) {
+      preload.activities.forEach(function (tpl) {
+        var t = S.deepClone(tpl);
+        if (isDuplicate(t)) return;
+        targeted.push(withDates(t));
       });
-    });
-    
-    if (newActivities.length === 0) {
+    }
+
+    // กลุ่มที่ 2: กิจกรรมแก้ไขจุดอ่อนทางการเงิน 3.x
+    var financial = weaknesses.filter(function (w) { return !isDuplicate(w); }).map(withDates);
+
+    if (targeted.length === 0 && financial.length === 0) {
       showToast('ไม่พบจุดอ่อนใหม่ที่ต้องเพิ่มกิจกรรม', 'info');
       return;
     }
-    
-    // เพิ่มกิจกรรมใหม่ลงใน activities array
-    newActivities.forEach(function(activity) {
-      activities.push(activity);
-    });
-    
+
+    // แทรกกลุ่ม 2.x ก่อนหัวข้อ 3 และกลุ่ม 3.x ก่อนหัวข้อ 4
+    function insertBeforeHeader(list, headerCode, rows) {
+      if (!rows.length) return;
+      var idx = -1;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].isHeader && String(list[i].code) === headerCode) { idx = i; break; }
+      }
+      if (idx === -1) {
+        var lastHeader = -1;
+        for (var j = 0; j < list.length; j++) {
+          if (list[j] && list[j].isHeader) lastHeader = j;
+        }
+        idx = lastHeader >= 0 ? lastHeader + 1 : list.length;
+      }
+      list.splice.apply(list, [idx, 0].concat(rows));
+    }
+
+    insertBeforeHeader(activities, '3', targeted);
+    insertBeforeHeader(activities, '4', financial);
+
     // อัปเดต state
     s.scheduleAndActivities.activities = activities;
-    
+
     // Re-render activities table
     renderActivities();
-    
+
     // Schedule draft save
     S.scheduleLocalDraftSave(500);
-    
-    showToast('เพิ่ม ' + newActivities.length + ' กิจกรรมแก้ไขจุดอ่อนจาก 4M ไปยังตารางเป้าหมายแล้ว (Profile: ' + benchmark.name + ')', 'success');
+
+    showToast('เพิ่มกิจกรรมเป้าหมาย ' + targeted.length + ' รายการ และกิจกรรมแก้ไขจุดอ่อนทางการเงิน ' + financial.length +
+      ' รายการ (Profile: ' + benchmark.name + ')', 'success');
   }
 
   // =========================================================================
@@ -3298,6 +3539,7 @@
   UI.renderReportRegistry = renderReportRegistry;
   UI.renderReportRows = renderReportRows;
   global.CPD_UI = UI;
+  global.CPD_autoPipeline = autoPipeline4M;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', UI.init);
