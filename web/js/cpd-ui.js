@@ -3615,12 +3615,14 @@
 
     // -------------------------------------------------------------------
     // 4) สรุปผลการวิเคราะห์ (Rule-based Summary)
+    // สรุปปัญหาที่พบจากข้อ 1–3 และจับคู่กับแนวทางดำเนินการแก้ไขเป็นรายประเด็น
     // -------------------------------------------------------------------
     var summary = [];
     summary.push('สรุปผลการวิเคราะห์');
+    summary.push('(สรุปปัญหาที่พบจากข้อ 1–3 และแนวทางดำเนินการแก้ไขเป็นรายประเด็น)');
     summary.push('');
 
-    // 4.1 ภาพรวมผลการดำเนินงาน
+    // 4.1 ภาพรวมผลการดำเนินงาน (ข้อมูลอ้างอิงสั้น ๆ)
     summary.push('ภาพรวมผลการดำเนินงาน:');
     if (income > 0 || expense > 0 || profit !== 0) {
       var overviewParts = [];
@@ -3636,97 +3638,78 @@
     } else {
       summary.push('- ยังไม่พบข้อมูลผลการดำเนินงานและฐานะการเงินที่เพียงพอในระบบ');
     }
+    if (mgmtStrengthClass) {
+      summary.push('- ผลการจัดชั้นความเข้มแข็ง ประจำปี ' + String(mgmtStrengthYear) +
+        ' อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(mgmtStrengthClass) +
+        (mgmtStrengthTotal > 0 ? ' คะแนนรวม ' + S.fmt(mgmtStrengthTotal, 2) + ' คะแนน' : ''));
+    }
     summary.push('');
 
-    // 4.2 ด้านการบริหารจัดการองค์กร (หลัก 4M และ CAMELS)
-    summary.push('1. ด้านการบริหารจัดการองค์กร (หลัก 4M และ CAMELS):');
-    summary.push('จุดแข็ง:');
-    summary.push('- มีโครงสร้างคณะกรรมการดำเนินการ ' + fmtTextOrPlaceholder(p.boardCount ? S.fmtInt(p.boardCount) + ' คน' : 'ไม่ระบุ') +
-      ' และผู้ตรวจสอบกิจการ ' + fmtTextOrPlaceholder(p.inspectorName) + ' ทำหน้าที่ตามข้อบังคับ');
-    if (staffCount > 0) {
-      summary.push('- มีเจ้าหน้าที่ปฏิบัติงานประจำ ' + S.fmtInt(staffCount) + ' คน รองรับการดำเนินงานของสหกรณ์');
-    }
-    if (capitalAssetRatio >= 20) {
-      summary.push('- ความเพียงพอของทุน (C) อยู่ในระดับแข็งแกร่ง โดยทุนของสหกรณ์คิดเป็น ' + S.fmt(capitalAssetRatio, 1) + '% ของสินทรัพย์รวม');
-    }
-    if (profit > 0) {
-      summary.push('- ความสามารถในการทำกำไร (E) อยู่ในระดับที่ดี มีกำไรสุทธิ ' + valOrText(profit) +
-        (netMargin !== 0 ? ' อัตรากำไรสุทธิ ' + S.fmt(netMargin, 1) + '%' : ''));
-    }
-    if (currentRatio >= crMin && currentRatio <= crMax) {
-      summary.push('- สภาพคล่อง (L) อยู่ในเกณฑ์เหมาะสม อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ' เท่า');
-    }
-    if (deRatio > 0 && deRatio <= deLimit) {
-      summary.push('- โครงสร้างเงินทุน (M) อยู่ในเกณฑ์ที่กำหนด D/E ' + S.fmt(deRatio, 2) + ' เท่า');
-    }
-    if (shortTermPaidRatio > 0 && shortTermPaidRatio >= collectionThresholdCamels) {
-      summary.push('- คุณภาพสินทรัพย์ (A) อยู่ในเกณฑ์ อัตราลูกหนี้ระยะสั้นชำระตามกำหนด ' + S.fmt(shortTermPaidRatio, 2) + '%');
-    }
-    if (classLatest) {
-      summary.push('- ผลการจัดชั้นความเข้มแข็งปี ' + String(latestStrengthYear) + ' อยู่ในระดับชั้น ' +
-        fmtTextOrPlaceholder(classLatest) + (totalLatest > 0 ? ' คะแนนรวม ' + S.fmt(totalLatest, 2) : ''));
-    }
-
-    summary.push('จุดอ่อนและความเสี่ยง:');
-    var orgWeakCount = 0;
+    // 4.2 ด้านการบริหารจัดการองค์กร (หลัก 4M) — ปัญหาและแนวทางแก้ไขรายประเด็น
+    summary.push('1. ด้านการบริหารจัดการองค์กร (หลัก 4M):');
+    var orgProblems = [];
     if (capitalAssetRatio > 0 && capitalAssetRatio < 10) {
-      summary.push('- ความเพียงพอของทุน (C) ต่ำ โดยทุนของสหกรณ์คิดเป็น ' + S.fmt(capitalAssetRatio, 1) + '% ของสินทรัพย์รวม');
-      orgWeakCount++;
+      orgProblems.push({
+        p: 'ความเพียงพอของทุน (C) ต่ำ โดยทุนของสหกรณ์คิดเป็น ' + S.fmt(capitalAssetRatio, 1) + '% ของสินทรัพย์รวม (เกณฑ์ไม่ต่ำกว่าร้อยละ 10)',
+        a: 'เพิ่มการระดมทุนเรือนหุ้นและจัดสรรทุนสำรองอย่างต่อเนื่อง พร้อมกำกับให้ทุนของสหกรณ์เพิ่มขึ้นไม่ต่ำกว่าร้อยละ 10 ของสินทรัพย์รวม'
+      });
     }
     if (shortTermPaidRatio > 0 && shortTermPaidRatio < collectionThresholdCamels) {
-      summary.push('- คุณภาพสินทรัพย์ (A) ต่ำกว่าเกณฑ์ อัตราลูกหนี้ระยะสั้นชำระตามกำหนด ' +
-        S.fmt(shortTermPaidRatio, 2) + '% (เกณฑ์ ' + S.fmt(collectionThresholdCamels, 0) + '%)');
-      orgWeakCount++;
+      orgProblems.push({
+        p: 'คุณภาพสินทรัพย์ (A) ต่ำกว่าเกณฑ์ อัตราลูกหนี้ระยะสั้นชำระตามกำหนด ' +
+          S.fmt(shortTermPaidRatio, 2) + '% (เกณฑ์ ' + S.fmt(collectionThresholdCamels, 0) + '%)',
+        a: 'เร่งรัดติดตามลูกหนี้ค้างชำระ ปรับปรุงกระบวนการประเมินคุณภาพลูกหนี้และหลักประกัน และรายงานความคืบหน้าการติดตามหนี้ต่อคณะกรรมการดำเนินการ'
+      });
     }
     if (deRatio > deLimit) {
-      summary.push('- การบริหารจัดการเงินทุน (M) พึ่งพิงหนี้สินสูง D/E ' + S.fmt(deRatio, 2) +
-        ' เท่า เกินเกณฑ์ ' + S.fmt(deLimit, 2) + ' เท่า');
-      orgWeakCount++;
+      orgProblems.push({
+        p: 'การบริหารจัดการเงินทุน (M) พึ่งพิงหนี้สินสูง D/E ' + S.fmt(deRatio, 2) +
+          ' เท่า เกินเกณฑ์ ' + S.fmt(deLimit, 2) + ' เท่า',
+        a: 'ควบคุมภาระหนี้สินและต้นทุนทางการเงิน จำกัดการก่อหนี้ใหม่ที่ไม่จำเป็น และจัดทำแผนชำระคืนเงินกู้ยืมเพื่อลดการพึ่งพิงแหล่งทุนภายนอก'
+      });
     }
     if (profit < 0) {
-      summary.push('- ความสามารถในการทำกำไร (E) มีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit)));
-      orgWeakCount++;
+      orgProblems.push({
+        p: 'ความสามารถในการทำกำไร (E) มีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit)),
+        a: 'ทบทวนโครงสร้างรายได้และต้นทุนของแต่ละธุรกิจ จัดทำแผนฟื้นฟูผลการดำเนินงาน และติดตามผลประกอบการรายไตรมาส'
+      });
     }
     if (currentRatio > 0 && currentRatio < crMin) {
-      summary.push('- สภาพคล่อง (L) ต่ำกว่าเกณฑ์ อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ' เท่า');
-      orgWeakCount++;
-    }
-    if (bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0) {
-      summary.push('- มีขาดทุนสะสม ' + valOrText(bs.accumulatedLoss));
-      orgWeakCount++;
-    }
-    summary.push('- ยังไม่มีการจัดทำแผนกลยุทธ์/แผนยุทธศาสตร์ระยะยาว');
-    orgWeakCount++;
-    if (auditorObs4M || coopDefects4M) {
-      summary.push('- มีข้อสังเกต/ข้อบกพร่องที่ต้องแก้ไข: ' + (auditorObs4M || coopDefects4M));
-      orgWeakCount++;
-    }
-    if (orgWeakCount === 0) {
-      summary.push('- ไม่พบจุดอ่อนหรือความเสี่ยงที่มีนัยสำคัญจากข้อมูลที่มี');
-    }
-
-    summary.push('ข้อเสนอแนะ:');
-    if (capitalAssetRatio > 0 && capitalAssetRatio < 10) {
-      summary.push('- เสริมความแข็งแกร่งของทุน โดยเพิ่มการระดมทุนเรือนหุ้นและจัดสรรทุนสำรองอย่างต่อเนื่อง');
-    }
-    if (shortTermPaidRatio > 0 && shortTermPaidRatio < collectionThresholdCamels) {
-      summary.push('- เร่งรัดติดตามลูกหนี้ค้างชำระและปรับปรุงกระบวนการประเมินคุณภาพลูกหนี้');
-    }
-    if (deRatio > deLimit) {
-      summary.push('- ควบคุมภาระหนี้สินและต้นทุนทางการเงิน วางแผนชำระคืนเงินกู้ยืมและลดการพึ่งพิงแหล่งทุนภายนอก');
-    }
-    if (profit < 0) {
-      summary.push('- ทบทวนโครงสร้างรายได้และต้นทุนของแต่ละธุรกิจ เพื่อฟื้นฟูผลการดำเนินงาน');
-    }
-    if (currentRatio > 0 && currentRatio < crMin) {
-      summary.push('- จัดทำแผนบริหารกระแสเงินสดและสำรองสภาพคล่องสำหรับภาระที่ครบกำหนด');
+      orgProblems.push({
+        p: 'สภาพคล่อง (L) ต่ำกว่าเกณฑ์ อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ' เท่า',
+        a: 'จัดทำแผนบริหารกระแสเงินสดและสำรองสภาพคล่องสำหรับภาระที่ครบกำหนด รวมทั้งวางแผนการรับชำระหนี้ให้สอดคล้องกับภาระจ่าย'
+      });
     }
     if (currentRatio > crMax) {
-      summary.push('- บริหารเงินทุนหมุนเวียนส่วนเกินเพื่อสร้างผลตอบแทนโดยไม่กระทบสภาพคล่อง');
+      orgProblems.push({
+        p: 'มีเงินทุนหมุนเวียนส่วนเกินจำนวนมาก อัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ' เท่า อาจทำให้เงินทุนไม่ได้สร้างผลตอบแทน',
+        a: 'บริหารเงินทุนหมุนเวียนส่วนเกินเพื่อสร้างผลตอบแทนโดยไม่กระทบสภาพคล่อง เช่น พิจารณาการใช้เงินทุนในธุรกิจที่ให้ผลตอบแทนเหมาะสม'
+      });
     }
-    summary.push('- จัดทำแผนกลยุทธ์ระยะ 3–5 ปี ให้สอดคล้องกับแผนพัฒนาสหกรณ์และผลการจัดชั้นความเข้มแข็ง');
-    if (auditorObs4M || coopDefects4M) {
-      summary.push('- เร่งแก้ไขข้อสังเกตของผู้สอบบัญชีและรายงานความคืบหน้าต่อคณะกรรมการดำเนินการ');
+    if (bs.accumulatedLoss && S.num(bs.accumulatedLoss) > 0) {
+      orgProblems.push({
+        p: 'มีขาดทุนสะสม ' + valOrText(bs.accumulatedLoss),
+        a: 'จัดทำแผนชำระล้างขาดทุนสะสมและรักษาผลกำไรต่อเนื่อง พร้อมรายงานความคืบหน้าต่อที่ประชุมใหญ่'
+      });
+    }
+    orgProblems.push({
+      p: 'ยังไม่มีการจัดทำแผนกลยุทธ์/แผนยุทธศาสตร์ระยะยาว',
+      a: 'จัดทำแผนกลยุทธ์ระยะ 3–5 ปี ให้สอดคล้องกับแผนพัฒนาสหกรณ์ ผลการจัดชั้นความเข้มแข็ง และสภาพปัญหาของสหกรณ์'
+    });
+    var orgObsText = String(auditorObs4M || coopDefects4M || '').replace(/\s+/g, ' ').trim();
+    if (orgObsText) {
+      orgProblems.push({
+        p: 'มีข้อสังเกตตามการประเมินเข้มแข็ง/ข้อบกพร่องที่ต้องแก้ไข: ' + orgObsText,
+        a: 'เร่งแก้ไขข้อสังเกตตามลำดับความสำคัญ กำหนดผู้รับผิดชอบและกำหนดเวลาแล้วเสร็จ พร้อมรายงานความคืบหน้าต่อคณะกรรมการดำเนินการและที่ประชุมใหญ่'
+      });
+    }
+    if (orgProblems.length === 0) {
+      summary.push('- ไม่พบปัญหาที่มีนัยสำคัญในมิติการบริหารจัดการองค์กรจากข้อมูลที่มี');
+    } else {
+      for (var op = 0; op < orgProblems.length; op++) {
+        summary.push('- ปัญหาที่ ' + (op + 1) + ': ' + orgProblems[op].p);
+        summary.push('  แนวทางดำเนินการ: ' + orgProblems[op].a + ' (แก้ไขปัญหาที่ ' + (op + 1) + ')');
+      }
     }
     summary.push('');
 
@@ -3745,119 +3728,115 @@
     addBizFact('ธุรกิจรับฝากเงิน', depositAmount, profitDeposit);
 
     summary.push('2. ด้านการบริหารจัดการธุรกิจ:');
-    summary.push('จุดแข็ง:');
     var bizWin = [];
-    var bizLoss = [];
     for (var bi = 0; bi < bizFacts.length; bi++) {
       if (bizFacts[bi].profit > 0) bizWin.push(bizFacts[bi].name);
-      if (bizFacts[bi].profit < 0) bizLoss.push(bizFacts[bi].name);
     }
     if (bizWin.length > 0) {
-      summary.push('- ธุรกิจที่สร้างผลกำไร: ' + bizWin.join(', '));
+      summary.push('- ธุรกิจที่สร้างผลกำไรและควรคงไว้: ' + bizWin.join(', '));
     }
     if (membersDeposit > 0 || membersTrading > 0 || membersProcessing > 0) {
       summary.push('- สมาชิกมีส่วนร่วมในธุรกิจของสหกรณ์ ทั้งธุรกิจรับฝากเงิน ' + fmtCountTxt(membersDeposit) +
         ' ธุรกิจจัดหาสินค้า ' + fmtCountTxt(membersTrading) +
         ' และธุรกิจแปรรูป ' + fmtCountTxt(membersProcessing));
     }
-    if (bizFacts.length === 0) {
-      summary.push('- ยังไม่พบข้อมูลผลการดำเนินงานแยกธุรกิจที่เพียงพอ');
-    }
 
-    summary.push('จุดอ่อนและความเสี่ยง:');
-    if (bizLoss.length > 0) {
-      summary.push('- ธุรกิจที่มีผลขาดทุน: ' + bizLoss.join(', '));
-    }
-    if (depositAmount > 0 && S.num(profitDeposit) < 0) {
-      summary.push('- ต้นทุนเงินรับฝากสูงกว่ารายได้จากธุรกิจรับฝากเงิน');
-    }
-    if (bizLoss.length === 0 && bizFacts.length > 0) {
-      summary.push('- ไม่พบธุรกิจที่มีผลขาดทุนจากข้อมูลที่มี');
-    }
-    if (bizFacts.length === 0) {
-      summary.push('- ไม่มีข้อมูลเพียงพอต่อการประเมินความเสี่ยงรายธุรกิจ');
-    }
-
-    summary.push('ข้อเสนอแนะ:');
-    if (bizLoss.length > 0) {
-      summary.push('- ทบทวนราคาขาย ต้นทุน และค่าใช้จ่ายเฉพาะธุรกิจของ ' + bizLoss.join(', ') + ' เพื่อลดผลขาดทุน');
-    }
-    if (bizWin.length > 0) {
-      summary.push('- รักษาผลการดำเนินงานของ ' + bizWin.join(', ') + ' และขยายการมีส่วนร่วมของสมาชิก');
+    var bizProblems = [];
+    for (var bj = 0; bj < bizFacts.length; bj++) {
+      if (bizFacts[bj].profit < 0) {
+        var isDepositBiz = bizFacts[bj].name === 'ธุรกิจรับฝากเงิน';
+        bizProblems.push({
+          p: bizFacts[bj].name + ' มีผลขาดทุน ' + valOrText(Math.abs(bizFacts[bj].profit)),
+          a: isDepositBiz
+            ? 'ทบทวนโครงสร้างอัตราดอกเบี้ยเงินรับฝากและต้นทุนทางการเงินให้สอดคล้องกับผลตอบแทนจากเงินให้กู้และการลงทุน'
+            : 'ทบทวนราคาขาย ต้นทุน และค่าใช้จ่ายเฉพาะของ' + bizFacts[bj].name +
+              ' จัดทำแผนลดต้นทุน/เพิ่มรายได้ และติดตามผลการดำเนินงานรายไตรมาส'
+        });
+      }
     }
     if (bizFacts.length === 0) {
-      summary.push('- จัดเก็บข้อมูลผลการดำเนินงานแยกธุรกิจ ณ สิ้นปีบัญชี เพื่อให้วิเคราะห์ได้ครบถ้วน');
+      bizProblems.push({
+        p: 'ยังไม่มีข้อมูลผลการดำเนินงานแยกธุรกิจที่เพียงพอต่อการประเมิน',
+        a: 'จัดเก็บและบันทึกผลการดำเนินงานแยกธุรกิจ ณ สิ้นปีบัญชี เพื่อให้ระบบวิเคราะห์และติดตามผลได้ครบถ้วน'
+      });
+    }
+    if (bizProblems.length === 0) {
+      summary.push('- ไม่พบปัญหาที่มีนัยสำคัญในมิติการบริหารจัดการธุรกิจจากข้อมูลที่มี');
+    } else {
+      for (var bp = 0; bp < bizProblems.length; bp++) {
+        summary.push('- ปัญหาที่ ' + (bp + 1) + ': ' + bizProblems[bp].p);
+        summary.push('  แนวทางดำเนินการ: ' + bizProblems[bp].a + ' (แก้ไขปัญหาที่ ' + (bp + 1) + ')');
+      }
     }
     summary.push('');
 
-    // 4.4 ด้านการจัดสวัสดิการและสาธารณประโยชน์
+    // 4.4 ด้านการจัดสวัสดิการและสาธารณประโยชน์ — ปัญหาและแนวทางแก้ไขรายประเด็น
     summary.push('3. ด้านการจัดสวัสดิการและสาธารณประโยชน์:');
-    summary.push('จุดแข็ง:');
     if (hasWelfareData) {
+      var welfareFacts = [];
       if (welfareFund > 0) {
-        summary.push('- จัดสรรทุนสวัสดิการสมาชิก ' + valOrText(welfareFund) +
+        welfareFacts.push('ทุนสวัสดิการสมาชิก ' + valOrText(welfareFund) +
           (profit > 0 ? ' คิดเป็น ' + S.fmt(welfareFund / profit * 100, 1) + '% ของกำไรสุทธิ' : ''));
       }
-      if (welfareObs) {
-        summary.push('- มีการจัดสวัสดิการให้สมาชิกและครอบครัวตามข้อมูลในเอกสาร');
-      }
       if (publicBenefitFund > 0) {
-        summary.push('- จัดสรรทุนสาธารณประโยชน์ ' + valOrText(publicBenefitFund));
+        welfareFacts.push('ทุนสาธารณประโยชน์ ' + valOrText(publicBenefitFund));
       }
-      if (publicBenefitObs) {
-        summary.push('- มีการดำเนินงานด้านสาธารณประโยชน์ตามข้อมูลในเอกสาร');
-      }
-    } else {
-      summary.push('- ยังไม่มีข้อมูลการจัดสวัสดิการและสาธารณประโยชน์ที่เพียงพอ');
-    }
-
-    summary.push('จุดอ่อนและความเสี่ยง:');
-    if (!hasWelfareData) {
-      summary.push('- ไม่พบข้อมูลการจัดสวัสดิการและสาธารณประโยชน์ในเอกสารที่อัปโหลด ทำให้ไม่สามารถประเมินความเพียงพอและความต่อเนื่องได้');
-    } else {
-      if (profit > 0 && welfareFund > 0 && welfareFund / profit < 0.05) {
-        summary.push('- สัดส่วนทุนสวัสดิการต่อกำไรสุทธิค่อนข้างต่ำ (' + S.fmt(welfareFund / profit * 100, 1) + '%)');
-      }
-      if (profit < 0) {
-        summary.push('- ผลการดำเนินงานขาดทุน อาจกระทบความต่อเนื่องของการจัดสรรทุนสวัสดิการ');
-      }
-      if (welfareFund <= 0) {
-        summary.push('- ไม่พบข้อมูลวงเงินทุนสวัสดิการที่จัดสรรในปีบัญชีล่าสุด');
-      }
-      if (publicBenefitFund <= 0 && !publicBenefitObs) {
-        summary.push('- ไม่พบข้อมูลการดำเนินงานด้านสาธารณประโยชน์');
+      if (welfareFacts.length > 0) {
+        summary.push('- ข้อมูลที่มี: ' + welfareFacts.join(' / '));
       }
     }
 
-    summary.push('ข้อเสนอแนะ:');
+    var welfareProblems = [];
     if (!hasWelfareData) {
-      summary.push('- จัดเก็บและรวบรวมข้อมูลการจัดสวัสดิการและสาธารณประโยชน์จากรายงานประจำปี/รายงานผู้สอบบัญชี เพื่อใช้วิเคราะห์ในรอบถัดไป');
+      welfareProblems.push({
+        p: 'ไม่พบข้อมูลการจัดสวัสดิการและสาธารณประโยชน์ในเอกสารที่อัปโหลด ทำให้ไม่สามารถประเมินความเพียงพอและความต่อเนื่องได้',
+        a: 'จัดเก็บและรวบรวมข้อมูลการจัดสวัสดิการและสาธารณประโยชน์จากรายงานประจำปี/รายงานผู้สอบบัญชี และบันทึกในแบบรายงานผลการดำเนินงานเพื่อใช้วิเคราะห์ในรอบถัดไป'
+      });
     } else {
       if (profit > 0 && welfareFund > 0 && welfareFund / profit < 0.05) {
-        summary.push('- พิจารณาเพิ่มสัดส่วนการจัดสรรทุนสวัสดิการให้สอดคล้องกับกำไรสุทธิและความต้องการของสมาชิก');
+        welfareProblems.push({
+          p: 'สัดส่วนทุนสวัสดิการต่อกำไรสุทธิค่อนข้างต่ำ (' + S.fmt(welfareFund / profit * 100, 1) + '%)',
+          a: 'พิจารณาเพิ่มสัดส่วนการจัดสรรทุนสวัสดิการให้สอดคล้องกับกำไรสุทธิและความต้องการของสมาชิก'
+        });
       }
       if (welfareFund <= 0) {
-        summary.push('- กำหนดวงเงินทุนสวัสดิการประจำปีให้ชัดเจนและบันทึกไว้ในรายงานผลการดำเนินงาน');
+        welfareProblems.push({
+          p: 'ไม่พบข้อมูลวงเงินทุนสวัสดิการที่จัดสรรในปีบัญชีล่าสุด',
+          a: 'กำหนดวงเงินทุนสวัสดิการประจำปีให้ชัดเจนและบันทึกไว้ในรายงานผลการดำเนินงาน'
+        });
       }
       if (publicBenefitFund <= 0 && !publicBenefitObs) {
-        summary.push('- ส่งเสริมกิจกรรมสาธารณประโยชน์และบันทึกผลการดำเนินงานอย่างเป็นระบบ');
+        welfareProblems.push({
+          p: 'ไม่พบข้อมูลการดำเนินงานด้านสาธารณประโยชน์',
+          a: 'ส่งเสริมกิจกรรมสาธารณประโยชน์และบันทึกผลการดำเนินงานอย่างเป็นระบบ'
+        });
       }
       if (profit < 0) {
-        summary.push('- วางแผนรักษาระดับสวัสดิการขั้นพื้นฐานไว้แม้อยู่ในช่วงผลการดำเนินงานขาดทุน');
+        welfareProblems.push({
+          p: 'ผลการดำเนินงานขาดทุน อาจกระทบความต่อเนื่องของการจัดสรรทุนสวัสดิการ',
+          a: 'วางแผนรักษาระดับสวัสดิการขั้นพื้นฐานไว้แม้อยู่ในช่วงผลการดำเนินงานขาดทุน'
+        });
+      }
+    }
+    if (welfareProblems.length === 0) {
+      summary.push('- ไม่พบปัญหาที่มีนัยสำคัญในมิติการจัดสวัสดิการและสาธารณประโยชน์จากข้อมูลที่มี');
+    } else {
+      for (var wp = 0; wp < welfareProblems.length; wp++) {
+        summary.push('- ปัญหาที่ ' + (wp + 1) + ': ' + welfareProblems[wp].p);
+        summary.push('  แนวทางดำเนินการ: ' + welfareProblems[wp].a + ' (แก้ไขปัญหาที่ ' + (wp + 1) + ')');
       }
     }
     summary.push('');
 
-    // 4.5 ผลการจัดชั้นความเข้มแข็งและแนวทางปีถัดไป
-    summary.push('ผลการจัดชั้นความเข้มแข็งและแนวทางปีถัดไป:');
-    summary.push('- ผลการดำเนินงานในปีบัญชี ' + String(acctYear) +
-      ' ส่งผลให้สหกรณ์มีผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(latestStrengthYear) +
-      ' ในระดับชั้น ' + fmtTextOrPlaceholder(classLatest) +
-      (totalLatest > 0 ? ' คะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : ''));
+    // 4.5 ผลการจัดชั้นความเข้มแข็งและเป้าหมายปีถัดไป
+    summary.push('ผลการจัดชั้นความเข้มแข็งและเป้าหมายปี ' + String(mgmtTargetYear) + ':');
+    summary.push('- ผลการจัดชั้นความเข้มแข็ง ประจำปี ' + String(mgmtStrengthYear) +
+      ' อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(mgmtStrengthClass) +
+      (mgmtStrengthTotal > 0 ? ' คะแนนรวม ' + S.fmt(mgmtStrengthTotal, 2) + ' คะแนน' : ''));
     summary.push('- เป้าหมายในการส่งเสริมสหกรณ์แห่งนี้ในปีงบประมาณ พ.ศ. ' + String(planYear) +
-      ' คือ สหกรณ์สามารถรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
-      ' ปี ' + String(targetStrengthYear));
-    summary.push('- แนวทางส่งเสริมในปีถัดไปให้เชื่อมโยงกับจุดอ่อนและข้อเสนอแนะข้างต้น โดยเน้นการเสริมความแข็งแกร่งของทุน คุณภาพลูกหนี้ สภาพคล่อง ประสิทธิภาพของแต่ละธุรกิจ และความต่อเนื่องของการจัดสวัสดิการ');
+      ' คือ ให้สหกรณ์สามารถรักษาระดับชั้น ' + fmtTextOrPlaceholder(mgmtTargetClass) +
+      ' ในปี ' + String(mgmtTargetYear));
+    summary.push('- แนวทางดำเนินการ: ให้หน่วยงานส่งเสริมติดตามการแก้ไขปัญหาตามข้อ 1–3 ข้างต้น โดยเน้นการเสริมความแข็งแกร่งของทุน คุณภาพลูกหนี้ สภาพคล่อง ประสิทธิภาพของแต่ละธุรกิจ และความต่อเนื่องของการจัดสวัสดิการ');
 
 
     var result = {
