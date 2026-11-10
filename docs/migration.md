@@ -749,3 +749,16 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 - สหกรณ์ที่มีข้อความ preload ตรวจสอบแล้ว: ใช้ข้อความเดิมทุกบรรทัด และ **แทรกบล็อก CAMELS** ในหัวข้อการเงิน (Money) โดยไม่แก้ไขข้อความเดิม
 - cache-bust: `cpd-ui.js` = `v20261110i`
 
+### ระยะที่ 5E (แก้ JSON จาก AI ไม่สมบูรณ์)
+
+| อาการ | สาเหตุ | การแก้ไข |
+| --- | --- | --- |
+| ประมวลผลไฟล์แล้วขึ้น `Unterminated string in JSON at position ...` | Gemini ส่งอัญประกาศคู่หรืออักขระขึ้นบรรทัดใหม่ที่ไม่ได้ escape ภายในข้อความไทย ทำให้ `JSON.parse` ล้ม | เพิ่ม `parseAiJson_()` พร้อมตัวซ่อม `repairAiJsonText_()` และ `closeTruncatedJson_()` แทนการเรียก `JSON.parse` ตรง ๆ |
+| ไม่รู้ว่าข้อผิดพลาดเกิดที่ใด | ข้อความ error ของ `JSON.parse` ไม่บอกบริบท | แนบ `aiJsonPreview` (500 ตัวอักษรแรก) มากับ error และแจ้งเป็นภาษาไทยว่าให้ประมวลผลใหม่ |
+| AI อาจสร้างอัญประกาศซ้ำอีก | prompt เดิมมีตัวอย่างข้อความในอัญประกาศคู่หลายจุด | ปรับ prompt ข้อ 7, 9-22 ให้เลี่ยงอัญประกาศคู่ในค่าข้อความ และเพิ่มกฎห้ามใช้อัญประกาศคู่/ขึ้นบรรทัดใหม่ภายในค่า |
+
+- ตัวซ่อมรองรับ: code fence, ข้อความนำหน้า JSON, อัญประกาศคู่ที่หลุดเข้ามาในข้อความ (แยกคีย์/ค่าด้วยบริบท), อักขระขึ้นบรรทัดใหม่/แท็บภายในสตริง และ JSON ที่ถูกตัดกลางคัน
+- ผลทดสอบตัวซ่อม (local): valid JSON, unescaped quotes, quotes + comma + Thai, literal newline, code fence + prose, truncated JSON, quoted term with colon, empty string, escaped quote, array of objects, non-JSON error — ผ่านทั้งหมด 12/12
+- GAS deployed `@45`; ไม่มีการเปลี่ยนแปลง frontend
+
+
