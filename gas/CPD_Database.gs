@@ -491,6 +491,30 @@ function cpdFilterMatch_(value, filter) {
 }
 
 /**
+ * กรองประเภทสหกรณ์/กลุ่มเกษตรกร โดยตรวจทั้ง orgType, coopSubType และชื่อสหกรณ์
+ * รองรับกรณี master มี coopType เป็น "สหกรณ์" (แบบกว้าง) แต่ชื่อระบุประเภทจริง
+ */
+function cpdFilterCoopType_(row, filter) {
+  if (!filter) return true;
+  var f = cpdCleanName_(filter).toLowerCase();
+  var org = cpdCleanName_(row.orgType || '').toLowerCase();
+  var sub = cpdCleanName_(row.coopSubType || '').toLowerCase();
+  var name = cpdCleanName_(row.coopName || '').toLowerCase();
+
+  if (org === f || sub === f) return true;
+  if (name.indexOf(f) !== -1) return true;
+
+  // ตัวเลือก "สหกรณ์" (แบบกว้าง) ต้องได้ทุกประเภทสหกรณ์ แต่ไม่รวมกลุ่มเกษตรกร
+  if (f === 'สหกรณ์') {
+    return org.indexOf('สหกรณ์') !== -1 ||
+      sub.indexOf('สหกรณ์') !== -1 ||
+      name.indexOf('สหกรณ์') !== -1;
+  }
+
+  return false;
+}
+
+/**
  * @param {Object} filters { fiscalYear, promotionZone, district, coopType, primaryOfficer }
  * @return {Object} kpis, zones, rows, classDistribution, dimAverages, filterOptions
  */
@@ -608,7 +632,7 @@ function getDashboardSummaryData(filters) {
   var filtered = rows.filter(function (r) {
     return cpdFilterMatch_(r.promotionZone, f.promotionZone) &&
       cpdFilterMatch_(r.district, f.district) &&
-      cpdFilterMatch_(r.orgType, f.coopType) &&
+      cpdFilterCoopType_(r, f.coopType) &&
       cpdFilterMatch_(r.primaryOfficer, f.primaryOfficer);
   });
 
