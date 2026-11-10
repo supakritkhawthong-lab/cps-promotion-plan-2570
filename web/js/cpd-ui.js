@@ -585,10 +585,7 @@
       '    </span></div>' +
       '    <div class="card-body py-3"><div class="row g-3">' +
       textarea('analysis.orgAnalysis4M', '1. ด้านการบริหารจัดการองค์กร (หลัก 4M)', 7) +
-      
-      // ส่วนเลือกธุรกิจและฟอร์มกรอกข้อมูล
-      buildBusinessSection() +
-      
+      textarea('analysis.businessAnalysis', '2. ด้านการบริหารจัดการธุรกิจ', 10) +
       textarea('analysis.welfareAnalysis', '3. ด้านการจัดสวัสดิการและสาธารณประโยชน์', 4) +
       textarea('analysis.summaryAnalysis', '4. สรุปผลการวิเคราะห์', 4) +
       textarea('analysis.auditorObservations', 'ข้อสังเกตของผู้สอบบัญชี (ปีบัญชีล่าสุด)', 3, 6) +
@@ -596,26 +593,6 @@
       '    </div></div>' +
       '  </div>' +
       '</div>';
-  }
-
-  /**
-   * buildBusinessSection() — สร้างส่วนแสดงข้อความวิเคราะห์ธุรกิจ (read-only, ดึงจากไฟล์ที่อัพโหลด)
-   */
-  function buildBusinessSection() {
-    var html = '<div class="col-12"><div class="card border-primary mb-3">';
-    html += '<div class="card-header bg-primary bg-opacity-10 py-2">';
-    html += '<strong>2. ด้านการบริหารจัดการธุรกิจ</strong>';
-    html += '</div>';
-    html += '<div class="card-body py-3">';
-    
-    // ข้อความวิเคราะห์ธุรกิจ (read-only, ดึงจากไฟล์ที่อัพโหลดอัตโนมัติ)
-    html += '<div class="mb-2"><label class="form-label small fw-bold text-primary mb-1">ข้อความวิเคราะห์ธุรกิจ (สร้างอัตโนมัติจากไฟล์ที่อัพโหลด)</label>';
-    html += '<textarea class="form-control form-control-sm" data-cpd="analysis.businessAnalysis" rows="12" readonly style="background-color: #f8f9fa;"></textarea>';
-    html += '<div class="form-text text-muted small mt-1">💡 ระบบจะสร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติเมื่อคุณกดปุ่ม "✨ ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติ" ด้านบน</div>';
-    html += '</div>';
-    
-    html += '</div></div></div>';
-    return html;
   }
 
   /**
