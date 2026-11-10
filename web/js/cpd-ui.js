@@ -143,6 +143,217 @@
     return preloadFor(A().coopProfile.coopName);
   }
 
+  // -------------------------------------------------------------------------
+  // Uploaded analysis notes (รายงานผู้สอบบัญชี / งบการเงิน / เอกสารที่อัปโหลด)
+  // -------------------------------------------------------------------------
+
+  function aiText(value) {
+    if (value === undefined || value === null) return '';
+    if (Array.isArray(value)) {
+      return value.map(function (v) { return aiText(v); }).filter(Boolean).join('\n');
+    }
+    return String(value).trim();
+  }
+
+  function classifyBusinessName(name) {
+    var t = String(name || '');
+    if (/ฝาก/.test(t)) return 'deposit';
+    if (/กู้|สินเชื่อ|เงินให้กู้/.test(t)) return 'credit';
+    if (/แปรรูป|ผลิตสินค้า|ผลิตภัณฑ์/.test(t)) return 'processing';
+    if (/รวบรวม|ผลผลิต/.test(t)) return 'collection';
+    if (/จัดหา|สินค้า|วัสดุ|ปัจจัยการผลิต/.test(t)) return 'trading';
+    if (/บริการ/.test(t)) return 'service';
+    return '';
+  }
+
+  function inferAuditorCategories(text) {
+    var t = String(text || '');
+    if (!t) return [];
+    var rules = [
+      ['ด้านการประชุมคณะกรรมการ', /ประชุม|คณะกรรมการ/],
+      ['ด้านผู้ตรวจสอบกิจการ', /ผู้ตรวจสอบกิจการ/],
+      ['ด้านเทคโนโลยีสารสนเทศ/โปรแกรมบัญชี', /โปรแกรม|คอมพิวเตอร์|สารสนเทศ|รหัสผ่าน|IT/i],
+      ['ด้านหลักประกัน/การเงิน', /หลักประกัน|เงินสด|เงินฝาก|สภาพคล่อง|หนี้สิน/],
+      ['ด้านสินทรัพย์/สินค้าคงเหลือ', /สินค้า|ไซโล|ทรัพย์สิน|เสื่อม|คงเหลือ/],
+      ['ด้านบัญชี/งบการเงิน', /บัญชี|งบการเงิน|ลูกหนี้|เจ้าหนี้|ค่าใช้จ่าย/],
+      ['ด้านกฎหมาย/ข้อบังคับ/ระเบียบ', /ข้อบังคับ|ระเบียบ|กฎหมาย|มาตรา|นายทะเบียน/]
+    ];
+    return rules.filter(function (r) { return r[1].test(t); }).map(function (r) { return r[0]; });
+  }
+
+  function inferHasWeakness(text) {
+    var t = String(text || '').trim();
+    if (!t) return false;
+    if (/^ไม่พบ(ข้อสังเกต|จุดอ่อน|ข้อบกพร่อง)/.test(t)) return false;
+    return /จุดอ่อน|ข้อบกพร่อง|ข้อสังเกต|ไม่ได้|ไม่เป็นไปตาม|ไม่เพียงพอ|ผิดพลาด|ขัดต่อ|ควรปรับปรุง|ทักท้วง/.test(t);
+  }
+
+  function inferCorrectionStatus(text) {
+    var t = String(text || '');
+    if (/ยังไม่ได้(ดำเนินการ|แก้ไข)/.test(t)) return 'ยังไม่ได้ดำเนินการ';
+    if (/อยู่ระหว่าง|กำลังดำเนินการ|ระหว่างดำเนินการ/.test(t)) return 'อยู่ระหว่างดำเนินการ';
+    if (/แก้ไขแล้ว|ปรับปรุงแล้ว|ดำเนินการแล้ว/.test(t)) return 'แก้ไขแล้ว';
+    return '';
+  }
+
+  /**
+   * applyBusinessSegmentsFromAI(s, segments)
+   * แปลงข้อมูลธุรกิจที่ AI สกัดได้ (businessSegments) ลง financials.businesses
+   * เพื่อให้ข้อ 2 ด้านการบริหารจัดการธุรกิจนำตัวเลขจากเอกสารที่อัปโหลดไปใช้จริง
+   */
+  function applyBusinessSegmentsFromAI(s, segments) {
+    if (!segments || !segments.length) return false;
+    var fin = s.financials || (s.financials = {});
+    var b = fin.businesses || (fin.businesses = {});
+    var applied = false;
+
+    function ensure(key) {
+      if (!b[key]) b[key] = {};
+      return b[key];
+    }
+    function setProfitWithSpecific(target, sales, cost, profit) {
+      var gross = S.num(sales) - S.num(cost);
+      var diff = S.num(profit) - gross;
+      target.grossProfit = gross;
+      target.netBusinessProfit = S.num(profit);
+      target.specificIncome = diff > 0 ? diff : 0;
+      target.specificExpense = diff < 0 ? -diff : 0;
+    }
+
+    segments.forEach(function (seg) {
+      if (!seg || typeof seg !== 'object') return;
+      var key = classifyBusinessName(seg.name || seg.business || seg.type);
+      if (!key) return;
+      var sales = S.num(seg.sales !== undefined ? seg.sales : (seg.revenue !== undefined ? seg.revenue : seg.amount));
+      var cost = S.num(seg.cost !== undefined ? seg.cost : seg.expense);
+      var profit = S.num(seg.profit !== undefined ? seg.profit : seg.netProfit);
+      var target = ensure(key);
+
+      if (key === 'deposit') {
+        target.depositAmount = sales || target.depositAmount || 0;
+        target.netBusinessProfit = profit;
+      } else if (key === 'credit') {
+        target.interestIncome = sales || target.interestIncome || 0;
+        target.serviceCost = cost;
+        setProfitWithSpecific(target, target.interestIncome, cost, profit);
+      } else if (key === 'service') {
+        target.serviceIncome = sales || target.serviceIncome || 0;
+        target.serviceCost = cost;
+        setProfitWithSpecific(target, target.serviceIncome, cost, profit);
+      } else {
+        target.sales = sales || target.sales || 0;
+        target.cogs = cost;
+        setProfitWithSpecific(target, target.sales, cost, profit);
+      }
+      applied = true;
+    });
+    return applied;
+  }
+
+  /**
+   * applyUploadedAnalysisNotes(res)
+   * เติมข้อสังเกตผู้สอบบัญชี/ข้อมูลธุรกิจ/สวัสดิการที่ AI สกัดจากไฟล์ที่อัปโหลดลง State
+   * โดยไม่เขียนทับข้อความที่ผ่านการตรวจสอบแล้ว (preload) ของสหกรณ์นั้น
+   */
+  function applyUploadedAnalysisNotes(res) {
+    if (!res || typeof res !== 'object') return false;
+    var s = A();
+    if (!s || !s.analysis) return false;
+
+    var pre = currentPreload();
+    var preAnalysis = (pre && pre.state && pre.state.analysis) || {};
+    var preFourM = (pre && pre.fourM) || {};
+    var preBusinessText = Array.isArray(preFourM.businessAnalysis)
+      ? preFourM.businessAnalysis.join('\n')
+      : String(preFourM.businessAnalysis || '');
+    var preAuditorText = String(preAnalysis.auditorObservations || '').trim();
+    var preDefectsText = String(preAnalysis.coopDefects || '').trim();
+    var applied = false;
+
+    function setText(key, value, verified) {
+      var text = aiText(value);
+      if (!text) return false;
+      var cur = String(s.analysis[key] || '').trim();
+      // เก็บข้อความที่ผ่านการตรวจสอบแล้ว (preload) หรือข้อความเดิมที่ตรงกันไว้
+      if (verified && cur && cur === verified) return false;
+      if (cur === text) return false;
+      s.analysis[key] = text;
+      var box = document.querySelector('[data-cpd="analysis.' + key + '"]');
+      if (box) box.value = text;
+      applied = true;
+      return true;
+    }
+
+    // 1) ข้อสังเกตผู้สอบบัญชี / ข้อบกพร่อง (ถ้า AI ไม่ส่งมา ใช้ issue1-3 เป็นข้อมูลสำรอง)
+    var auditorText = aiText(res.auditorObservations);
+    var issueTexts = [res.issue1, res.issue2, res.issue3].map(aiText).filter(Boolean);
+    if (!auditorText && issueTexts.length) {
+      auditorText = issueTexts.map(function (t, i) { return '(' + (i + 1) + ') ' + t; }).join('\n');
+    }
+    setText('auditorObservations', auditorText, preAuditorText);
+
+    var defectsText = aiText(res.auditorDefects);
+    if (!defectsText && issueTexts.length) defectsText = issueTexts.join(', ');
+    setText('coopDefects', defectsText, preDefectsText);
+
+    // 2) ข้อมูล/ข้อสังเกตด้านธุรกิจจากเอกสารที่อัปโหลด
+    var segments = Array.isArray(res.businessSegments) ? res.businessSegments : [];
+    var bizNote = aiText(res.businessObservations);
+    if (!bizNote && segments.length) {
+      bizNote = segments.map(function (seg) {
+        var note = aiText(seg && seg.note);
+        if (!note) return '';
+        return '- ' + aiText(seg.name || seg.business || 'ธุรกิจ') + ': ' + note;
+      }).filter(Boolean).join('\n');
+    }
+    // สหกรณ์ที่มีข้อความธุรกิจผ่านการตรวจสอบแล้ว (preload) ไม่ต้องเติมทับ
+    if (!preBusinessText) {
+      if (bizNote) setText('businessObservations', bizNote, '');
+      applyBusinessSegmentsFromAI(s, segments);
+    }
+
+    // 3) ข้อมูลสวัสดิการ/สาธารณประโยชน์จากเอกสารที่อัปโหลด
+    setText('welfareObservations', res.welfareObservations, '');
+    setText('publicBenefitObservations', res.publicBenefitObservations, '');
+    if (res.welfareFundAmount !== undefined && res.welfareFundAmount !== '') {
+      s.analysis.welfareFundAmount = S.num(res.welfareFundAmount);
+      applied = true;
+    }
+    if (res.publicBenefitFundAmount !== undefined && res.publicBenefitFundAmount !== '') {
+      s.analysis.publicBenefitFundAmount = S.num(res.publicBenefitFundAmount);
+      applied = true;
+    }
+
+    // 4) โครงสร้าง fourMDetails.auditorObservations สำหรับ 4M Engine
+    var preFourMDetails = pre && pre.state && pre.state.coopProfile && pre.state.coopProfile.fourMDetails;
+    var preAuditorObj = preFourMDetails && preFourMDetails.auditorObservations;
+    if (!preAuditorObj) {
+      var obsText = String(s.analysis.auditorObservations || '').trim();
+      var categories = Array.isArray(res.auditorWeaknessCategories)
+        ? res.auditorWeaknessCategories.map(aiText).filter(Boolean)
+        : [];
+      if (!categories.length && obsText) categories = inferAuditorCategories(obsText);
+      var hasWeakness = typeof res.auditorInternalControlWeakness === 'boolean'
+        ? res.auditorInternalControlWeakness
+        : inferHasWeakness(obsText);
+      var status = aiText(res.auditorCorrectionStatus);
+      if (!/^(แก้ไขแล้ว|อยู่ระหว่างดำเนินการ|ยังไม่ได้ดำเนินการ)$/.test(status)) status = inferCorrectionStatus(obsText);
+      if (obsText || categories.length || hasWeakness) {
+        s.coopProfile.fourMDetails = s.coopProfile.fourMDetails || {};
+        s.coopProfile.fourMDetails.auditorObservations = {
+          hasInternalControlWeakness: !!hasWeakness,
+          weaknessCategories: categories,
+          details: obsText,
+          correctionStatus: status
+        };
+        applied = true;
+      }
+    }
+
+    if (applied && typeof S.scheduleLocalDraftSave === 'function') S.scheduleLocalDraftSave(300);
+    return applied;
+  }
+
   function fillPreloadForm(pre) {
     if (!pre || !pre.form) return;
     Object.keys(pre.form).forEach(function (id) {
@@ -2809,8 +3020,9 @@
     var planProcessing = S.num(N.planProcessing);
     var profitProcessing = S.num(N.profitProcessing);
     var profitProcessingPrev = S.num(N1.profitProcessing);
-    var depositAmount = S.num(N.depositAmount);
-    var profitDeposit = S.num(N.profitDeposit);
+    var bizDeposit = (f.businesses && f.businesses.deposit) || {};
+    var depositAmount = S.num(N.depositAmount) || S.num(bizDeposit.depositAmount);
+    var profitDeposit = S.num(N.profitDeposit) || S.num(bizDeposit.netBusinessProfit);
 
     var bizList = Array.isArray(p.mainBusinesses) ? p.mainBusinesses.filter(Boolean) : [];
     var bizText = bizList.length ? bizList.join(' ') : '';
@@ -3026,29 +3238,24 @@
     var processingBiz = biz.processing || {};
     var serviceBiz = biz.service || {};
 
-    // Fallback: ถ้ายังไม่มีข้อมูลแยกธุรกิจในแท็บ 2 ให้ดึงจากผลการดำเนินงานหน้า 1
-    var hasBizDetail = S.num(tradingBiz.sales) > 0 || S.num(collectionBiz.sales) > 0 ||
-      S.num(processingBiz.sales) > 0 || S.num(serviceBiz.serviceIncome) > 0 ||
-      S.num(creditBiz.interestIncome) > 0;
-    if (!hasBizDetail) {
-      if (S.num(N.salesTrading) > 0) {
-        tradingBiz = {
-          sales: S.num(N.salesTrading), cogs: S.num(N.costTrading),
-          grossProfit: S.num(N.salesTrading) - S.num(N.costTrading),
-          specificIncome: 0, specificExpense: 0, netBusinessProfit: S.num(N.profitTrading)
-        };
-      }
-      if (S.num(N.salesProcessing) > 0) {
-        processingBiz = {
-          sales: S.num(N.salesProcessing), cogs: S.num(N.costProcessing),
-          grossProfit: S.num(N.salesProcessing) - S.num(N.costProcessing),
-          specificIncome: 0, specificExpense: 0, netBusinessProfit: S.num(N.profitProcessing)
-        };
-      }
-      if (S.num(N.depositAmount) > 0) {
-        depositAmount = S.num(N.depositAmount);
-        profitDeposit = S.num(N.profitDeposit);
-      }
+    // Fallback: เติมข้อมูลธุรกิจที่ยังว่างจากผลการดำเนินงานหน้า 1 (ไม่ทับข้อมูลที่ AI/preload ให้มา)
+    if (S.num(tradingBiz.sales) === 0 && S.num(N.salesTrading) > 0) {
+      tradingBiz = {
+        sales: S.num(N.salesTrading), cogs: S.num(N.costTrading),
+        grossProfit: S.num(N.salesTrading) - S.num(N.costTrading),
+        specificIncome: 0, specificExpense: 0, netBusinessProfit: S.num(N.profitTrading)
+      };
+    }
+    if (S.num(processingBiz.sales) === 0 && S.num(N.salesProcessing) > 0) {
+      processingBiz = {
+        sales: S.num(N.salesProcessing), cogs: S.num(N.costProcessing),
+        grossProfit: S.num(N.salesProcessing) - S.num(N.costProcessing),
+        specificIncome: 0, specificExpense: 0, netBusinessProfit: S.num(N.profitProcessing)
+      };
+    }
+    if (!depositAmount && S.num(N.depositAmount) > 0) {
+      depositAmount = S.num(N.depositAmount);
+      profitDeposit = S.num(N.profitDeposit);
     }
 
     // อัตราส่วนทางการเงิน 7 ตัว ใช้ค่าที่คำนวณไว้ด้านบนแล้ว (ratios/deRatio/currentRatio/...)
@@ -3195,25 +3402,66 @@
     }
 
     // ถ้ามีข้อมูลที่ผ่านการตรวจสอบแล้ว (preload) ให้ใช้ข้อความองค์กร/ธุรกิจฉบับตรวจสอบแทน
+    var hasVerifiedBusinessText = !!(preload && preload.fourM &&
+      preload.fourM.businessAnalysis && preload.fourM.businessAnalysis.length);
     if (preload && preload.fourM) {
       if (preload.fourM.orgAnalysis4M && preload.fourM.orgAnalysis4M.length) {
         org = preload.fourM.orgAnalysis4M.slice();
       }
-      if (preload.fourM.businessAnalysis && preload.fourM.businessAnalysis.length) {
+      if (hasVerifiedBusinessText) {
         business = preload.fourM.businessAnalysis.slice();
       }
     }
 
+    // เติมข้อสังเกต/ข้อมูลธุรกิจจากเอกสารที่อัปโหลด (ยกเว้นสหกรณ์ที่มีข้อความตรวจสอบแล้ว)
+    var bizObs4M = String(analysisInfo.businessObservations || '').trim();
+    if (!bizObs4M) bizObs4M = auditorObs4M;
+    if (bizObs4M && !hasVerifiedBusinessText) {
+      if (business.length && business[business.length - 1] !== '') business.push('');
+      business.push('ข้อสังเกต/ข้อมูลเพิ่มเติมจากเอกสารที่อัปโหลด:');
+      business.push(bizObs4M);
+      business.push('');
+    }
+
     // -------------------------------------------------------------------
-    // 3) ด้านการจัดสวัสดิการและสาธารณประโยชน์
+    // 3) ด้านการจัดสวัสดิการและสาธารณประโยชน์ (อ้างอิงข้อมูลที่อัปโหลดเท่านั้น)
     // -------------------------------------------------------------------
     var welfare = [];
     welfare.push('- ผลการวิเคราะห์ข้อมูลด้านการจัดสวัสดิการและสาธารณประโยชน์');
     welfare.push('ด้านการบริหารจัดการสวัสดิการและสาธารณประโยชน์');
-    welfare.push('- สหกรณ์มีการจัดสวัสดิการแก่สมาชิกและครอบครัว โดยกำหนดระเบียบว่าด้วยการใช้ทุนเพื่อจัดสวัสดิการให้แก่สมาชิกและครอบครัวขึ้นถือใช้เป็นแนวทางปฏิบัติงาน สหกรณ์จ่ายเงินทุนดังกล่าวในกรณีสมาชิกเสียชีวิต และกรณีบุคคลในครอบครัวเสียชีวิต โดยจ่ายค่าจัดการงานศพและค่าพวงหรีดตามระเบียบที่กำหนด');
-    welfare.push('- นอกจากสวัสดิการดังกล่าวแล้ว คณะกรรมการดำเนินการได้พิจารณาจัดสวัสดิการให้แก่สมาชิกเพิ่มเติม เช่น สวัสดิการช่วยเหลือค่าใช้จ่ายในการจัดการอุปสมบทบุตรสมาชิก สวัสดิการงานมงคลสมรส สวัสดิการรับขวัญบุตรแรกเกิดของสมาชิก สวัสดิการช่วยเหลือพยาบาล และสวัสดิการเสริมคุณค่าชีวิตสำหรับสมาชิกผู้สูงวัย');
-    welfare.push('- สหกรณ์ไม่มีการจัดสวัสดิการให้เจ้าหน้าที่สหกรณ์ มีเพียงการจ่ายเงินสมทบกองทุนประกันสังคม จ่ายค่าครองชีพ และจัดให้มีเงินบำเหน็จ โดยกำหนดเป็นค่าใช้จ่ายในการดำเนินงาน');
-    welfare.push('- สหกรณ์มีการช่วยเหลือสนับสนุนกิจกรรมด้านสาธารณประโยชน์ เช่น สนับสนุนงานวันสหกรณ์ฯ และร่วมอนุโมทนาการถวายผ้ากฐินพระราชทานของกรมส่งเสริมสหกรณ์');
+
+    var welfareObs = String(analysisInfo.welfareObservations || '').trim();
+    var publicBenefitObs = String(analysisInfo.publicBenefitObservations || '').trim();
+    var welfareFund = S.num(analysisInfo.welfareFundAmount);
+    var publicBenefitFund = S.num(analysisInfo.publicBenefitFundAmount);
+    var hasWelfareData = !!(welfareObs || publicBenefitObs || welfareFund > 0 || publicBenefitFund > 0);
+
+    if (hasWelfareData) {
+      if (welfareFund > 0) {
+        welfare.push('- สหกรณ์จัดสรรทุนสวัสดิการสมาชิก จำนวน ' + valOrText(welfareFund) + ' ตามข้อมูลจากเอกสารที่อัปโหลด');
+      }
+      if (welfareObs) {
+        welfare.push('- การจัดสวัสดิการแก่สมาชิกและครอบครัว:');
+        welfare.push(welfareObs);
+      }
+      if (publicBenefitFund > 0) {
+        welfare.push('- สหกรณ์จัดสรรทุนสาธารณประโยชน์ จำนวน ' + valOrText(publicBenefitFund) + ' ตามข้อมูลจากเอกสารที่อัปโหลด');
+      }
+      if (publicBenefitObs) {
+        welfare.push('- การดำเนินงานด้านสาธารณประโยชน์:');
+        welfare.push(publicBenefitObs);
+      }
+    } else {
+      welfare.push('- ไม่พบข้อมูลการจัดสวัสดิการและสาธารณประโยชน์ของสหกรณ์ในเอกสารที่อัปโหลด');
+      welfare.push('- ระบบไม่สามารถระบุกิจกรรมสวัสดิการ/สาธารณประโยชน์ที่สหกรณ์ดำเนินการได้ จนกว่าจะได้รับข้อมูลจากรายงานผู้สอบบัญชี งบการเงิน หรือแบบรายงานผลการดำเนินงานของสหกรณ์');
+      welfare.push('- ข้อเสนอแนะ: ควรตรวจสอบข้อมูลการจัดสวัสดิการและสาธารณประโยชน์จากรายงานประจำปี/รายงานผู้สอบบัญชีของสหกรณ์โดยตรง แล้วบันทึกในช่อง "ข้อสังเกต/ข้อมูลสวัสดิการ" ก่อนจัดทำแผน');
+    }
+    welfare.push('');
+
+    // ใช้ข้อความสวัสดิการที่ผ่านการตรวจสอบแล้ว (ถ้ามี)
+    if (preload && preload.fourM && preload.fourM.welfareAnalysis && preload.fourM.welfareAnalysis.length) {
+      welfare = preload.fourM.welfareAnalysis.slice();
+    }
 
     // -------------------------------------------------------------------
     // 4) สรุปผลการวิเคราะห์ (Rule-based Summary)
@@ -3966,6 +4214,7 @@
   UI.detectCoopProfile = detectCoopProfile;
   UI.getProfileBenchmarks = getProfileBenchmarks;
   UI.autoPipeline4M = autoPipeline4M;
+  UI.applyUploadedAnalysisNotes = applyUploadedAnalysisNotes;
   UI.clearAutoGeneratedActivities = clearAutoGeneratedActivities;
   UI.renderReportRegistry = renderReportRegistry;
   UI.renderReportRows = renderReportRows;

@@ -697,3 +697,20 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110a`
 
 cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110f`
 
+### ระยะที่ 5E: ข้อสังเกตผู้สอบบัญชี / วิเคราะห์ธุรกิจ / สวัสดิการ จากไฟล์ที่อัปโหลด
+
+| อาการ | สาเหตุ | การแก้ไข |
+| --- | --- | --- |
+| ข้อสังเกตผู้สอบบัญชีและข้อบกพร่องไม่แสดงหลังอัปโหลด | `analyzeUploadedFilesWithAI()` ไม่คืนฟิลด์ข้อสังเกต และ frontend map เฉพาะ `issue1..3` | GAS ส่ง `auditorObservations` / `auditorDefects` / หมวดจุดอ่อน / สถานะแก้ไข และ frontend เรียก `CPD_UI.applyUploadedAnalysisNotes(res)` ก่อน Pipeline |
+| ข้อ 2 ด้านการบริหารจัดการธุรกิจไม่สะท้อนข้อมูลจากไฟล์ | ข้อความธุรกิจสร้างจาก `financials.businesses` ที่ยังว่าง และไม่นำข้อสังเกตธุรกิจมาแสดง | AI ส่ง `businessSegments` + `businessObservations`; frontend เติม `financials.businesses` และต่อท้ายข้อความข้อ 2 (ยกเว้นสหกรณ์ที่มีข้อความตรวจสอบแล้ว) |
+| ข้อ 3 สวัสดิการ/สาธารณประโยชน์แสดงกิจกรรมที่ไม่มีข้อมูลจริง | ข้อความถูก hardcode ไว้ใน `analyze4M()` | เปลี่ยนเป็นข้อความจาก `analysis.welfareObservations` / `publicBenefitObservations` / `welfareFundAmount` / `publicBenefitFundAmount`; ถ้าไม่มีข้อมูลจะแจ้งว่าไม่พบและแนะนำให้ตรวจสอบรายงานผู้สอบบัญชี |
+| State เก่าไม่มีฟิลด์ใหม่ | `defaultState()` ไม่มีฟิลด์วิเคราะห์จากไฟล์ | เพิ่มฟิลด์ optional ใน `analysis` พร้อมค่าเริ่มต้นว่าง (ไม่กระทบ State/LocalStorage/JSON เดิม) |
+
+ผลทดสอบ (local):
+- สหกรณ์ที่ไม่มี preload + mocked AI response: ข้อ 1 แสดงข้อสังเกตผู้สอบบัญชี, ข้อ 2 แสดงข้อสังเกตธุรกิจ/ตัวเลขจาก `businessSegments`, ข้อ 3 แสดงเฉพาะข้อมูลที่ส่งมา
+- สหกรณ์ที่ไม่มีข้อมูลสวัสดิการ: ข้อ 3 ขึ้นข้อความ "ไม่พบข้อมูล..." และข้อเสนอแนะ ไม่สร้างกิจกรรมสมมติ
+- ไก่ไข่ชลบุรี / Toyota: ข้อความ `orgAnalysis4M` และ `businessAnalysis` ที่ตรวจสอบแล้วยังคงเดิม
+- Console errors: 0
+
+cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
+

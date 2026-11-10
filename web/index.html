@@ -1252,6 +1252,14 @@
 
         // TASK 6: Zero-Click Pipeline — ซิงค์ → อัตราส่วน → 4M → 5.2 อัตโนมัติหลัง AI ประมวลผล
         setTimeout(function () {
+          // เติมข้อสังเกตผู้สอบบัญชี/ข้อมูลธุรกิจ/สวัสดิการที่ AI สกัดได้ลง State ก่อนสร้าง 4M
+          if (window.CPD_UI && typeof window.CPD_UI.applyUploadedAnalysisNotes === 'function') {
+            try {
+              window.CPD_UI.applyUploadedAnalysisNotes(res);
+            } catch (e) {
+              console.warn('[applyUploadedAnalysisNotes]', e);
+            }
+          }
           if (typeof window.CPD_autoPipeline === 'function') window.CPD_autoPipeline();
           else if (window.CPD_UI && typeof window.CPD_UI.autoPipeline4M === 'function') window.CPD_UI.autoPipeline4M();
         }, 300);
@@ -1368,10 +1376,10 @@
 <!-- State + UI ของแท็บ 2-5 (โหลดหลังโค้ดเดิมเสมอ) -->
 <script src="js/cpd-report-registry.js?v=20260214c"></script>
 <script src="js/cpd-preload.js?v=20260215a"></script>
-<script src="js/cpd-state.js?v=20261110f"></script>
+<script src="js/cpd-state.js?v=20261110g"></script>
 <script src="js/cpd-mis-reports.js?v=20260214a"></script>
 <script src="js/cpd-4m-engine.js?v=20260214b"></script>
 <script src="js/cpd-business-analysis.js?v=20260214f"></script>
-<script src="js/cpd-ui.js?v=20261110f"></script>
+<script src="js/cpd-ui.js?v=20261110g"></script>
 </body>
 </html>
