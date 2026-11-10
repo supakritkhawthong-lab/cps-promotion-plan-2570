@@ -2913,6 +2913,29 @@
   }
 
   /**
+   * replaceStaleStrengthLine_() — ปรับบรรทัดผลการจัดชั้นความเข้มแข็งในข้อ 4 (การจัดการ)
+   * ให้เป็นปีผลประเมินล่าสุด (เช่น 2569) แทนปีเดิม (เช่น 2568) โดยใช้ข้อมูลจาก state ปัจจุบัน
+   */
+  function replaceStaleStrengthLine_(text, year, level, total, targetYear, targetClass) {
+    var src = String(text || '');
+    if (!src) return src;
+    var lines = src.split('\n');
+    var changed = false;
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\s*-\s*ผลการจัดระดับ(?:ชั้น)?ความเข้มแข็ง\s*(?:ประจำ)?ปี\s*(\d{4})/);
+      if (!m) continue;
+      if (String(m[1]) === String(year)) continue;
+      lines[i] = '- ผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(year) +
+        ' สหกรณ์อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(level) +
+        (total > 0 ? ' โดยมีคะแนนรวม ' + S.fmt(total, 2) + ' คะแนน' : '') +
+        ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(targetClass) +
+        ' ในปี ' + String(targetYear);
+      changed = true;
+    }
+    return changed ? lines.join('\n') : src;
+  }
+
+  /**
    * valOrText(v, unit, fallback) — แสดงค่าตัวเลขหรือข้อความ fallback
    * ถ้า v > 0: แสดงค่าตัวเลข + unit
    * ถ้า v = 0 หรือว่าง: แสดง fallback
@@ -3061,6 +3084,12 @@
     var classLatest = (st.classByYear && (st.classByYear[String(latestStrengthYear)] || st.classByYear['2569'])) || '';
     var classTarget = (st.classByYear && (st.classByYear[String(targetStrengthYear)] || st.classByYear['2569'])) || classLatest;
     var totalLatest = S.num(st.totalByYear && (st.totalByYear[String(latestStrengthYear)] || st.totalByYear['2569']));
+    // หัวข้อ 4 ด้านการจัดการ: ใช้ผลประเมินปีล่าสุด (2569) แทนปีก่อนหน้า (2568)
+    var mgmtStrengthYear = targetStrengthYear;
+    var mgmtStrengthClass = (st.classByYear && st.classByYear[String(mgmtStrengthYear)]) || classLatest;
+    var mgmtStrengthTotal = S.num(st.totalByYear && st.totalByYear[String(mgmtStrengthYear)]);
+    var mgmtTargetYear = planYear;
+    var mgmtTargetClass = (st.classByYear && st.classByYear[String(mgmtTargetYear)]) || mgmtStrengthClass;
     var quorumOk = membersTotal ? (agmAttendees * 2 >= membersTotal) : false;
 
     // -------------------------------------------------------------------
@@ -3327,11 +3356,11 @@
     org.push('- ภาวการณ์แข่งขันในตลาดเป็นปัจจัยภายนอกที่สหกรณ์ไม่สามารถควบคุมได้ รวมทั้งนโยบายของรัฐทั้งด้านราคาผลผลิต ราคาอาหาร และยา ซึ่งส่งผลกระทบต่อต้นทุนการดำเนินงานของสหกรณ์');
     org.push('');
     org.push('4. หัวข้อ: การจัดการ');
-    org.push('- ผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(latestStrengthYear) +
-      ' สหกรณ์อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(classLatest) +
-      (totalLatest ? ' โดยมีคะแนนรวม ' + S.fmt(totalLatest, 2) + ' คะแนน' : '') +
-      ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
-      ' ในปี ' + String(targetStrengthYear));
+    org.push('- ผลการจัดระดับชั้นความเข้มแข็ง ประจำปี ' + String(mgmtStrengthYear) +
+      ' สหกรณ์อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(mgmtStrengthClass) +
+      (mgmtStrengthTotal ? ' โดยมีคะแนนรวม ' + S.fmt(mgmtStrengthTotal, 2) + ' คะแนน' : '') +
+      ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(mgmtTargetClass) +
+      ' ในปี ' + String(mgmtTargetYear));
     var analysisInfo = s.analysis || {};
     var uploadedForThisCoop = String(analysisInfo.uploadedSectionsCoop || '') === String(coopName || '');
     var uploadedOrg = uploadedForThisCoop ? String(analysisInfo.uploadedOrgAnalysis4M || '').trim() : '';
@@ -3846,6 +3875,13 @@
     if (uploadedSummary && !preOrgVerified && !hasVerifiedBusinessText && !preWelfareVerified) {
       result.summaryAnalysis = uploadedSummary;
     }
+
+    // ปรับปีผลการจัดชั้นความเข้มแข็งในหัวข้อ 4 (การจัดการ) ให้เป็นปีล่าสุด (2569)
+    // ครอบคลุมทั้งข้อความที่สร้างใหม่ ข้อความ preload ที่ตรวจสอบแล้ว และข้อความจาก AI
+    result.orgAnalysis4M = replaceStaleStrengthLine_(
+      result.orgAnalysis4M, mgmtStrengthYear, mgmtStrengthClass, mgmtStrengthTotal,
+      mgmtTargetYear, mgmtTargetClass
+    );
 
     return result;
   }
