@@ -956,7 +956,7 @@
       textarea('analysis.welfareAnalysis', '3. ด้านการจัดสวัสดิการและสาธารณประโยชน์', 4) +
       textarea('analysis.summaryAnalysis', '4. สรุปผลการวิเคราะห์', 4) +
       textarea('analysis.auditorObservations', 'ข้อสังเกตของผู้สอบบัญชี (ปีบัญชีล่าสุด)', 3, 6) +
-      textarea('analysis.coopDefects', 'ข้อบกพร่องของสหกรณ์ (ปีบัญชีล่าสุด)', 3, 6) +
+      textarea('analysis.coopDefects', 'ข้อสังเกตตามการประเมินเข้มแข็ง', 3, 6) +
       '    </div></div>' +
       '  </div>' +
       '</div>';

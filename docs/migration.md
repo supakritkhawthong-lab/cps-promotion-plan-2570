@@ -761,4 +761,10 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 - ผลทดสอบตัวซ่อม (local): valid JSON, unescaped quotes, quotes + comma + Thai, literal newline, code fence + prose, truncated JSON, quoted term with colon, empty string, escaped quote, array of objects, non-JSON error — ผ่านทั้งหมด 12/12
 - GAS deployed `@45`; ไม่มีการเปลี่ยนแปลง frontend
 
+### ระยะที่ 5F: ปรับชื่อข้อสังเกตตามการประเมินเข้มแข็ง
+
+- เปลี่ยนป้ายกำกับ textarea `analysis.coopDefects` จาก "ข้อบกพร่องของสหกรณ์ (ปีบัญชีล่าสุด)" เป็น "ข้อสังเกตตามการประเมินเข้มแข็ง"
+- ไม่เปลี่ยนโครงสร้างข้อมูล ฟิลด์ `analysis.coopDefects` และแหล่งข้อมูลเดิมยังคงเดิม (Zero Regression)
+- cache-bust: `cpd-ui.js` = `v20261110j`
+
 
