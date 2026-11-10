@@ -64,7 +64,6 @@
     var restored = null;
     try { restored = S.restoreLocalDraft(); } catch (e) { console.warn('Restore draft:', e); }
     buildTab2();
-    fillBusinessFormsFromState(); // เติมข้อมูลธุรกิจจาก state ลงฟอร์ม
     buildTab5();
     bindGlobalEvents();
     wireLegacyFunctions();
@@ -79,7 +78,6 @@
     setTimeout(function () {
       selectStateCoopInDropdown();
       S.syncFromBaseFormToAllTabs();
-      fillBusinessFormsFromState(); // เติมข้อมูลธุรกิจอีกครั้งหลังเลือกสหกรณ์
       UI.renderAll();
     }, 300);
   };
@@ -220,8 +218,13 @@
       if (force) {
         S.mergeDeep(s.businessDetails, src.businessDetails);
       } else {
-        // Merge only if empty
-        var hasBizDetail = (s.businessDetails.activeList || []).length > 0;
+        // Merge only if empty (check if any business has data)
+        var hasBizDetail = false;
+        ['deposit', 'loan', 'trading', 'collection', 'processing', 'service'].forEach(function(key) {
+          if (s.businessDetails[key] && s.businessDetails[key].participatingMembers > 0) {
+            hasBizDetail = true;
+          }
+        });
         if (!hasBizDetail) {
           S.mergeDeep(s.businessDetails, src.businessDetails);
         }
@@ -254,7 +257,6 @@
     S.recalcStrength();
     if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
     UI.renderAll();
-    fillBusinessFormsFromState(); // เติมข้อมูลธุรกิจจาก state ลงฟอร์ม
     return true;
   }
 
@@ -597,307 +599,35 @@
   }
 
   /**
-   * buildBusinessSection() — สร้างส่วนฟอร์มกรอกข้อมูล 6 ธุรกิจ (แสดงทั้งหมด ไม่ใช้ checkbox)
+   * buildBusinessSection() — สร้างส่วนแสดงข้อความวิเคราะห์ธุรกิจ (read-only, ดึงจากไฟล์ที่อัพโหลด)
    */
   function buildBusinessSection() {
     var html = '<div class="col-12"><div class="card border-primary mb-3">';
     html += '<div class="card-header bg-primary bg-opacity-10 py-2">';
     html += '<strong>2. ด้านการบริหารจัดการธุรกิจ</strong>';
-    html += '<div class="float-end">';
-    html += '<span class="badge bg-info me-2" id="bizAutoDetectBadge">ตรวจพบ 0 ธุรกิจ</span>';
-    html += '<button type="button" class="btn btn-sm btn-info" data-action="generate-business-analysis">✨ สร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติ</button>';
-    html += '</div>';
     html += '</div>';
     html += '<div class="card-body py-3">';
     
-    // แสดงฟอร์มทุกธุรกิจทันที (ไม่ใช้ checkbox)
-    html += '<div class="text-muted small mb-3">กรอกข้อมูลธุรกิจที่สหกรณ์ดำเนินการ ระบบจะตรวจพบธุรกิจที่ดำเนินการอัตโนมัติจากข้อมูลที่กรอก</div>';
+    // ข้อความวิเคราะห์ธุรกิจ (read-only, ดึงจากไฟล์ที่อัพโหลดอัตโนมัติ)
+    html += '<div class="mb-2"><label class="form-label small fw-bold text-primary mb-1">ข้อความวิเคราะห์ธุรกิจ (สร้างอัตโนมัติจากไฟล์ที่อัพโหลด)</label>';
+    html += '<textarea class="form-control form-control-sm" data-cpd="analysis.businessAnalysis" rows="12" readonly style="background-color: #f8f9fa;"></textarea>';
+    html += '<div class="form-text text-muted small mt-1">💡 ระบบจะสร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติเมื่อคุณกดปุ่ม "✨ ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติ" ด้านบน</div>';
+    html += '</div>';
     
-    html += buildDepositForm();
-    html += buildLoanForm();
-    html += buildTradingForm();
-    html += buildCollectionForm();
-    html += buildProcessingForm();
-    html += buildServiceForm();
-
     html += '</div></div></div>';
     return html;
   }
 
   /**
-   * สร้างฟอร์มกรอกข้อมูลธุรกิจรับฝากเงิน (2.1)
-   */
-  function buildDepositForm() {
-    return '<div id="bizForm_deposit" class="biz-form">' +
-      '<h6 class="fw-bold text-primary mt-3 mb-2">💰 2.1 ธุรกิจรับฝากเงิน</h6>' +
-      '<div class="row g-2">' +
-      buildCheckField('businessDetails.deposit.hasPlan', 'มีแผนธุรกิจรับฝากเงิน') +
-      buildTextField('businessDetails.deposit.depositTypesDesc', 'ประเภทเงินฝาก', 'ออมทรัพย์, ฝากประจำ') +
-      buildNumberField('businessDetails.deposit.specialDepositRate', 'อัตราดอกเบี้ยเงินฝากพิเศษ (%)') +
-      buildNumberField('businessDetails.deposit.fixedDepositRate', 'อัตราดอกเบี้ยเงินฝากประจำ (%)') +
-      buildNumberField('businessDetails.deposit.depositDuringYear', 'เงินรับฝากตลอดปี (บาท)') +
-      buildNumberField('businessDetails.deposit.depositEndAccounts', 'จำนวนบัญชีสิ้นปี (บัญชี)') +
-      buildNumberField('businessDetails.deposit.depositEndBalance', 'ยอดเงินรับฝากสิ้นปี (บาท)') +
-      buildNumberField('businessDetails.deposit.depositInterestCostPct', 'ดอกเบี้ยจ่าย (%)') +
-      buildCheckField('businessDetails.deposit.isCompliant', 'เป็นไปตามระเบียบ') +
-      buildNumberField('businessDetails.deposit.participatingMembers', 'สมาชิกที่เข้าร่วม (ราย)') +
-      buildTextareaField('businessDetails.deposit.staffCompetencyNote', 'ความสามารถเจ้าหน้าที่', 2) +
-      buildTextareaField('businessDetails.deposit.opportunityOrIssueNote', 'โอกาส/ปัญหาอุปสรรค', 2) +
-      '</div><hr></div>';
-  }
-
-  /**
-   * สร้างฟอร์มกรอกข้อมูลธุรกิจให้สินเชื่อ (2.2)
-   */
-  function buildLoanForm() {
-    return '<div id="bizForm_loan" class="biz-form">' +
-      '<h6 class="fw-bold text-primary mt-3 mb-2">🏦 2.2 ธุรกิจให้สินเชื่อ / เงินกู้</h6>' +
-      '<div class="row g-2">' +
-      buildCheckField('businessDetails.loan.hasPlan', 'มีแผนธุรกิจสินเชื่อ') +
-      buildNumberField('businessDetails.loan.loanTypesCount', 'จำนวนประเภทสินเชื่อ') +
-      buildNumberField('businessDetails.loan.ordinaryLoanRate', 'อัตราดอกเบี้ยกู้สามัญ (%)') +
-      buildNumberField('businessDetails.loan.specialLoanRate', 'อัตราดอกเบี้ยกู้พิเศษ (%)') +
-      buildNumberField('businessDetails.loan.emergencyLoanRate', 'อัตราดอกเบี้ยกู้ฉุกเฉิน (%)') +
-      buildNumberField('businessDetails.loan.loanDisbursedYear', 'เงินกู้ปล่อยตลอดปี (บาท)') +
-      buildNumberField('businessDetails.loan.loanEndBorrowers', 'จำนวนลูกหนี้สิ้นปี (ราย)') +
-      buildNumberField('businessDetails.loan.loanEndBalance', 'ยอดลูกหนี้สิ้นปี (บาท)') +
-      buildNumberField('businessDetails.loan.interestIncomeTotal', 'รายได้ดอกเบี้ย (บาท)') +
-      buildNumberField('businessDetails.loan.interestIncomePct', 'รายได้ดอกเบี้ย (%)') +
-      buildNumberField('businessDetails.loan.repaymentRate', 'อัตราชำระหนี้ตามกำหนด (%)') +
-      buildCheckField('businessDetails.loan.isCompliant', 'เป็นไปตามระเบียบ') +
-      buildNumberField('businessDetails.loan.participatingMembers', 'สมาชิกที่กู้เงิน (ราย)') +
-      buildTextareaField('businessDetails.loan.staffCompetencyNote', 'ความสามารถเจ้าหน้าที่', 2) +
-      buildTextareaField('businessDetails.loan.opportunityOrIssueNote', 'โอกาส/ปัญหาอุปสรรค', 2) +
-      '</div><hr></div>';
-  }
-
-  /**
-   * สร้างฟอร์มกรอกข้อมูลธุรกิจจัดหาสินค้า (2.3)
-   */
-  function buildTradingForm() {
-    return '<div id="bizForm_trading" class="biz-form">' +
-      '<h6 class="fw-bold text-primary mt-3 mb-2">🛒 2.3 ธุรกิจจัดหาสินค้ามาจำหน่าย</h6>' +
-      '<div class="row g-2">' +
-      buildCheckField('businessDetails.trading.hasPlan', 'มีแผนธุรกิจจัดหาสินค้า') +
-      buildTextField('businessDetails.trading.productTypes', 'ประเภทสินค้า', 'ปุ๋ย, เมล็ดพันธุ์, อาหารสัตว์') +
-      buildTextField('businessDetails.trading.salesTerms', 'เงื่อนไขการขาย', 'เงินสดและเงินเชื่อ') +
-      buildNumberField('businessDetails.trading.salesVolumeYear', 'มูลค่าจำหน่ายตลอดปี (บาท)') +
-      buildNumberField('businessDetails.trading.costOfGoodsSold', 'ต้นทุนขาย (บาท)') +
-      buildNumberField('businessDetails.trading.grossProfit', 'กำไรขั้นต้น (บาท)') +
-      buildNumberField('businessDetails.trading.grossMarginPct', 'อัตรากำไรขั้นต้น (%)') +
-      buildNumberField('businessDetails.trading.netBusinessResult', 'ผลการดำเนินธุรกิจสุทธิ (บาท)') +
-      buildNumberField('businessDetails.trading.tradeReceivables', 'ลูกหนี้การค้าสิ้นปี (บาท)') +
-      buildNumberField('businessDetails.trading.inventoryEnd', 'สินค้าคงเหลือสิ้นปี (บาท)') +
-      buildCheckField('businessDetails.trading.isCompliant', 'เป็นไปตามระเบียบ') +
-      buildNumberField('businessDetails.trading.participatingMembers', 'สมาชิกที่อุดหนุน (ราย)') +
-      buildNumberField('businessDetails.trading.memberSalesAmount', 'มูลค่าซื้อของสมาชิก (บาท)') +
-      buildTextareaField('businessDetails.trading.staffCompetencyNote', 'ความสามารถเจ้าหน้าที่', 2) +
-      buildTextareaField('businessDetails.trading.opportunityOrIssueNote', 'โอกาส/ปัญหาอุปสรรค', 2) +
-      '</div><hr></div>';
-  }
-
-  /**
-   * สร้างฟอร์มกรอกข้อมูลธุรกิจรวบรวมผลิตผล (2.4)
-   */
-  function buildCollectionForm() {
-    return '<div id="bizForm_collection" class="biz-form">' +
-      '<h6 class="fw-bold text-primary mt-3 mb-2">🌾 2.4 ธุรกิจรวบรวมผลิตผล</h6>' +
-      '<div class="row g-2">' +
-      buildCheckField('businessDetails.collection.hasPlan', 'มีแผนรวบรวมผลิตผล') +
-      buildTextField('businessDetails.collection.cropTypes', 'ประเภทผลิตผล', 'ข้าวเปลือก, มันสำปะหลัง') +
-      buildTextField('businessDetails.collection.collectionMethod', 'รูปแบบการรับซื้อ', 'ซื้อขาดตามราคาตลาด') +
-      buildNumberField('businessDetails.collection.collectionQuantity', 'ปริมาณรวบรวม (ตัน/กก.)') +
-      buildNumberField('businessDetails.collection.collectionValueYear', 'มูลค่ารับซื้อ (บาท)') +
-      buildNumberField('businessDetails.collection.collectionSalesValue', 'มูลค่าจำหน่าย (บาท)') +
-      buildNumberField('businessDetails.collection.grossProfit', 'กำไรขั้นต้น (บาท)') +
-      buildNumberField('businessDetails.collection.grossMarginPct', 'อัตรากำไรขั้นต้น (%)') +
-      buildNumberField('businessDetails.collection.netBusinessResult', 'ผลการดำเนินธุรกิจสุทธิ (บาท)') +
-      buildCheckField('businessDetails.collection.isCompliant', 'เป็นไปตามระเบียบ') +
-      buildNumberField('businessDetails.collection.participatingMembers', 'สมาชิกที่ร่วม (ราย)') +
-      buildTextareaField('businessDetails.collection.staffCompetencyNote', 'ความสามารถเจ้าหน้าที่', 2) +
-      buildTextareaField('businessDetails.collection.opportunityOrIssueNote', 'โอกาส/ปัญหาอุปสรรค', 2) +
-      '</div><hr></div>';
-  }
-
-  /**
-   * สร้างฟอร์มกรอกข้อมูลธุรกิจแปรรูป (2.5)
-   */
-  function buildProcessingForm() {
-    return '<div id="bizForm_processing" class="biz-form">' +
-      '<h6 class="fw-bold text-primary mt-3 mb-2">🏭 2.5 ธุรกิจแปรรูปผลผลิต</h6>' +
-      '<div class="row g-2">' +
-      buildCheckField('businessDetails.processing.hasPlan', 'มีแผนแปรรูป') +
-      buildTextField('businessDetails.processing.processedProducts', 'สินค้าแปรรูป', 'ข้าวสาร, ยางแผ่นรมควัน') +
-      buildTextField('businessDetails.processing.qualityStandards', 'มาตรฐาน', 'GAP, OTOP') +
-      buildTextField('businessDetails.processing.marketingChannels', 'ช่องทางจำหน่าย', 'ร้านสหกรณ์') +
-      buildNumberField('businessDetails.processing.capacityUtilizationPct', 'การใช้กำลังการผลิต (%)') +
-      buildNumberField('businessDetails.processing.processingSalesYear', 'มูลค่าจำหน่าย (บาท)') +
-      buildNumberField('businessDetails.processing.productionCost', 'ต้นทุนผลิต (บาท)') +
-      buildNumberField('businessDetails.processing.grossProfit', 'กำไรขั้นต้น (บาท)') +
-      buildNumberField('businessDetails.processing.grossMarginPct', 'อัตรากำไรขั้นต้น (%)') +
-      buildNumberField('businessDetails.processing.netBusinessResult', 'ผลการดำเนินธุรกิจสุทธิ (บาท)') +
-      buildCheckField('businessDetails.processing.isCompliant', 'เป็นไปตามระเบียบ') +
-      buildNumberField('businessDetails.processing.participatingMembers', 'สมาชิกที่ร่วม (ราย)') +
-      buildNumberField('businessDetails.processing.memberParticipationValue', 'มูลค่าร่วม (บาท)') +
-      buildTextareaField('businessDetails.processing.staffCompetencyNote', 'ความสามารถเจ้าหน้าที่', 2) +
-      buildTextareaField('businessDetails.processing.opportunityOrIssueNote', 'โอกาส/ปัญหาอุปสรรค', 2) +
-      '</div><hr></div>';
-  }
-
-  /**
-   * สร้างฟอร์มกรอกข้อมูลธุรกิจให้บริการ (2.6)
-   */
-  function buildServiceForm() {
-    return '<div id="bizForm_service" class="biz-form">' +
-      '<h6 class="fw-bold text-primary mt-3 mb-2">🚛 2.6 ธุรกิจให้บริการ</h6>' +
-      '<div class="row g-2">' +
-      buildCheckField('businessDetails.service.hasPlan', 'มีแผนบริการ') +
-      buildTextField('businessDetails.service.serviceTypes', 'ประเภทบริการ', 'รถไถ, รถเกี่ยว') +
-      buildTextField('businessDetails.service.serviceFeeRateDesc', 'อัตราค่าบริการ', 'ตามคณะกรรมการกำหนด') +
-      buildNumberField('businessDetails.service.serviceIncomeYear', 'รายได้บริการ (บาท)') +
-      buildNumberField('businessDetails.service.serviceCost', 'ต้นทุนบริการ (บาท)') +
-      buildNumberField('businessDetails.service.netBusinessResult', 'ผลการดำเนินธุรกิจสุทธิ (บาท)') +
-      buildCheckField('businessDetails.service.isCompliant', 'เป็นไปตามระเบียบ') +
-      buildNumberField('businessDetails.service.participatingMembers', 'สมาชิกที่ร่วม (ราย)') +
-      buildTextareaField('businessDetails.service.staffCompetencyNote', 'ความสามารถเจ้าหน้าที่', 2) +
-      buildTextareaField('businessDetails.service.opportunityOrIssueNote', 'โอกาส/ปัญหาอุปสรรค', 2) +
-      '</div><hr></div>';
-  }
-
-  // Helper functions สำหรับสร้าง form fields
-  function buildCheckField(path, label) {
-    return '<div class="col-md-3"><div class="form-check">' +
-      '<input class="form-check-input" type="checkbox" data-biz-field="' + path + '" data-type="checkbox">' +
-      '<label class="form-check-label small">' + label + '</label>' +
-      '</div></div>';
-  }
-
-  function buildTextField(path, label, placeholder) {
-    return '<div class="col-md-4"><label class="form-label small fw-bold mb-1">' + label + '</label>' +
-      '<input type="text" class="form-control form-control-sm" data-biz-field="' + path + '" data-type="text" placeholder="' + (placeholder || '') + '">' +
-      '</div>';
-  }
-
-  function buildNumberField(path, label) {
-    return '<div class="col-md-3"><label class="form-label small fw-bold mb-1">' + label + '</label>' +
-      '<input type="number" class="form-control form-control-sm" data-biz-field="' + path + '" data-type="number" step="0.01">' +
-      '</div>';
-  }
-
-  function buildTextareaField(path, label, rows) {
-    return '<div class="col-12"><label class="form-label small fw-bold mb-1">' + label + '</label>' +
-      '<textarea class="form-control form-control-sm" data-biz-field="' + path + '" data-type="text" rows="' + (rows || 2) + '"></textarea>' +
-      '</div>';
-  }
-
-  /**
    * isBusinessActive() - ตรวจสอบว่าธุรกิจมีข้อมูลจริงหรือไม่ (Auto-Detection)
    */
-  function isBusinessActive(bizKey) {
-    var bd = A().businessDetails || {};
-    var biz = bd[bizKey];
-    if (!biz) return false;
-    
-    // เช็กจากมูลค่าเงิน (สำคัญที่สุด)
-    var valueFields = {
-      deposit: ['depositDuringYear', 'depositEndBalance'],
-      loan: ['loanDisbursedYear', 'loanEndBalance', 'interestIncomeTotal'],
-      trading: ['salesVolumeYear', 'memberSalesAmount'],
-      collection: ['collectionValueYear', 'collectionSalesValue'],
-      processing: ['processingSalesYear', 'productionCost'],
-      service: ['serviceIncomeYear', 'serviceCost']
-    };
-    
-    var fields = valueFields[bizKey] || [];
-    for (var i = 0; i < fields.length; i++) {
-      if (biz[fields[i]] && Number(biz[fields[i]]) > 0) return true;
-    }
-    
-    // เช็กจากจำนวนสมาชิกที่เข้าร่วม
-    if (biz.participatingMembers && Number(biz.participatingMembers) > 0) return true;
-    
-    return false;
-  }
 
   /**
-   * syncBusinessFieldsToState() - sync ข้อมูลจากฟอร์มธุรกิจไปยัง state
-   */
-  function syncBusinessFieldsToState() {
-    var bd = A().businessDetails || (A().businessDetails = {});
-    
-    document.querySelectorAll('[data-biz-field]').forEach(function (el) {
-      var path = el.getAttribute('data-biz-field');
-      var type = el.getAttribute('data-type');
-      var value;
-      
-      if (type === 'checkbox') {
-        value = el.checked;
-      } else if (type === 'number') {
-        value = S.num(el.value);
-      } else {
-        value = el.value;
-      }
-      
-      S.setPath(bd, path, value);
-    });
-    
-    // อัปเดต badge แสดงจำนวนธุรกิจที่ตรวจพบ
-    updateBizAutoDetectBadge();
-  }
-
-  /**
-   * updateBizAutoDetectBadge() - อัปเดต badge แสดงจำนวนธุรกิจที่ตรวจพบ
-   */
-  function updateBizAutoDetectBadge() {
-    var badge = document.getElementById('bizAutoDetectBadge');
-    if (!badge) return;
-    
-    var bizKeys = ['deposit', 'loan', 'trading', 'collection', 'processing', 'service'];
-    var activeCount = 0;
-    
-    bizKeys.forEach(function (key) {
-      if (isBusinessActive(key)) activeCount++;
-    });
-    
-    badge.textContent = 'ตรวจพบ ' + activeCount + ' ธุรกิจ';
-  }
-
-  /**
-   * fillBusinessFormsFromState() - เติมข้อมูลจาก state ลงฟอร์มธุรกิจ (แสดงทั้งหมด)
-   */
-  function fillBusinessFormsFromState() {
-    var bd = A().businessDetails || {};
-    
-    // Fill form fields (แสดงทั้งหมด ไม่ต้องซ่อน)
-    document.querySelectorAll('[data-biz-field]').forEach(function (el) {
-      var fullPath = el.getAttribute('data-biz-field');
-      var type = el.getAttribute('data-type');
-      // Remove "businessDetails." prefix
-      var path = fullPath.replace(/^businessDetails\./, '');
-      var value = S.getPath(bd, path);
-      
-      if (type === 'checkbox') {
-        el.checked = !!value;
-      } else if (type === 'number') {
-        el.value = value || '';
-      } else {
-        el.value = value || '';
-      }
-    });
-    
-    // อัปเดต badge
-    updateBizAutoDetectBadge();
-  }
-
-  /**
-   * generateBusinessAnalysis() - สร้างข้อความวิเคราะห์ธุรกิจจากฟอร์ม
+   * generateBusinessAnalysis() - สร้างข้อความวิเคราะห์ธุรกิจจากข้อมูลที่ดึงมาจากไฟล์
    */
   function generateBusinessAnalysis() {
-    syncBusinessFieldsToState();
-    
     var engine = global.CPD_BIZ_ENGINE;
     if (!engine || typeof engine.generateAllAnalyses !== 'function') {
-      showToast('Business Analysis Engine ยังไม่พร้อมใช้งาน', 'warning');
       return;
     }
     
@@ -944,7 +674,9 @@
       }
     }
     
-    showToast('สร้างข้อความวิเคราะห์ธุรกิจ ' + Object.keys(analyses).length + ' ธุรกิจสำเร็จ', 'success');
+    if (Object.keys(analyses).length > 0) {
+      showToast('สร้างข้อความวิเคราะห์ธุรกิจ ' + Object.keys(analyses).length + ' ธุรกิจสำเร็จ', 'success');
+    }
   }
 
 
@@ -1855,10 +1587,6 @@
         A().meta.approvalStatus = 'อนุมัติแล้ว';
         A().meta.approvedAt = todayThai();
       }
-    } else if (el.matches('[data-biz-field]')) {
-      // Business form fields
-      syncBusinessFieldsToState();
-      changed = true;
     } else if (el.matches('[data-indicator]')) {
       var ind = el.getAttribute('data-indicator');
       var year = el.getAttribute('data-year');
@@ -1993,8 +1721,6 @@
       insert4MStructure();
     } else if (action === 'analyze-4m') {
       populate4MFromBaseForm();
-    } else if (action === 'generate-business-analysis') {
-      generateBusinessAnalysis();
     } else if (action === 'add-weakness-activities') {
       addWeaknessActivitiesFrom4M();
     } else if (action === 'sync-to-base') {
@@ -3459,7 +3185,11 @@
         A().analysis[key] = result[key];
       }
     });
-    if (!silent && !force) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
+    
+    // สร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติจากข้อมูลที่ดึงมาจากไฟล์
+    generateBusinessAnalysis();
+    
+    if (!silent && !force) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M และธุรกิจอัตโนมัติแล้ว', 'success');
     return result;
   }
 
