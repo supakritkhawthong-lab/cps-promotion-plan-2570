@@ -266,6 +266,15 @@
     var preBusinessText = Array.isArray(preFourM.businessAnalysis)
       ? preFourM.businessAnalysis.join('\n')
       : String(preFourM.businessAnalysis || '');
+    var preOrgText = Array.isArray(preFourM.orgAnalysis4M)
+      ? preFourM.orgAnalysis4M.join('\n')
+      : String(preFourM.orgAnalysis4M || '');
+    var preWelfareText = Array.isArray(preFourM.welfareAnalysis)
+      ? preFourM.welfareAnalysis.join('\n')
+      : String(preFourM.welfareAnalysis || '');
+    preBusinessText = String(preBusinessText || '').trim();
+    preOrgText = String(preOrgText || '').trim();
+    preWelfareText = String(preWelfareText || '').trim();
     var preAuditorText = String(preAnalysis.auditorObservations || '').trim();
     var preDefectsText = String(preAnalysis.coopDefects || '').trim();
     var applied = false;
@@ -296,7 +305,28 @@
     if (!defectsText && issueTexts.length) defectsText = issueTexts.join(', ');
     setText('coopDefects', defectsText, preDefectsText);
 
-    // 2) ข้อมูล/ข้อสังเกตด้านธุรกิจจากเอกสารที่อัปโหลด
+    // 2) ข้อวิเคราะห์ 4 ด้านที่ AI สกัดแยกตามหัวข้อจากไฟล์ที่อัปโหลด
+    function setUploadedSection(displayKey, uploadedKey, value, verified) {
+      var text = aiText(value);
+      if (!text) return false;
+      // ห้ามเขียนทับข้อความที่ผ่านการตรวจสอบแล้ว (preload) ของสหกรณ์นั้น
+      if (verified && String(verified).trim()) return false;
+      s.analysis[uploadedKey] = text;
+      s.analysis.uploadedSectionsCoop = s.coopProfile.coopName || '';
+      s.analysis[displayKey] = text;
+      var box = document.querySelector('[data-cpd="analysis.' + displayKey + '"]');
+      if (box) box.value = text;
+      applied = true;
+      return true;
+    }
+    setUploadedSection('orgAnalysis4M', 'uploadedOrgAnalysis4M', res.orgAnalysis4M, preOrgText);
+    setUploadedSection('businessAnalysis', 'uploadedBusinessAnalysis', res.businessAnalysis, preBusinessText);
+    setUploadedSection('welfareAnalysis', 'uploadedWelfareAnalysis', res.welfareAnalysis, preWelfareText);
+    // สรุปผลการวิเคราะห์: ใช้ข้อความจากไฟล์ เว้นแต่เป็นสหกรณ์ที่มีข้อความตรวจสอบแล้ว
+    setUploadedSection('summaryAnalysis', 'uploadedSummaryAnalysis', res.summaryAnalysis,
+      preOrgText || preBusinessText || preWelfareText);
+
+    // 3) ข้อมูล/ข้อสังเกตด้านธุรกิจจากเอกสารที่อัปโหลด
     var segments = Array.isArray(res.businessSegments) ? res.businessSegments : [];
     var bizNote = aiText(res.businessObservations);
     if (!bizNote && segments.length) {
@@ -975,7 +1005,7 @@
     
     // สร้างสรุปปัญหาจากธุรกิจ
     var summaryIssues = engine.generateBusinessSummary(state);
-    if (summaryIssues.length > 0) {
+    if (summaryIssues.length > 0 && !state.analysis.uploadedSummaryAnalysis) {
       // เพิ่มเข้าไปใน summaryAnalysis
       var currentSummary = state.analysis.summaryAnalysis || '';
       var newSummary = currentSummary + '\n\nสรุปจากธุรกิจ:\n' + summaryIssues.map(function (issue) {
@@ -3209,6 +3239,13 @@
       ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(classTarget) +
       ' ในปี ' + String(targetStrengthYear));
     var analysisInfo = s.analysis || {};
+    var uploadedForThisCoop = String(analysisInfo.uploadedSectionsCoop || '') === String(coopName || '');
+    var uploadedOrg = uploadedForThisCoop ? String(analysisInfo.uploadedOrgAnalysis4M || '').trim() : '';
+    var uploadedBiz = uploadedForThisCoop ? String(analysisInfo.uploadedBusinessAnalysis || '').trim() : '';
+    var uploadedWelfare = uploadedForThisCoop ? String(analysisInfo.uploadedWelfareAnalysis || '').trim() : '';
+    var uploadedSummary = uploadedForThisCoop ? String(analysisInfo.uploadedSummaryAnalysis || '').trim() : '';
+    var preOrgVerified = !!(preload && preload.fourM && preload.fourM.orgAnalysis4M && preload.fourM.orgAnalysis4M.length);
+    var preWelfareVerified = !!(preload && preload.fourM && preload.fourM.welfareAnalysis && preload.fourM.welfareAnalysis.length);
     var auditorObs4M = String(analysisInfo.auditorObservations || '').trim();
     var coopDefects4M = String(analysisInfo.coopDefects || '').trim();
     org.push('- สหกรณ์มีการจัดทำแผนงานและงบประมาณประจำปี แต่ยังไม่มีการจัดทำแผนกลยุทธ์/แผนยุทธศาสตร์ระยะยาว (ตามข้อมูลโปรไฟล์ข้อ 22.1) จึงควรส่งเสริมให้จัดทำแผนกลยุทธ์ระยะ 3–5 ปี ให้สอดคล้องกับแผนพัฒนาสหกรณ์');
@@ -3416,7 +3453,7 @@
     // เติมข้อสังเกต/ข้อมูลธุรกิจจากเอกสารที่อัปโหลด (ยกเว้นสหกรณ์ที่มีข้อความตรวจสอบแล้ว)
     var bizObs4M = String(analysisInfo.businessObservations || '').trim();
     if (!bizObs4M) bizObs4M = auditorObs4M;
-    if (bizObs4M && !hasVerifiedBusinessText) {
+    if (bizObs4M && !hasVerifiedBusinessText && !uploadedBiz) {
       if (business.length && business[business.length - 1] !== '') business.push('');
       business.push('ข้อสังเกต/ข้อมูลเพิ่มเติมจากเอกสารที่อัปโหลด:');
       business.push(bizObs4M);
@@ -3578,12 +3615,23 @@
       }
     }
 
-    return {
+    var result = {
       orgAnalysis4M: org.join('\n'),
       businessAnalysis: business.join('\n'),
       welfareAnalysis: welfare.join('\n'),
       summaryAnalysis: summary.join('\n')
     };
+
+    // ข้อวิเคราะห์ที่ AI สกัดแยกตามหัวข้อจากไฟล์ที่อัปโหลด เป็นแหล่งข้อมูลหลัก
+    // โดยไม่เขียนทับข้อความที่ผ่านการตรวจสอบแล้ว (preload)
+    if (uploadedOrg && !preOrgVerified) result.orgAnalysis4M = uploadedOrg;
+    if (uploadedBiz && !hasVerifiedBusinessText) result.businessAnalysis = uploadedBiz;
+    if (uploadedWelfare && !preWelfareVerified) result.welfareAnalysis = uploadedWelfare;
+    if (uploadedSummary && !preOrgVerified && !hasVerifiedBusinessText && !preWelfareVerified) {
+      result.summaryAnalysis = uploadedSummary;
+    }
+
+    return result;
   }
 
   /**
@@ -3612,7 +3660,8 @@
     // สร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติจากข้อมูลที่ดึงมาจากไฟล์
     // แต่ไม่เขียนทับถ้ามี preload data อยู่แล้ว (เช่น สหกรณ์ผู้เลี้ยงไก่ไข่ชลบุรี)
     var currentBizAnalysis = A().analysis.businessAnalysis || '';
-    if (!currentBizAnalysis || currentBizAnalysis === 'ด้านการบริหารจัดการธุรกิจ' || currentBizAnalysis.length < 100) {
+    if (!A().analysis.uploadedBusinessAnalysis &&
+      (!currentBizAnalysis || currentBizAnalysis === 'ด้านการบริหารจัดการธุรกิจ' || currentBizAnalysis.length < 100)) {
       generateBusinessAnalysis();
     }
     

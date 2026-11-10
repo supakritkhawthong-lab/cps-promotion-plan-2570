@@ -714,3 +714,18 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110f`
 
 cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 
+### ระยะที่ 5E (ต่อ): ให้ AI สกัดข้อวิเคราะห์แยกตาม 5 หัวข้อจากไฟล์ที่อัปโหลด
+
+| หัวข้อ | ฟิลด์ที่ AI ส่งกลับ | ปลายทาง |
+| --- | --- | --- |
+| 1. ด้านการบริหารจัดการองค์กร (หลัก 4M) | `orgAnalysis4M` | `analysis.orgAnalysis4M` |
+| 2. ด้านการบริหารจัดการธุรกิจ | `businessAnalysis` | `analysis.businessAnalysis` |
+| 3. ด้านการจัดสวัสดิการและสาธารณประโยชน์ | `welfareAnalysis` | `analysis.welfareAnalysis` |
+| 4. สรุปผลการวิเคราะห์ | `summaryAnalysis` | `analysis.summaryAnalysis` |
+| ข้อสังเกตของผู้สอบบัญชี (ปีบัญชีล่าสุด) | `auditorObservations` | `analysis.auditorObservations` |
+
+- GAS prompt/schema กำหนดให้เขียนเนื้อหาแต่ละหัวข้อจากเอกสารที่อัปโหลดเท่านั้น ห้ามแต่งเติม และให้ระบุ "ไม่พบข้อมูล" เมื่อไม่มีข้อมูล
+- Frontend เก็บข้อความที่สกัดได้ใน `analysis.uploaded*` ผูกกับชื่อสหกรณ์ (`uploadedSectionsCoop`) แล้วให้ `analyze4M()` ใช้ข้อความนี้เป็นแหล่งหลัก โดยยังสร้างข้อความ rule-based เป็น fallback เมื่อ AI ไม่ส่งหัวข้อนั้นมา
+- สหกรณ์ที่มีข้อความ preload ผ่านการตรวจสอบแล้ว (ไก่ไข่ชลบุรี/Toyota) ยังคงใช้ข้อความเดิม ไม่ถูกเขียนทับ
+- cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110h`
+
