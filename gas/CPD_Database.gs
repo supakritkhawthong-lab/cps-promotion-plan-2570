@@ -608,7 +608,7 @@ function getDashboardSummaryData(filters) {
   var filtered = rows.filter(function (r) {
     return cpdFilterMatch_(r.promotionZone, f.promotionZone) &&
       cpdFilterMatch_(r.district, f.district) &&
-      cpdFilterMatch_(r.coopSubType, f.coopType) &&
+      cpdFilterMatch_(r.orgType, f.coopType) &&
       cpdFilterMatch_(r.primaryOfficer, f.primaryOfficer);
   });
 

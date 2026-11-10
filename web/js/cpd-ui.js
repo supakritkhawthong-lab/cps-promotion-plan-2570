@@ -537,7 +537,7 @@
       ratioCard('ทุนสำรองต่อสินทรัพย์ (เท่า)', 'ratio.reserveToAssetRatio') +
       ratioCard('ค่าใช้จ่ายดำเนินงานต่อกำไรก่อนหักค่าใช้จ่าย (%)', 'ratio.opexToGrossProfitRatio') +
       '      <div class="col-md-4"><div class="score-box h-100"><div class="small fw-bold mb-1">ลูกหนี้ระยะสั้นชำระตามกำหนด (%)</div>' +
-      '        <input type="text" class="form-control form-control-sm text-end fw-bold" data-cpd="financials.ratios.shortTermDebtPaidOnTimeRatio" data-num="1"></div></div>' +
+      '        <input type="text" class="form-control form-control-sm text-end fw-bold" data-cpd="financials.ratios.shortTermDebtPaidOnTimeRatio" data-num="1" placeholder="0.00"></div></div>' +
       '    </div></div>' +
       '  </div>' +
       '</div>';

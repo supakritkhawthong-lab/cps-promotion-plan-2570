@@ -1,66 +1,66 @@
-﻿/**
- * cpd-state.js โ€” Global state + auto-sync engine
+/**
+ * cpd-state.js — Global state + auto-sync engine
  *
- * Zero Regression Rule: เนเธเธฅเนเธเธตเนเนเธกเนเนเธเน id เธซเธฃเธทเธญเธเธฑเธเธเนเธเธฑเธเน€เธ”เธดเธกเนเธเธซเธเนเธฒ Tab 1
- * เธ—เธณเธซเธเนเธฒเธ—เธตเนเธญเนเธฒเธเธเนเธฒเธเธฒเธเธเธญเธฃเนเธกเน€เธ”เธดเธก -> CPD_AppState -> เน€เธ•เธดเธกเนเธ—เนเธ 2/3/4/5
+ * Zero Regression Rule: ไฟล์นี้ไม่แก้ id หรือฟังก์ชันเดิมในหน้า Tab 1
+ * ทำหน้าที่อ่านค่าจากฟอร์มเดิม -> CPD_AppState -> เติมแท็บ 2/3/4/5
  */
 (function (global) {
   'use strict';
 
   var MONTHS = [
-    { key: 'm10', name: 'เธ•เธธเธฅเธฒเธเธก', num: 10 },
-    { key: 'm11', name: 'เธเธคเธจเธเธดเธเธฒเธขเธ', num: 11 },
-    { key: 'm12', name: 'เธเธฑเธเธงเธฒเธเธก', num: 12 },
-    { key: 'm1', name: 'เธกเธเธฃเธฒเธเธก', num: 1 },
-    { key: 'm2', name: 'เธเธธเธกเธ เธฒเธเธฑเธเธเน', num: 2 },
-    { key: 'm3', name: 'เธกเธตเธเธฒเธเธก', num: 3 },
-    { key: 'm4', name: 'เน€เธกเธฉเธฒเธขเธ', num: 4 },
-    { key: 'm5', name: 'เธเธคเธฉเธ เธฒเธเธก', num: 5 },
-    { key: 'm6', name: 'เธกเธดเธ–เธธเธเธฒเธขเธ', num: 6 },
-    { key: 'm7', name: 'เธเธฃเธเธเธฒเธเธก', num: 7 },
-    { key: 'm8', name: 'เธชเธดเธเธซเธฒเธเธก', num: 8 },
-    { key: 'm9', name: 'เธเธฑเธเธขเธฒเธขเธ', num: 9 }
+    { key: 'm10', name: 'ตุลาคม', num: 10 },
+    { key: 'm11', name: 'พฤศจิกายน', num: 11 },
+    { key: 'm12', name: 'ธันวาคม', num: 12 },
+    { key: 'm1', name: 'มกราคม', num: 1 },
+    { key: 'm2', name: 'กุมภาพันธ์', num: 2 },
+    { key: 'm3', name: 'มีนาคม', num: 3 },
+    { key: 'm4', name: 'เมษายน', num: 4 },
+    { key: 'm5', name: 'พฤษภาคม', num: 5 },
+    { key: 'm6', name: 'มิถุนายน', num: 6 },
+    { key: 'm7', name: 'กรกฎาคม', num: 7 },
+    { key: 'm8', name: 'สิงหาคม', num: 8 },
+    { key: 'm9', name: 'กันยายน', num: 9 }
   ];
 
   var THAI_MONTHS = [
-    '', 'เธกเธเธฃเธฒเธเธก', 'เธเธธเธกเธ เธฒเธเธฑเธเธเน', 'เธกเธตเธเธฒเธเธก', 'เน€เธกเธฉเธฒเธขเธ', 'เธเธคเธฉเธ เธฒเธเธก', 'เธกเธดเธ–เธธเธเธฒเธขเธ',
-    'เธเธฃเธเธเธฒเธเธก', 'เธชเธดเธเธซเธฒเธเธก', 'เธเธฑเธเธขเธฒเธขเธ', 'เธ•เธธเธฅเธฒเธเธก', 'เธเธคเธจเธเธดเธเธฒเธขเธ', 'เธเธฑเธเธงเธฒเธเธก'
+    '', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
   ];
 
   var MONTHLY_BIZ = [
-    { key: 'deposit', label: 'เน€เธเธดเธเธฃเธฑเธเธเธฒเธ' },
-    { key: 'credit', label: 'เน€เธเธดเธเนเธซเนเธเธนเน' },
-    { key: 'trading', label: 'เธเธฑเธ”เธซเธฒเธชเธดเธเธเนเธฒเธกเธฒเธเธณเธซเธเนเธฒเธข' },
-    { key: 'collection', label: 'เธฃเธงเธเธฃเธงเธกเธเธฅเธเธฅเธดเธ•' },
-    { key: 'processing', label: 'เนเธเธฃเธฃเธนเธเธเธฅเธเธฅเธดเธ•' },
-    { key: 'service', label: 'เธเธฃเธดเธเธฒเธฃ' }
+    { key: 'deposit', label: 'เงินรับฝาก' },
+    { key: 'credit', label: 'เงินให้กู้' },
+    { key: 'trading', label: 'จัดหาสินค้ามาจำหน่าย' },
+    { key: 'collection', label: 'รวบรวมผลผลิต' },
+    { key: 'processing', label: 'แปรรูปผลผลิต' },
+    { key: 'service', label: 'บริการ' }
   ];
 
   var STRENGTH_INDICATORS = [
-    { id: '1.1', dim: 1, name: 'เธญเธฑเธ•เธฃเธฒเธชเนเธงเธเธเธญเธเธชเธกเธฒเธเธดเธเธ—เธตเนเธกเธตเธชเนเธงเธเธฃเนเธงเธกเนเธเธเธฒเธฃเธ”เธณเน€เธเธดเธเธเธธเธฃเธเธดเธเธเธฑเธเธชเธซเธเธฃเธ“เน', weight: 15 },
-    { id: '1.2', dim: 1, name: 'เธเธฅเธเธฒเธฃเธ”เธณเน€เธเธดเธเธเธฒเธเนเธเธฃเธญเธเธชเธญเธเธเธตเธเธฑเธเธเธตเธขเนเธญเธเธซเธฅเธฑเธ เธเธฑเธ”เธชเธฃเธฃเธเธณเนเธฃเธชเธธเธ—เธเธดเนเธฅเธฐเธเนเธฒเธขเธ—เธธเธเธชเธงเธฑเธชเธ”เธดเธเธฒเธฃเธชเธกเธฒเธเธดเธเนเธฅเธฐเธ—เธธเธเธชเธฒเธเธฒเธฃเธ“เธเธฃเธฐเนเธขเธเธเน', weight: 10 },
-    { id: '1.3', dim: 1, name: 'เธเธณเธเธงเธเธเธฃเธฐเน€เธ เธ—เธเธธเธฃเธเธดเธเธ—เธตเนเธชเธซเธเธฃเธ“เนเธ”เธณเน€เธเธดเธเธเธฒเธ', weight: 5 },
-    { id: '2.1', dim: 2, name: 'เธญเธฑเธ•เธฃเธฒเธชเนเธงเธเธซเธเธตเนเธชเธดเธเธ•เนเธญเธ—เธธเธ', weight: 3 },
-    { id: '2.2', dim: 2, name: 'เธญเธฑเธ•เธฃเธฒเธชเนเธงเธเธ—เธธเธเธชเธณเธฃเธญเธเธ•เนเธญเธชเธดเธเธ—เธฃเธฑเธเธขเน', weight: 2 },
-    { id: '2.3', dim: 2, name: 'เธญเธฑเธ•เธฃเธฒเธเธฅเธ•เธญเธเนเธ—เธเธ•เนเธญเธชเธดเธเธ—เธฃเธฑเธเธขเน', weight: 4 },
-    { id: '2.4', dim: 2, name: 'เธญเธฑเธ•เธฃเธฒเธเนเธฒเนเธเนเธเนเธฒเธขเธ”เธณเน€เธเธดเธเธเธฒเธเธ•เนเธญเธเธณเนเธฃเธเนเธญเธเธซเธฑเธเธเนเธฒเนเธเนเธเนเธฒเธขเธ”เธณเน€เธเธดเธเธเธฒเธ', weight: 4 },
-    { id: '2.5', dim: 2, name: 'เธญเธฑเธ•เธฃเธฒเธชเนเธงเธเธ—เธธเธเธซเธกเธธเธเน€เธงเธตเธขเธ', weight: 3 },
-    { id: '2.6', dim: 2, name: 'เธญเธฑเธ•เธฃเธฒเธฅเธนเธเธซเธเธตเนเธฃเธฐเธขเธฐเธชเธฑเนเธเธ—เธตเนเธเธณเธฃเธฐเธซเธเธตเนเนเธ”เนเธ•เธฒเธกเธเธณเธซเธเธ”', weight: 4 },
-    { id: '3.1', dim: 3, name: 'เธฃเธฐเธ”เธฑเธเธเธฒเธฃเนเธเนเน€เธ—เธเนเธเนเธฅเธขเธตเธเธฒเธฃเธเธฑเธเธเธตเนเธเธเธฒเธฃเธเธฃเธดเธซเธฒเธฃเธเธฑเธ”เธเธฒเธฃเธเนเธญเธกเธนเธฅ', weight: 4 },
-    { id: '3.2', dim: 3, name: 'เธเธฅเธเธฒเธฃเธเธฃเธฐเน€เธกเธดเธเธชเธ เธฒเธเนเธงเธ”เธฅเนเธญเธกเธเธฒเธฃเธเธงเธเธเธธเธก', weight: 4 },
-    { id: '3.3', dim: 3, name: 'เธเธฅเธเธฒเธฃเธเธฃเธฐเน€เธกเธดเธเธเธงเธฒเธกเน€เธชเธตเนเธขเธเนเธฅเธฐเธเธดเธเธเธฃเธฃเธกเธเธงเธเธเธธเธก', weight: 4 },
-    { id: '3.4', dim: 3, name: 'เธเธฅเธเธฒเธฃเธเธฃเธฐเน€เธกเธดเธเธฃเธฐเธเธเธเนเธญเธกเธนเธฅเธชเธฒเธฃเธชเธเน€เธ—เธจเนเธฅเธฐเธเธฒเธฃเธชเธทเนเธญเธชเธฒเธฃ', weight: 4 },
-    { id: '3.5', dim: 3, name: 'เธเธฅเธเธฒเธฃเธเธฃเธฐเน€เธกเธดเธเธฃเธฐเธเธเธเธฒเธฃเธ•เธดเธ”เธ•เธฒเธกเนเธฅเธฐเธเธฃเธฐเน€เธกเธดเธเธเธฅ', weight: 4 },
-    { id: '4.1', dim: 4, name: 'เธเธฅเธเธฒเธฃเธ”เธณเน€เธเธดเธเธเธฒเธเธเธญเธเธชเธซเธเธฃเธ“เนเธ•เนเธญเธเนเธกเนเธกเธตเธเธฒเธฃเธเนเธฒเธเธทเธเธฃเธฐเน€เธเธตเธขเธ เธเธณเธชเธฑเนเธเธเธฒเธขเธ—เธฐเน€เธเธตเธขเธ เธเนเธญเธเธเธซเธกเธฒเธข', weight: 15 },
-    { id: '4.2', dim: 4, name: 'เธเธฅเธเธฒเธฃเธ”เธณเน€เธเธดเธเธเธฒเธเนเธเธฃเธญเธเธชเธญเธเธเธตเธเธฑเธเธเธตเธขเนเธญเธเธซเธฅเธฑเธ เธชเธซเธเธฃเธ“เนเธกเธตเธเธฅเธเธฒเธฃเธ”เธณเน€เธเธดเธเธเธฒเธเนเธกเนเธเธฒเธ”เธ—เธธเธ', weight: 5 },
-    { id: '4.3', dim: 4, name: 'เธเธฑเธ”เธ—เธณเธเธเธเธฒเธฃเน€เธเธดเธเนเธฅเนเธงเน€เธชเธฃเนเธเนเธฅเธฐเธชเนเธเนเธซเนเธเธนเนเธชเธญเธเธเธฑเธเธเธตเธ•เธฃเธงเธเธชเธญเธเนเธฅเธฐเธเธณเน€เธชเธเธญเธ—เธตเนเธเธฃเธฐเธเธธเธกเนเธซเธเนเธญเธเธธเธกเธฑเธ•เธดเธ เธฒเธขเนเธ 150 เธงเธฑเธ', weight: 5 },
-    { id: '4.4', dim: 4, name: 'เธชเธซเธเธฃเธ“เนเธเธฑเธ”เธเนเธฒเธเน€เธเนเธฒเธซเธเนเธฒเธ—เธตเนเธเธเธดเธเธฑเธ•เธดเธเธฒเธเธเธฃเธฐเธเธณเธฃเธฑเธเธเธดเธ”เธเธญเธเธ”เธณเน€เธเธดเธเธเธฒเธเนเธฅเธฐเธเธธเธฃเธเธดเธเธเธญเธเธชเธซเธเธฃเธ“เน', weight: 5 }
+    { id: '1.1', dim: 1, name: 'อัตราส่วนของสมาชิกที่มีส่วนร่วมในการดำเนินธุรกิจกับสหกรณ์', weight: 15 },
+    { id: '1.2', dim: 1, name: 'ผลการดำเนินงานในรอบสองปีบัญชีย้อนหลัง จัดสรรกำไรสุทธิและจ่ายทุนสวัสดิการสมาชิกและทุนสาธารณประโยชน์', weight: 10 },
+    { id: '1.3', dim: 1, name: 'จำนวนประเภทธุรกิจที่สหกรณ์ดำเนินงาน', weight: 5 },
+    { id: '2.1', dim: 2, name: 'อัตราส่วนหนี้สินต่อทุน', weight: 3 },
+    { id: '2.2', dim: 2, name: 'อัตราส่วนทุนสำรองต่อสินทรัพย์', weight: 2 },
+    { id: '2.3', dim: 2, name: 'อัตราผลตอบแทนต่อสินทรัพย์', weight: 4 },
+    { id: '2.4', dim: 2, name: 'อัตราค่าใช้จ่ายดำเนินงานต่อกำไรก่อนหักค่าใช้จ่ายดำเนินงาน', weight: 4 },
+    { id: '2.5', dim: 2, name: 'อัตราส่วนทุนหมุนเวียน', weight: 3 },
+    { id: '2.6', dim: 2, name: 'อัตราลูกหนี้ระยะสั้นที่ชำระหนี้ได้ตามกำหนด', weight: 4 },
+    { id: '3.1', dim: 3, name: 'ระดับการใช้เทคโนโลยีการบัญชีในการบริหารจัดการข้อมูล', weight: 4 },
+    { id: '3.2', dim: 3, name: 'ผลการประเมินสภาพแวดล้อมการควบคุม', weight: 4 },
+    { id: '3.3', dim: 3, name: 'ผลการประเมินความเสี่ยงและกิจกรรมควบคุม', weight: 4 },
+    { id: '3.4', dim: 3, name: 'ผลการประเมินระบบข้อมูลสารสนเทศและการสื่อสาร', weight: 4 },
+    { id: '3.5', dim: 3, name: 'ผลการประเมินระบบการติดตามและประเมินผล', weight: 4 },
+    { id: '4.1', dim: 4, name: 'ผลการดำเนินงานของสหกรณ์ต้องไม่มีการฝ่าฝืนระเบียบ คำสั่งนายทะเบียน ข้อกฎหมาย', weight: 15 },
+    { id: '4.2', dim: 4, name: 'ผลการดำเนินงานในรอบสองปีบัญชีย้อนหลัง สหกรณ์มีผลการดำเนินงานไม่ขาดทุน', weight: 5 },
+    { id: '4.3', dim: 4, name: 'จัดทำงบการเงินแล้วเสร็จและส่งให้ผู้สอบบัญชีตรวจสอบและนำเสนอที่ประชุมใหญ่อนุมัติภายใน 150 วัน', weight: 5 },
+    { id: '4.4', dim: 4, name: 'สหกรณ์จัดจ้างเจ้าหน้าที่ปฏิบัติงานประจำรับผิดชอบดำเนินงานและธุรกิจของสหกรณ์', weight: 5 }
   ];
 
   var YEARS = ['2567', '2568', '2569'];
 
-  // เธเนเธญเธเธเธฅเธเธฒเธฃเธ”เธณเน€เธเธดเธเธเธฒเธเธเธเธฑเธเธฅเธฐเน€เธญเธตเธขเธ” (Year N / Year N-1)
-  // [เธเธทเนเธญเนเธ state, เธเธณเธเธณเธซเธเนเธฒ id เนเธเธเธญเธฃเนเธกเธซเธเนเธฒ 1]
+  // ช่องผลการดำเนินงานฉบับละเอียด (Year N / Year N-1)
+  // [ชื่อใน state, คำนำหน้า id ในฟอร์มหน้า 1]
   var DETAIL_FIELDS = [
     ['agmAttendees', 'agm_attend'],
     ['membersDeposit', 'mem_biz_deposit'],
@@ -121,8 +121,8 @@
       meta: {
         planId: 'PLAN-2570-',
         fiscalYear: '2570',
-        officeName: 'เธชเธณเธเธฑเธเธเธฒเธเธชเธซเธเธฃเธ“เนเธเธฑเธเธซเธงเธฑเธ”เธเธฅเธเธธเธฃเธต',
-        approvalStatus: 'เธฃเนเธฒเธ',
+        officeName: 'สำนักงานสหกรณ์จังหวัดชลบุรี',
+        approvalStatus: 'ร่าง',
         plannerName: '',
         approverName: '',
         updatedAt: '',
@@ -131,18 +131,18 @@
       coopProfile: {
         coopId13: '',
         coopName: '',
-        orgType: 'เธชเธซเธเธฃเธ“เน',
-        coopSubType: 'เธชเธซเธเธฃเธ“เนเธเธฒเธฃเน€เธเธฉเธ•เธฃ',
-        status: 'เธ”เธณเน€เธเธดเธเธเธฒเธฃ',
+        orgType: 'สหกรณ์',
+        coopSubType: 'สหกรณ์การเกษตร',
+        status: 'ดำเนินการ',
         district: '',
         distanceKm: 0,
         promotionZone: '',
         primaryOfficer: '',
         coOfficer: '',
         regDate: '',
-        fiscalEndDate: '31 เธกเธตเธเธฒเธเธก',
+        fiscalEndDate: '31 มีนาคม',
         boardCount: 0,
-        auditorType: 'เธ เธฒเธเธฃเธฑเธ',
+        auditorType: 'ภาครัฐ',
         auditorName: '',
         inspectorCount: 0,
         inspectorName: '',
@@ -169,7 +169,7 @@
           m4: {
             hasAnnualPlan: false,
             hasStrategicPlan: false,
-            internalControlLevel: '', // เธ”เธตเธกเธฒเธ|เธ”เธต|เธเธญเนเธเน|เธเธงเธฃเธเธฃเธฑเธเธเธฃเธธเธ
+            internalControlLevel: '', // ดีมาก|ดี|พอใช้|ควรปรับปรุง
             closeAccountDays: 0,
             agmDays: 0,
             hasFraud: false
@@ -178,16 +178,16 @@
             hasInternalControlWeakness: false,
             weaknessCategories: [],
             details: '',
-            correctionStatus: '' // เนเธเนเนเธเนเธฅเนเธง|เธญเธขเธนเนเธฃเธฐเธซเธงเนเธฒเธเธ”เธณเน€เธเธดเธเธเธฒเธฃ|เธขเธฑเธเนเธกเนเนเธ”เนเธ”เธณเน€เธเธดเธเธเธฒเธฃ
+            correctionStatus: '' // แก้ไขแล้ว|อยู่ระหว่างดำเนินการ|ยังไม่ได้ดำเนินการ
           }
         }
       },
       businessDetails: {
-        // เธฃเธฒเธขเธฅเธฐเน€เธญเธตเธขเธ”เนเธ•เนเธฅเธฐเธเธธเธฃเธเธดเธ (7 เธเธฃเธฐเธเธฃเธฐเน€เธ”เนเธเธกเธฒเธ•เธฃเธเธฒเธ)
-        // เธฃเธฐเธเธเธเธฐเธ•เธฃเธงเธเธเธเธเธธเธฃเธเธดเธเธ—เธตเนเธ”เธณเน€เธเธดเธเธเธฒเธฃเธญเธฑเธ•เนเธเธกเธฑเธ•เธดเธเธฒเธเธเนเธญเธกเธนเธฅเธ—เธตเนเธเธฃเธญเธ (Auto-Detection)
+        // รายละเอียดแต่ละธุรกิจ (7 ประเด็นมาตรฐาน)
+        // ระบบจะตรวจพบธุรกิจที่ดำเนินการอัตโนมัติจากข้อมูลที่กรอก (Auto-Detection)
         deposit: {
           hasPlan: false,
-          depositTypesDesc: 'เธญเธญเธกเธ—เธฃเธฑเธเธขเน, เธเธฒเธเธเธฃเธฐเธเธณ',
+          depositTypesDesc: 'ออมทรัพย์, ฝากประจำ',
           specialDepositRate: 0,
           fixedDepositRate: 0,
           depositDuringYear: 0,
@@ -201,7 +201,6 @@
           opportunityOrIssueNote: ''
         },
         loan: {
-          enabled: true,
           hasPlan: false,
           loanTypesCount: 3,
           ordinaryLoanRate: 0,
@@ -220,10 +219,9 @@
           opportunityOrIssueNote: ''
         },
         trading: {
-          enabled: false,
           hasPlan: false,
-          productTypes: 'เธเธธเนเธข, เน€เธกเธฅเนเธ”เธเธฑเธเธเธธเน, เธญเธฒเธซเธฒเธฃเธชเธฑเธ•เธงเน',
-          salesTerms: 'เน€เธเธดเธเธชเธ”เนเธฅเธฐเน€เธเธดเธเน€เธเธทเนเธญ',
+          productTypes: 'ปุ๋ย, เมล็ดพันธุ์, อาหารสัตว์',
+          salesTerms: 'เงินสดและเงินเชื่อ',
           salesVolumeYear: 0,
           costOfGoodsSold: 0,
           grossProfit: 0,
@@ -239,10 +237,9 @@
           opportunityOrIssueNote: ''
         },
         collection: {
-          enabled: false,
           hasPlan: false,
-          cropTypes: 'เธเนเธฒเธงเน€เธเธฅเธทเธญเธ, เธกเธฑเธเธชเธณเธเธฐเธซเธฅเธฑเธ',
-          collectionMethod: 'เธเธทเนเธญเธเธฒเธ”เธ•เธฒเธกเธฃเธฒเธเธฒเธ•เธฅเธฒเธ”',
+          cropTypes: 'ข้าวเปลือก, มันสำปะหลัง',
+          collectionMethod: 'ซื้อขาดตามราคาตลาด',
           collectionQuantity: 0,
           collectionValueYear: 0,
           collectionSalesValue: 0,
@@ -256,11 +253,10 @@
           opportunityOrIssueNote: ''
         },
         processing: {
-          enabled: false,
           hasPlan: false,
-          processedProducts: 'เธเนเธฒเธงเธชเธฒเธฃ, เธขเธฒเธเนเธเนเธเธฃเธกเธเธงเธฑเธ',
+          processedProducts: 'ข้าวสาร, ยางแผ่นรมควัน',
           qualityStandards: 'GAP, OTOP',
-          marketingChannels: 'เธฃเนเธฒเธเธชเธซเธเธฃเธ“เน, เธเธฒเธขเธ•เธฃเธ',
+          marketingChannels: 'ร้านสหกรณ์, ขายตรง',
           capacityUtilizationPct: 0,
           processingSalesYear: 0,
           productionCost: 0,
@@ -275,10 +271,9 @@
           opportunityOrIssueNote: ''
         },
         service: {
-          enabled: false,
           hasPlan: false,
-          serviceTypes: 'เธฃเธ–เนเธ–, เธฃเธ–เน€เธเธตเนเธขเธง, เธฅเธฒเธเธ•เธฒเธ',
-          serviceFeeRateDesc: 'เธ•เธฒเธกเธญเธฑเธ•เธฃเธฒเธ—เธตเนเธเธ“เธฐเธเธฃเธฃเธกเธเธฒเธฃเธเธณเธซเธเธ”',
+          serviceTypes: 'รถไถ, รถเกี่ยว, ลานตาก',
+          serviceFeeRateDesc: 'ตามอัตราที่คณะกรรมการกำหนด',
           serviceIncomeYear: 0,
           serviceCost: 0,
           netBusinessResult: 0,
@@ -535,7 +530,7 @@
     if (m) {
       return { day: Number(m[1]), month: Number(m[2]), year: Number(m[3]) };
     }
-    // เธฃเธญเธเธฃเธฑเธเธฃเธนเธเนเธเธ "27 เธเธธเธกเธ เธฒเธเธฑเธเธเน 2570"
+    // รองรับรูปแบบ "27 กุมภาพันธ์ 2570"
     var dayMatch = s.match(/(\d{1,2})/);
     var yearMatch = s.match(/(\d{4})/);
     var month = 0;
@@ -557,7 +552,7 @@
   function computeDeadlines() {
     var fiscalYear = Number(getFiscalYear()) || 2570;
     var fe = parseFiscalEnd(AppState.coopProfile.fiscalEndDate);
-    // เธเธตเธเธฑเธเธเธตเธ—เธตเนเธเธดเธ”เธ เธฒเธขเนเธเธเธตเธเธเธเธฃเธฐเธกเธฒเธ“: เน€เธ”เธทเธญเธ เธ.เธข.โ€“เธ.เธ. เนเธเนเธเธตเธเนเธญเธเธซเธเนเธฒ, เธก.เธ.โ€“เธช.เธ. เนเธเนเธเธตเน€เธ”เธตเธขเธงเธเธฑเธ
+    // ปีบัญชีที่ปิดภายในปีงบประมาณ: เดือน ก.ย.–ธ.ค. ใช้ปีก่อนหน้า, ม.ค.–ส.ค. ใช้ปีเดียวกัน
     var endYear = fe.month >= 9 ? fiscalYear - 1 : fiscalYear;
     var endDate = new Date(endYear, fe.month - 1, fe.day);
     var close30 = addDays(endDate, 30);
@@ -569,7 +564,7 @@
     };
   }
 
-  /** เธงเธฑเธเธ—เธตเนเธฃเธฑเธเธฃเธญเธเธเธเธ•เนเธญเธเธญเธขเธนเนเน€เธ”เธทเธญเธเน€เธ”เธตเธขเธงเธเธฑเธเธเธฃเธฐเธเธธเธกเนเธซเธเน เนเธฅเธฐเนเธกเนเน€เธเธดเธเธงเธฑเธเธเธฃเธฐเธเธธเธกเนเธซเธเน */
+  /** วันที่รับรองงบต้องอยู่เดือนเดียวกับประชุมใหญ่ และไม่เกินวันประชุมใหญ่ */
   function deriveCertifyDate(agmDate) {
     var parts = parseDateParts(agmDate);
     var agm = dateFromParts(parts);
@@ -578,7 +573,7 @@
     if (cert.getMonth() !== agm.getMonth() || cert.getFullYear() !== agm.getFullYear()) {
       cert = new Date(agm.getFullYear(), agm.getMonth(), 1);
     }
-    // เนเธชเธ”เธเน€เธเธเธฒเธฐเน€เธ”เธทเธญเธ + เธเธต เธ•เธฒเธก Template (เน€เธเนเธ "เธเธธเธกเธ เธฒเธเธฑเธเธเน 2569")
+    // แสดงเฉพาะเดือน + ปี ตาม Template (เช่น "กุมภาพันธ์ 2569")
     return THAI_MONTHS[cert.getMonth() + 1] + ' ' + cert.getFullYear();
   }
 
@@ -675,18 +670,18 @@
 
   function buildStateFromBaseForm() {
     var c = selectedCoop();
-    var coopType = (c && c.coopType) || (val('coopTypeBadge').indexOf('เธเธฅเธธเนเธกเน€เธเธฉเธ•เธฃเธเธฃ') !== -1 ? 'เธเธฅเธธเนเธกเน€เธเธฉเธ•เธฃเธเธฃ' : 'เธชเธซเธเธฃเธ“เนเธเธฒเธฃเน€เธเธฉเธ•เธฃ');
-    var isGroup = coopType.indexOf('เธเธฅเธธเนเธกเน€เธเธฉเธ•เธฃเธเธฃ') !== -1;
+    var coopType = (c && c.coopType) || (val('coopTypeBadge').indexOf('กลุ่มเกษตรกร') !== -1 ? 'กลุ่มเกษตรกร' : 'สหกรณ์การเกษตร');
+    var isGroup = coopType.indexOf('กลุ่มเกษตรกร') !== -1;
     var memLatest = parseMembers(val('mem_latest'));
     var memPrev = parseMembers(val('mem_prev'));
-    var auditorType = val('auditor_type') || 'เธ เธฒเธเธฃเธฑเธ';
-    var auditorName = auditorType === 'เธ เธฒเธเธฃเธฑเธ' ? val('gov_auditor_name') : val('priv_auditor_name');
+    var auditorType = val('auditor_type') || 'ภาครัฐ';
+    var auditorName = auditorType === 'ภาครัฐ' ? val('gov_auditor_name') : val('priv_auditor_name');
     var fy = getFiscalYear();
 
     var state = {
       meta: {
         fiscalYear: fy,
-        approvalStatus: AppState.meta.approvalStatus || 'เธฃเนเธฒเธ',
+        approvalStatus: AppState.meta.approvalStatus || 'ร่าง',
         plannerName: val('main_officer'),
         updatedAt: '',
         planId: 'PLAN-' + fy + '-' + ((c && c.code13) || '')
@@ -694,16 +689,16 @@
       coopProfile: {
         coopId13: (c && c.code13) || AppState.coopProfile.coopId13 || '',
         coopName: val('coop_name') || (c && c.name) || '',
-        orgType: isGroup ? 'เธเธฅเธธเนเธกเน€เธเธฉเธ•เธฃเธเธฃ' : 'เธชเธซเธเธฃเธ“เน',
+        orgType: isGroup ? 'กลุ่มเกษตรกร' : 'สหกรณ์',
         coopSubType: coopType,
-        status: 'เธ”เธณเน€เธเธดเธเธเธฒเธฃ',
+        status: 'ดำเนินการ',
         district: val('district'),
         distanceKm: numVal('distance'),
         promotionZone: val('group_zone'),
         primaryOfficer: val('main_officer'),
         coOfficer: val('co_officers'),
         regDate: val('reg_date'),
-        fiscalEndDate: val('fiscal_year') || '31 เธกเธตเธเธฒเธเธก',
+        fiscalEndDate: val('fiscal_year') || '31 มีนาคม',
         boardCount: numVal('board_count'),
         auditorType: auditorType,
         auditorName: auditorName,
@@ -771,7 +766,7 @@
       }
     };
 
-    // เธชเธ–เธฒเธเธฐ 4 เธชเธต/เธเธฅเธเธฃเธดเธ เน€เธ”เธดเธกเธ•เนเธญเธเธเธเนเธงเนเน€เธกเธทเนเธญเธเธดเธเธเนเธเนเธณ
+    // สถานะ 4 สี/ผลจริง เดิมต้องคงไว้เมื่อซิงค์ซ้ำ
     var oldByMonth = {};
     (AppState.scheduleAndActivities.monthlyPlan12Months || []).forEach(function (m) {
       oldByMonth[m.month] = m;
@@ -798,7 +793,7 @@
     mergeDeep(AppState.meta, base.meta);
     AppState.meta.planId = AppState.meta.planId || base.meta.planId;
     mergeDeep(AppState.coopProfile, base.coopProfile);
-    // เธเธเธเธณเธเธงเธเธชเธกเธฒเธเธดเธเนเธขเธเธเธฒเธข/เธซเธเธดเธเธ—เธตเนเธเธฃเธญเธเนเธเนเธ—เนเธ 2 เนเธงเน (เธเธญเธฃเนเธกเธซเธฅเธฑเธเธกเธตเน€เธเธเธฒเธฐเธขเธญเธ”เธฃเธงเธก)
+    // คงจำนวนสมาชิกแยกชาย/หญิงที่กรอกในแท็บ 2 ไว้ (ฟอร์มหลักมีเฉพาะยอดรวม)
     var prevMembers = AppState.coopProfile.members || {};
     var baseMembers = base.coopProfile.members || {};
     AppState.coopProfile.members = {
@@ -815,7 +810,7 @@
     mergeDeep(AppState.financials.summary2Years, base.financials.summary2Years);
     mergeDeep(AppState.financials.operatingResults, base.financials.operatingResults);
 
-    // balance sheet: เน€เธ•เธดเธกเธเธฒเธ Tab 1 เน€เธเธเธฒเธฐเธเนเธญเธเธ—เธตเนเธงเนเธฒเธ เธซเธฃเธทเธญเธขเธฑเธเธ•เธฃเธเธเธฑเธเธขเธญเธ”เน€เธ”เธดเธกเธเธญเธ Tab 1
+    // balance sheet: เติมจาก Tab 1 เฉพาะช่องที่ว่าง หรือยังตรงกับยอดเดิมของ Tab 1
     var bs = AppState.financials.balanceSheet;
     var sum = AppState.financials.summary2Years;
     function syncBs(sumKey, bsKeys) {
@@ -837,11 +832,11 @@
     syncBs('netProfitLatest', ['netProfitYear']);
     syncBs('accumLossLatest', ['accumulatedLoss']);
 
-    // strength: Tab 1 เน€เธเนเธเน€เธเนเธฒเธเธญเธเน€เธกเธทเนเธญเธขเธฑเธเนเธกเนเธกเธตเธเธฒเธฃเธเธฃเธญเธเธ•เธฑเธงเธเธตเนเธงเธฑเธ”เนเธ Tab 2
+    // strength: Tab 1 เป็นเจ้าของเมื่อยังไม่มีการกรอกตัวชี้วัดใน Tab 2
     var st = AppState.strength;
     YEARS.forEach(function (y) {
       if (y === '2567') return;
-      // เน€เธเนเธเธงเนเธฒเธกเธตเธ•เธฑเธงเธเธตเนเธงเธฑเธ”เธ—เธตเนเธเธนเนเนเธเนเนเธเนเน€เธญเธ (เนเธกเนเนเธเน autoDistributed) เธซเธฃเธทเธญเนเธกเน
+      // เช็กว่ามีตัวชี้วัดที่ผู้ใช้แก้เอง (ไม่ใช่ autoDistributed) หรือไม่
       var hasUserIndicators = STRENGTH_INDICATORS.some(function (ind) {
         var indData = st.indicators[ind.id] || {};
         var isAuto = indData._autoDistributed;
@@ -865,7 +860,7 @@
       AppState.closingReport.agmDate = base.closingReport.agmDate;
     }
 
-    // monthly plan text (owned by Tab 1) โ€” keep status/actual
+    // monthly plan text (owned by Tab 1) — keep status/actual
     (base.scheduleAndActivities.monthlyPlan12Months || []).forEach(function (bm) {
       var target = AppState.scheduleAndActivities.monthlyPlan12Months.filter(function (m) {
         return m.month === bm.month;
@@ -881,7 +876,6 @@
     applyAutoDeadlines();
     recalcFinancials();
     recalcStrength();
-    recalc4MRatios();
     return AppState;
   }
 
@@ -897,7 +891,7 @@
   }
 
   // -------------------------------------------------------------------------
-  // Draft persistence (localStorage) โ€” เธเธฑเธเธเนเธญเธกเธนเธฅเธซเธฒเธขเน€เธกเธทเนเธญเธชเธฅเธฑเธเธซเธเนเธฒ/เนเธซเธฅเธ”เนเธซเธกเน
+  // Draft persistence (localStorage) — กันข้อมูลหายเมื่อสลับหน้า/โหลดใหม่
   // -------------------------------------------------------------------------
 
   var LOCAL_DRAFT_PREFIX = 'cpd_draft_v2_';
@@ -965,12 +959,11 @@
     applyAutoDeadlines();
     recalcFinancials();
     recalcStrength();
-    recalc4MRatios();
     applyStateToBaseForm();
     if (payload.form && typeof global.loadFormFromSavedData === 'function') {
       global.loadFormFromSavedData(payload.form);
     }
-    // เธเธฑเธเนเธกเนเนเธซเน maybeLoadSavedRecord เธ”เธถเธ record เน€เธเนเธฒเธกเธฒเธ—เธฑเธเธฃเนเธฒเธเธฅเนเธฒเธชเธธเธ”เนเธเธ—เธฑเธเธ—เธต
+    // กันไม่ให้ maybeLoadSavedRecord ดึง record เก่ามาทับร่างล่าสุดในทันที
     var s = AppState;
     global.__cpdLoadedKey = (s.coopProfile.coopId13 || '') + '|' + s.coopProfile.coopName + '|' + (s.meta.fiscalYear || '2570');
     return payload;
@@ -1037,16 +1030,16 @@
       num(b.collection.specificExpense) + num(b.processing.specificExpense) + num(b.service.specificExpense);
     is.netSpecificProfit = num(is.grossProfit) - num(is.lessUncollectedProfitCurrent) +
       num(is.addCollectedProfitPrev) + num(is.specificIncome) - num(is.specificExpense);
-    // profitBeforeOpEx = เธเธณเนเธฃเน€เธเธเธฒเธฐเธเธธเธฃเธเธดเธ + เธฃเธฒเธขเนเธ”เนเธญเธทเนเธ
+    // profitBeforeOpEx = กำไรเฉพาะธุรกิจ + รายได้อื่น
     is.profitBeforeOpEx = num(is.netSpecificProfit) + num(is.otherIncome);
     is.netProfit = num(is.profitBeforeOpEx) +
       num(is.priorPeriodAdjustment) - num(is.operatingExpense);
 
-    // 7 เธญเธฑเธ•เธฃเธฒเธชเนเธงเธเธ—เธฒเธเธเธฒเธฃเน€เธเธดเธเธ•เธฒเธกเน€เธเธ“เธ‘เน CAD (เธเธฃเธกเธ•เธฃเธงเธเธเธฑเธเธเธตเธชเธซเธเธฃเธ“เน)
-    // (1) DE Ratio = เธซเธเธตเนเธชเธดเธเธฃเธงเธก / เธ—เธธเธเธฃเธงเธก
+    // 7 อัตราส่วนทางการเงินตามเกณฑ์ CAD (กรมตรวจบัญชีสหกรณ์)
+    // (1) DE Ratio = หนี้สินรวม / ทุนรวม
     ratios.deRatio = num(bs.totalEquity) ? round4(num(bs.totalLiabilities) / num(bs.totalEquity)) : 0;
     
-    // เธเธณเธเธงเธ“เธเนเธฒเน€เธเธฅเธตเนเธข 2 เธเธตเธชเธณเธซเธฃเธฑเธ ROE เนเธฅเธฐ ROA
+    // คำนวณค่าเฉลี่ย 2 ปีสำหรับ ROE และ ROA
     var prevEquity = num(fin.summary2Years.assetsPrev) - num(fin.summary2Years.liabilitiesPrev);
     var currEquity = num(bs.totalEquity);
     var avgEquity = prevEquity > 0 ? (currEquity + prevEquity) / 2 : currEquity;
@@ -1055,27 +1048,27 @@
     var currAssets = num(bs.totalAssets);
     var avgAssets = prevAssets > 0 ? (currAssets + prevAssets) / 2 : currAssets;
     
-    // (2) ROE (%) = (เธเธณเนเธฃเธชเธธเธ—เธเธด / เธ—เธธเธเน€เธเธฅเธตเนเธข) * 100
+    // (2) ROE (%) = (กำไรสุทธิ / ทุนเฉลี่ย) * 100
     ratios.roe = avgEquity > 0 ? round4((num(bs.netProfitYear) / avgEquity) * 100) : 0;
     
-    // (3) ROA (%) = (เธเธณเนเธฃเธชเธธเธ—เธเธด / เธชเธดเธเธ—เธฃเธฑเธเธขเนเน€เธเธฅเธตเนเธข) * 100
+    // (3) ROA (%) = (กำไรสุทธิ / สินทรัพย์เฉลี่ย) * 100
     ratios.roa = avgAssets > 0 ? round4((num(bs.netProfitYear) / avgAssets) * 100) : 0;
     
-    // (4) เธญเธฑเธ•เธฃเธฒเธชเนเธงเธเธ—เธธเธเธซเธกเธธเธเน€เธงเธตเธขเธ = เธชเธดเธเธ—เธฃเธฑเธเธขเนเธซเธกเธธเธเน€เธงเธตเธขเธ / เธซเธเธตเนเธชเธดเธเธซเธกเธธเธเน€เธงเธตเธขเธ
+    // (4) อัตราส่วนทุนหมุนเวียน = สินทรัพย์หมุนเวียน / หนี้สินหมุนเวียน
     ratios.currentRatio = num(bs.currentLiabilities) ? round4(num(bs.currentAssets) / num(bs.currentLiabilities)) : 0;
     
-    // (5) เธ—เธธเธเธชเธณเธฃเธญเธเธ•เนเธญเธชเธดเธเธ—เธฃเธฑเธเธขเน = เธ—เธธเธเธชเธณเธฃเธญเธ / เธชเธดเธเธ—เธฃเธฑเธเธขเนเธฃเธงเธก
+    // (5) ทุนสำรองต่อสินทรัพย์ = ทุนสำรอง / สินทรัพย์รวม
     ratios.reserveToAssetRatio = num(bs.totalAssets) ? round4(num(bs.reserveFund) / num(bs.totalAssets)) : 0;
     
-    // (6) เธญเธฑเธ•เธฃเธฒเธเนเธฒเนเธเนเธเนเธฒเธขเธ”เธณเน€เธเธดเธเธเธฒเธเธ•เนเธญเธเธณเนเธฃเธเนเธญเธเธซเธฑเธเธเนเธฒเนเธเนเธเนเธฒเธข (%)
+    // (6) อัตราค่าใช้จ่ายดำเนินงานต่อกำไรก่อนหักค่าใช้จ่าย (%)
     var profitBeforeOpEx = num(is.profitBeforeOpEx);
     ratios.opexToGrossProfitRatio = profitBeforeOpEx > 0
       ? round4((num(is.operatingExpense) / profitBeforeOpEx) * 100) : 0;
     
-    // (7) เธญเธฑเธ•เธฃเธฒเธฅเธนเธเธซเธเธตเนเธฃเธฐเธขเธฐเธชเธฑเนเธเธเธณเธฃเธฐเธ•เธฒเธกเธเธณเธซเธเธ” (%) - เนเธชเธ”เธเน€เธเนเธ 0.00 เน€เธชเธกเธญเธ–เนเธฒเนเธกเนเธกเธตเธเนเธญเธกเธนเธฅ
+    // (7) อัตราลูกหนี้ระยะสั้นชำระตามกำหนด (%) - แสดงเป็น 0.00 เสมอถ้าไม่มีข้อมูล
     ratios.shortTermDebtPaidOnTimeRatio = ratios.shortTermDebtPaidOnTimeRatio || 0;
 
-    // เธญเธฑเธเน€เธ”เธ•เธขเธญเธ”เธชเธฃเธธเธเนเธซเนเธ•เธฃเธเธเธฑเธเธเธเธ—เธตเนเธเธฃเธญเธเนเธ Tab 2
+    // อัปเดตยอดสรุปให้ตรงกับงบที่กรอกใน Tab 2
     var sum = fin.summary2Years;
     if (num(bs.totalAssets)) sum.assetsLatest = num(bs.totalAssets);
     if (num(bs.totalLiabilities)) sum.liabilitiesLatest = num(bs.totalLiabilities);
@@ -1092,96 +1085,15 @@
     return Math.round((Number(n) || 0) * 10000) / 10000;
   }
 
-  // round2 - เธฃเธฑเธเธฉเธฒเธ—เธจเธเธดเธขเธก 2 เธ•เธณเนเธซเธเนเธเนเธ”เธขเนเธกเนเธเธฑเธ”เน€เธจเธฉเธฅเธ (เนเธเน Number(sum.toFixed(2)))
+  // round2 - ปัดเศษทศนิยม 2 ตำแหน่ง (ใช้ Number(sum.toFixed(2)))
   function round2(n) {
     return Number((Number(n) || 0).toFixed(2));
   }
 
   // -------------------------------------------------------------------------
-  // Strength 18 indicators
+  // 4M Ratios (CAMELS extended)
   // -------------------------------------------------------------------------
 
-  function recalcStrength() {
-    var st = AppState.strength;
-    YEARS.forEach(function (y) {
-      var dims = { 1: 0, 2: 0, 3: 0, 4: 0 };
-      var dimHasUserIndicator = { 1: false, 2: false, 3: false, 4: false };
-      
-      // เธเธณเธเธงเธ“เธเธฐเนเธเธเธเธฒเธเธ•เธฑเธงเธเธตเนเธงเธฑเธ”เธ—เธตเนเธเธนเนเนเธเนเนเธเนเน€เธญเธ (เนเธกเนเนเธเน autoDistributed)
-      STRENGTH_INDICATORS.forEach(function (ind) {
-        var v = num((st.indicators[ind.id] || {})[y]);
-        var isAuto = (st.indicators[ind.id] || {})._autoDistributed;
-        if (v > 0 && !isAuto) {
-          dimHasUserIndicator[ind.dim] = true;
-          dims[ind.dim] += v;
-        }
-      });
-      
-      // เธชเธณเธซเธฃเธฑเธเธกเธดเธ•เธดเธ—เธตเนเนเธกเนเธกเธตเธ•เธฑเธงเธเธตเนเธงเธฑเธ”เธ—เธตเนเธเธนเนเนเธเนเนเธเน -> เนเธเนเธเนเธฒ autoDistributed เธซเธฃเธทเธญ dim total เธเธฒเธเธซเธเนเธฒ 1
-      for (var d = 1; d <= 4; d++) {
-        if (!dimHasUserIndicator[d]) {
-          // เธกเธดเธ•เธดไธๆฒกๆเธเธนเนเนเธเนเนเธเน -> เธเธณเธเธงเธ“เธเธฒเธ autoDistributed indicators
-          var autoDistributedSum = 0;
-          STRENGTH_INDICATORS.forEach(function (ind) {
-            if (ind.dim === d) {
-              var v = num((st.indicators[ind.id] || {})[y]);
-              var isAuto = (st.indicators[ind.id] || {})._autoDistributed;
-              if (v > 0 && isAuto) {
-                autoDistributedSum += v;
-              }
-            }
-          });
-          
-          if (autoDistributedSum > 0) {
-            // เธกเธต autoDistributed indicators -> เนเธเนเธเนเธฒเธฃเธงเธก
-            dims[d] = autoDistributedSum;
-          } else {
-            // เนเธกเนเธกเธต autoDistributed -> เนเธเน dim total เธเธฒเธเธซเธเนเธฒ 1 (เธซเธฃเธทเธญเธเนเธฒเน€เธ”เธดเธก)
-            dims[d] = num(st['dim' + d + 'ByYear'][y]);
-          }
-        }
-      }
-      
-      // เธ–เนเธฒเธขเธฑเธเนเธกเนเธกเธตเธ•เธฑเธงเธเธตเนเธงเธฑเธ”เธ—เธตเนเธเธนเนเนเธเนเนเธเนเนเธฅเธฐเนเธกเนเธกเธตเธเธฒเธฃเธเธฃเธฐเธเธฒเธข -> เธเธฃเธฐเธเธฒเธข dim1-4 เธเธฒเธเธซเธเนเธฒ 1
-      var anyUserIndicator = Object.keys(dimHasUserIndicator).some(function(k) { return dimHasUserIndicator[k]; });
-      
-      // เน€เธเนเธเธงเนเธฒเธกเธตเธ•เธฑเธงเธเธตเนเธงเธฑเธ”เธ—เธตเนเธ–เธนเธเธเธฃเธฐเธเธฒเธขเธเนเธฒเนเธฅเนเธงเธซเธฃเธทเธญเนเธกเน
-      var hasAutoDistributedIndicator = STRENGTH_INDICATORS.some(function(ind) {
-        return (st.indicators[ind.id] || {})._autoDistributed === true;
-      });
-      
-      if (!anyUserIndicator && !hasAutoDistributedIndicator) {
-        for (var d2 = 1; d2 <= 4; d2++) {
-          var dimTotal = num(st['dim' + d2 + 'ByYear'][y]);
-          if (dimTotal <= 0) continue;
-          
-          var indicatorsInDim = STRENGTH_INDICATORS.filter(function (ind) { return ind.dim === d2; });
-          var totalWeight = indicatorsInDim.reduce(function (sum, ind) { return sum + ind.weight; }, 0);
-          if (totalWeight === 0) continue;
-          
-          indicatorsInDim.forEach(function (ind) {
-            if (!st.indicators[ind.id]) st.indicators[ind.id] = {};
-            var distributed = round2(dimTotal * ind.weight / totalWeight);
-            st.indicators[ind.id][y] = distributed;
-            st.indicators[ind.id]._autoDistributed = true;
-          });
-        }
-      }
-      
-      // เธ•เธฑเนเธเธเนเธฒ dim totals เธซเธฅเธฑเธเธเธณเธเธงเธ“เน€เธชเธฃเนเธ (เนเธเน round2 เน€เธเธทเนเธญเธฃเธฑเธเธฉเธฒเธ—เธจเธเธดเธขเธก 2 เธ•เธณเนเธซเธเนเธ)
-      st.dim1ByYear[y] = round2(dims[1]);
-      st.dim2ByYear[y] = round2(dims[2]);
-      st.dim3ByYear[y] = round2(dims[3]);
-      st.dim4ByYear[y] = round2(dims[4]);
-      st.totalByYear[y] = round2(dims[1] + dims[2] + dims[3] + dims[4]);
-    });
-    return st;
-  }
-
-  /**
-   * recalc4MRatios() โ€” เธเธณเธเธงเธ“เธญเธฑเธ•เธฃเธฒเธชเนเธงเธ CAMELS เน€เธเธดเนเธกเน€เธ•เธดเธกเธเธฒเธเธเนเธญเธกเธนเธฅเธเธฒเธฃเน€เธเธดเธเธ—เธตเนเธกเธตเธญเธขเธนเน
-   * เนเธกเนเธเธฃเธฐเธ—เธ logic เน€เธ”เธดเธก เนเธเนเน€เธ•เธดเธกเธเนเธฒเนเธ financials.ratios
-   */
   function recalc4MRatios() {
     var s = AppState;
     var f = s.financials || {};
@@ -1207,14 +1119,19 @@
       f.ratios.deRatio = liabilities / equity;
     }
 
-    // ROE (%)
-    if (equity > 0 && profit !== 0) {
-      f.ratios.roe = (profit / equity) * 100;
+    // คำนวณ 2-year average equity และ assets สำหรับ ROE และ ROA
+    var prevEquity = num(sum.assetsPrev) - num(sum.liabilitiesPrev);
+    var avgEquity = prevEquity > 0 ? (equity + prevEquity) / 2 : equity;
+    var avgAssets = assetsPrev > 0 ? (assets + assetsPrev) / 2 : assets;
+
+    // ROE (%) - ใช้ 2-year average equity
+    if (avgEquity > 0 && profit !== 0) {
+      f.ratios.roe = (profit / avgEquity) * 100;
     }
 
-    // ROA (%)
-    if (assets > 0 && profit !== 0) {
-      f.ratios.roa = (profit / assets) * 100;
+    // ROA (%) - ใช้ 2-year average assets
+    if (avgAssets > 0 && profit !== 0) {
+      f.ratios.roa = (profit / avgAssets) * 100;
     }
 
     // Current Ratio
@@ -1233,9 +1150,9 @@
       f.ratios.opexToGrossProfitRatio = (expense / grossProfit) * 100;
     }
 
-    // === 4M Extended Ratios (เน€เธ•เธดเธกเน€เธเธเธฒเธฐเธ–เนเธฒเธขเธฑเธเนเธกเนเธกเธตเธเนเธฒ) ===
+    // === 4M Extended Ratios (เติมเฉพาะถ้ายังไม่มีค่า) ===
 
-    // Asset Turnover = เธฃเธฒเธขเนเธ”เน / เธชเธดเธเธ—เธฃเธฑเธเธขเน
+    // Asset Turnover = รายได้ / สินทรัพย์
     if (assets > 0 && income > 0 && !f.ratios.assetTurnover) {
       f.ratios.assetTurnover = income / assets;
     }
@@ -1250,7 +1167,7 @@
       f.ratios.profitGrowthRate = ((profit - profitPrev) / profitPrev) * 100;
     }
 
-    // Net Profit per Member (เน€เธเธดเธเธญเธญเธกเน€เธเธฅเธตเนเธข/เธเธณเนเธฃเน€เธเธฅเธตเนเธข)
+    // Net Profit per Member (เงินออมเฉลี่ย/กำไรเฉลี่ย)
     var membersTotal = num(s.coopProfile.members.regularTotal) + num(s.coopProfile.members.associateTotal);
     if (membersTotal > 0 && profit > 0 && !f.ratios.profitPerMember) {
       f.ratios.profitPerMember = profit / membersTotal;
@@ -1267,6 +1184,87 @@
     }
 
     return f.ratios;
+  }
+
+  // -------------------------------------------------------------------------
+  // Strength 18 indicators
+  // -------------------------------------------------------------------------
+
+  function recalcStrength() {
+    var st = AppState.strength;
+    YEARS.forEach(function (y) {
+      var dims = { 1: 0, 2: 0, 3: 0, 4: 0 };
+      var dimHasUserIndicator = { 1: false, 2: false, 3: false, 4: false };
+      
+      // คำนวณคะแนนจากตัวชี้วัดที่ผู้ใช้แก้เอง (ไม่ใช่ autoDistributed)
+      STRENGTH_INDICATORS.forEach(function (ind) {
+        var v = num((st.indicators[ind.id] || {})[y]);
+        var isAuto = (st.indicators[ind.id] || {})._autoDistributed;
+        if (v > 0 && !isAuto) {
+          dimHasUserIndicator[ind.dim] = true;
+          dims[ind.dim] += v;
+        }
+      });
+      
+      // สำหรับมิติที่ไม่มีตัวชี้วัดที่ผู้ใช้แก้ -> ใช้ค่า autoDistributed หรือ dim total จากหน้า 1
+      for (var d = 1; d <= 4; d++) {
+        if (!dimHasUserIndicator[d]) {
+          // มิติ上没有ผู้ใช้แก้ -> คำนวณจาก autoDistributed indicators
+          var autoDistributedSum = 0;
+          STRENGTH_INDICATORS.forEach(function (ind) {
+            if (ind.dim === d) {
+              var v = num((st.indicators[ind.id] || {})[y]);
+              var isAuto = (st.indicators[ind.id] || {})._autoDistributed;
+              if (v > 0 && isAuto) {
+                autoDistributedSum += v;
+              }
+            }
+          });
+          
+          if (autoDistributedSum > 0) {
+            // มี autoDistributed indicators -> ใช้ค่ารวม
+            dims[d] = autoDistributedSum;
+          } else {
+            // ไม่มี autoDistributed -> ใช้ dim total จากหน้า 1 (หรือค่าเดิม)
+            dims[d] = num(st['dim' + d + 'ByYear'][y]);
+          }
+        }
+      }
+      
+      // ถ้ายังไม่มีตัวชี้วัดที่ผู้ใช้แก้และไม่มีการกระจาย -> กระจาย dim1-4 จากหน้า 1
+      var anyUserIndicator = Object.keys(dimHasUserIndicator).some(function(k) { return dimHasUserIndicator[k]; });
+      
+      // เช็กว่ามีตัวชี้วัดที่ถูกกระจายค่าแล้วหรือไม่
+      var hasAutoDistributedIndicator = STRENGTH_INDICATORS.some(function(ind) {
+        return (st.indicators[ind.id] || {})._autoDistributed === true;
+      });
+      
+      if (!anyUserIndicator && !hasAutoDistributedIndicator) {
+        for (var d2 = 1; d2 <= 4; d2++) {
+          var dimTotal = num(st['dim' + d2 + 'ByYear'][y]);
+          if (dimTotal <= 0) continue;
+          
+          var indicatorsInDim = STRENGTH_INDICATORS.filter(function (ind) { return ind.dim === d2; });
+          var totalWeight = indicatorsInDim.reduce(function (sum, ind) { return sum + ind.weight; }, 0);
+          if (totalWeight === 0) continue;
+          
+          indicatorsInDim.forEach(function (ind) {
+            if (!st.indicators[ind.id]) st.indicators[ind.id] = {};
+            var distributed = round4(dimTotal * ind.weight / totalWeight);
+            st.indicators[ind.id][y] = distributed;
+            st.indicators[ind.id]._autoDistributed = true;
+          });
+        }
+      }
+      
+      // ตั้งค่า dim totals หลังคำนวณเสร็จ
+      st.dim1ByYear[y] = round4(dims[1]);
+      st.dim2ByYear[y] = round4(dims[2]);
+      st.dim3ByYear[y] = round4(dims[3]);
+      st.dim4ByYear[y] = round4(dims[4]);
+      st.totalByYear[y] = round4(dims[1] + dims[2] + dims[3] + dims[4]);
+    });
+    return st;
   }
 
   // -------------------------------------------------------------------------
@@ -1300,7 +1298,7 @@
       setVal('inspector_count', c.inspectorCount || '');
       setVal('inspector_name', c.inspectorName);
       setVal('target_projects', an.targetProjects);
-      setVal('fiscal_year', c.fiscalEndDate || '31 เธกเธตเธเธฒเธเธก');
+      setVal('fiscal_year', c.fiscalEndDate || '31 มีนาคม');
 
       setVal('mem_latest', [c.members.regularTotal + c.members.associateTotal, c.members.regularTotal, c.members.associateTotal].join('/'));
       setVal('mem_prev', c.members.prevYearTotal ? String(c.members.prevYearTotal) : '');
@@ -1363,18 +1361,18 @@
 
       // auditor
       var at = document.getElementById('auditor_type');
-      if (at) at.value = c.auditorType || 'เธ เธฒเธเธฃเธฑเธ';
-      if (c.auditorType === 'เธ เธฒเธเน€เธญเธเธเธ') {
+      if (at) at.value = c.auditorType || 'ภาครัฐ';
+      if (c.auditorType === 'ภาคเอกชน') {
         setVal('priv_auditor_name', c.auditorName);
         if (typeof global.onAuditorTypeChange === 'function') global.onAuditorTypeChange();
         if (document.getElementById('priv_auditor_name')) document.getElementById('priv_auditor_name').value = c.auditorName || '';
       } else {
-        setVal('gov_auditor_name', c.auditorName || 'เธเธเธถเธเธจเธฃเธต');
+        setVal('gov_auditor_name', c.auditorName || 'คนึงศรี');
         if (typeof global.onAuditorTypeChange === 'function') global.onAuditorTypeChange();
-        if (document.getElementById('gov_auditor_name')) document.getElementById('gov_auditor_name').value = c.auditorName || 'เธเธเธถเธเธจเธฃเธต';
+        if (document.getElementById('gov_auditor_name')) document.getElementById('gov_auditor_name').value = c.auditorName || 'คนึงศรี';
       }
 
-      // เน€เธฅเธทเธญเธเธชเธซเธเธฃเธ“เนเนเธ dropdown เนเธซเนเธ•เธฃเธเธเธทเนเธญ
+      // เลือกสหกรณ์ใน dropdown ให้ตรงชื่อ
       if (typeof global.masterCoops !== 'undefined' && Array.isArray(global.masterCoops)) {
         var idx = -1;
         for (var i = 0; i < global.masterCoops.length; i++) {
@@ -1391,7 +1389,7 @@
 
       if (typeof global.validateAccountingEquation === 'function') global.validateAccountingEquation();
       if (typeof global.generate12MonthSchedule === 'function') {
-        // เนเธกเนเน€เธฃเธตเธขเธเน€เธเธทเนเธญเนเธกเนเนเธซเนเธ—เธฑเธเธเนเธญเธเธงเธฒเธกเนเธเธเธ—เธตเนเนเธซเธฅเธ”เธกเธฒ
+        // ไม่เรียกเพื่อไม่ให้ทับข้อความแผนที่โหลดมา
       }
     } finally {
       isLoading = false;
@@ -1404,7 +1402,6 @@
     applyAutoDeadlines();
     recalcFinancials();
     recalcStrength();
-    recalc4MRatios();
     applyStateToBaseForm();
     if (global.CPD_UI && typeof global.CPD_UI.renderAll === 'function') {
       global.CPD_UI.renderAll();
