@@ -97,6 +97,8 @@
     if (idx >= 0) {
       sel.value = String(idx);
       global.currentCoopIndex = idx;
+      // จำสหกรณ์ที่กู้คืนจากร่าง เพื่อไม่ให้การเลือกซ้ำไปล้างข้อมูลที่เพิ่งกู้คืน
+      global.__cpdActiveCoopKey = (state.coopProfile.coopId13 || '') + '|' + name + '|' + (state.meta.fiscalYear || '2570');
     }
   }
 
@@ -242,6 +244,22 @@
     }
   }
 
+  /**
+   * restoreVerifiedFinancials(pre)
+   * recalcFinancials() คำนวณอัตราส่วนและทุนรวมใหม่จากช่องกรอกทุกครั้ง ซึ่งอาจไม่ตรงกับ
+   * ตัวเลขที่ผ่านการตรวจสอบแล้ว (เช่น totalEquity/ROE/ROA/current ratio ของ Toyota)
+   * ฟังก์ชันนี้คืนค่าที่ตรวจสอบแล้วทับหลัง recalc เพื่อให้การ์ดและข้อความวิเคราะห์ตรงกัน
+   */
+  function restoreVerifiedFinancials(pre) {
+    if (!pre || !pre.state || !pre.state.financials) return;
+    var src = pre.state.financials;
+    var fin = A().financials;
+    if (src.balanceSheet && src.balanceSheet.totalEquity !== undefined) {
+      fin.balanceSheet.totalEquity = S.num(src.balanceSheet.totalEquity);
+    }
+    if (src.ratios) S.mergeDeep(fin.ratios, src.ratios);
+  }
+
   /** เติมข้อมูล preload ลงฟอร์มหน้า 1 + State แล้ววาดใหม่ทั้งหมด */
   function applyPreloadCoop(pre) {
     if (!pre) return false;
@@ -250,12 +268,15 @@
     var key = c ? ((c.code13 || '') + '|' + c.name + '|2570') : 'preload';
     global.__cpdLoadedKey = key;
     global.__cpdPreloadKey = key;
+    global.__cpdActiveCoopKey = key;
     global.__cpdPreloadApplied = pre;
     S.syncFromBaseFormToAllTabs();
     mergePreloadState(pre, true);
     S.recalcFinancials();
     S.recalcStrength();
     if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
+    // คืนอัตราส่วน/ทุนรวมที่ตรวจสอบแล้วหลัง recalc เพื่อให้ตรงกับข้อความวิเคราะห์
+    restoreVerifiedFinancials(pre);
     UI.renderAll();
     return true;
   }
@@ -272,22 +293,39 @@
     if (typeof global.onSelectCoop === 'function' && !global.__cpdWrappedSelect) {
       var origSelect = global.onSelectCoop;
       global.onSelectCoop = function () {
+        var c0 = selectedCoopInfo();
+        var key = c0 ? ((c0.code13 || '') + '|' + c0.name + '|2570') : '';
+        // สังเกตการเปลี่ยนสหกรณ์ก่อนเรียกฟังก์ชันเดิม (dropdown เปลี่ยนค่าแล้วตอน event ทำงาน)
+        var changed = !!key && key !== (global.__cpdActiveCoopKey || '');
+
         var r = origSelect.apply(this, arguments);
+
         var c = selectedCoopInfo();
+        key = c ? ((c.code13 || '') + '|' + c.name + '|2570') : '';
         var pre = c ? preloadFor(c.name) : null;
 
-        // เปลี่ยนจากสหกรณ์ที่ใช้ข้อมูล preload ไปสหกรณ์อื่น -> ล้างข้อมูล preload ที่ค้างอยู่ในฟอร์ม/state
-        if (!pre && global.__cpdPreloadApplied) {
-          var oldPre = global.__cpdPreloadApplied;
-          Object.keys(oldPre.form || {}).forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.value = '';
-          });
+        // เปลี่ยนสหกรณ์ -> ล้างข้อมูลของสหกรณ์เดิมก่อน เพื่อไม่ให้ข้อมูลหน้า 1 / แท็บ 2-4 รั่วข้ามสหกรณ์
+        if (changed) {
+          // ล้างค่าที่ถูกเติมจาก preload ของสหกรณ์เดิม (ถ้ามี)
+          if (global.__cpdPreloadApplied) {
+            var oldPre = global.__cpdPreloadApplied;
+            Object.keys(oldPre.form || {}).forEach(function (id) {
+              var el = document.getElementById(id);
+              if (el) el.value = '';
+            });
+          }
           global.__cpdPreloadApplied = null;
           global.__cpdPreloadKey = '';
+          global.__cpdLoadedKey = '';
           S.loadStateFromRecord(S.defaultState());
-          // เติมข้อมูลระบุตัวตนของสหกรณ์ใหม่กลับเข้าไปหลังล้าง state
+          // เติมข้อมูลระบุตัวตน/คะแนน/แผน 12 เดือน/ร่างที่บันทึกไว้ของสหกรณ์ใหม่กลับเข้าไป
           r = origSelect.apply(this, arguments);
+          c = selectedCoopInfo();
+          key = c ? ((c.code13 || '') + '|' + c.name + '|2570') : '';
+          pre = c ? preloadFor(c.name) : null;
+          if (c && typeof global.setFiscalDropdownByText === 'function') {
+            global.setFiscalDropdownByText(c.fiscalYear || '31 มีนาคม');
+          }
         }
 
         if (pre) {
@@ -295,14 +333,15 @@
         } else {
           global.__cpdPreloadKey = '';
         }
+        global.__cpdActiveCoopKey = key;
         scheduleBaseSync(120);
-        
+
         // Zero-Click Auto Pipeline: หลังจาก sync แล้ว ให้รัน 4M และ 5.2 อัตโนมัติ
         setTimeout(function () {
           if (!pre) maybeLoadSavedRecord();
           autoPipeline4M(); // Zero-Click Pipeline
         }, 400);
-        
+
         return r;
       };
       global.__cpdWrappedSelect = true;
@@ -1721,7 +1760,7 @@
       });
       renderReportRows();
     } else if (action === 'load-coop') {
-      UI.loadCoopForEdit(S.num(btn.getAttribute('data-index')));
+      UI.loadCoopForEdit(btn);
     }
   }
 
@@ -1931,6 +1970,7 @@
       if (!current || current.name !== c.name) return;
       if (res && res.found && res.state) {
         global.__cpdLoadedKey = key;
+        global.__cpdActiveCoopKey = key;
         S.loadStateFromRecord(res.state);
         showToast('โหลดข้อมูลที่บันทึกไว้เมื่อ ' + (res.savedAt || '-') + ' แล้ว', 'success');
       } else if (previousName && previousName !== c.name) {
@@ -2362,7 +2402,8 @@
           '<td class="text-center">' + classBadge(r.class69) + '</td>' +
           '<td class="text-center">' + badgeForPlan(r.approvalStatus) + '</td>' +
           '<td class="text-center">' + (S.num(r.monthlyProgress) ? Math.round(S.num(r.monthlyProgress)) + '%' : '-') + '</td>' +
-          '<td class="text-center no-print"><button type="button" class="btn btn-sm btn-outline-success py-0" data-action="load-coop" data-index="' + i + '">โหลดข้อมูลเพื่อแก้ไข</button></td>' +
+          '<td class="text-center no-print"><button type="button" class="btn btn-sm btn-outline-success py-0" data-action="load-coop" data-index="' + i + '"' +
+          ' data-coop-id="' + h(r.coopId || '') + '" data-coop-name="' + h(r.coopName || '') + '" data-fiscal-year="' + h(r.fiscalYear || '2570') + '">โหลดข้อมูลเพื่อแก้ไข</button></td>' +
           '</tr>';
       }).join('') : '<tr><td colspan="12" class="text-center text-muted py-3">ไม่พบข้อมูลตามตัวกรอง</td></tr>';
     }
@@ -2375,9 +2416,31 @@
     renderMisReports();
   }
 
-  UI.loadCoopForEdit = function (index) {
-    if (!dashboardData || !dashboardData.rows || !dashboardData.rows[index]) return;
-    var row = dashboardData.rows[index];
+  UI.loadCoopForEdit = function (target) {
+    var allRows = (dashboardData && dashboardData.rows) || [];
+    var row = null;
+    if (target && target.getAttribute) {
+      // ใช้ตัวตนของแถว (id/name/fiscalYear) แทน index เพราะตารางอาจถูกกรองแล้ว
+      var coopId = target.getAttribute('data-coop-id') || '';
+      var coopName = target.getAttribute('data-coop-name') || '';
+      var fiscalYear = target.getAttribute('data-fiscal-year') || '2570';
+      row = allRows.filter(function (r) {
+        var idOk = coopId && String(r.coopId || '') === coopId;
+        var nameOk = coopName && String(r.coopName || '') === coopName &&
+          String(r.fiscalYear || '2570') === fiscalYear;
+        return idOk || nameOk;
+      })[0] || null;
+      if (!row) {
+        var idx = S.num(target.getAttribute('data-index'));
+        row = allRows[idx] || null;
+      }
+    } else if (typeof target === 'number') {
+      row = allRows[target] || null;
+    }
+    if (!row) {
+      showToast('ไม่พบข้อมูลสหกรณ์ที่เลือก', 'danger');
+      return;
+    }
     showToast('กำลังโหลดข้อมูล ' + row.coopName + '...', 'info');
     global.google.script.run.withSuccessHandler(function (res) {
       if (res && res.found && res.state) {
@@ -2396,6 +2459,8 @@
         st.coopProfile.fiscalEndDate = row.fiscalEndDate || '31 มีนาคม';
         st.strength.classByYear['2568'] = row.class68 || '';
         st.strength.classByYear['2569'] = row.class69 || '';
+        st.strength.totalByYear['2568'] = S.num(row.strengthScorePrev);
+        st.strength.totalByYear['2569'] = S.num(row.strengthScoreLatest);
         st.strength.dim1ByYear['2569'] = S.num(row.dim1);
         st.strength.dim2ByYear['2569'] = S.num(row.dim2);
         st.strength.dim3ByYear['2569'] = S.num(row.dim3);
@@ -2404,6 +2469,8 @@
         S.applyStateToBaseForm();
         UI.renderAll();
       }
+      global.__cpdLoadedKey = (row.coopId || '') + '|' + (row.coopName || '') + '|' + (row.fiscalYear || '2570');
+      global.__cpdActiveCoopKey = global.__cpdLoadedKey;
       switchTab('base-form', true);
       showToast('โหลด ' + row.coopName + ' เข้าสู่แท็บ 1-4 แล้ว', 'success');
       if ($('tab-base-form')) window.scrollTo(0, 0);
@@ -3166,6 +3233,8 @@
     if (typeof S.recalcFinancials === 'function') S.recalcFinancials();
     if (typeof S.recalcStrength === 'function') S.recalcStrength();
     if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
+    // คืนอัตราส่วน/ทุนรวมที่ตรวจสอบแล้วก่อนสร้างข้อความ เพื่อให้ตัวเลขในข้อความตรงกับการ์ด
+    restoreVerifiedFinancials(currentPreload());
     var result = analyze4M();
     var overwrite = force || !silent;
     Object.keys(result).forEach(function (key) {
@@ -3184,6 +3253,8 @@
       generateBusinessAnalysis();
     }
     
+    // อัปเดตการ์ดอัตราส่วน/ตัวเลขให้ตรงกับค่าที่คืนกลับมาหลัง recalc
+    updateOutputs();
     if (!silent && !force) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
     return result;
   }

@@ -655,3 +655,27 @@ if (info.email_verified !== 'true') throw apiError_('UNAUTHORIZED', 'ยัง�
 | สหกรณ์ (รวมทุกประเภท) | 101 แห่ง | 12 รายการ |
 | กลุ่มเกษตรกร | 22 แห่ง | 0 รายการ |
 
+---
+
+## ระยะที่ 5D — ตรวจสอบการเชื่อมโยงข้อมูลและแก้บั๊ก (เสร็จแล้ว)
+
+### บั๊กที่แก้ไข (frontend เท่านั้น — ไม่ต้อง deploy GAS ใหม่)
+
+| บั๊ก | สาเหตุ | การแก้ไข |
+| --- | --- | --- |
+| โหลดสหกรณ์ผิดแห่งจาก Dashboard | ปุ่มใช้ `data-index` ของตารางที่ถูกกรองแล้ว แต่ `loadCoopForEdit(index)` อ่านแถวจากข้อมูลดิบ | เพิ่ม `data-coop-id` / `data-coop-name` / `data-fiscal-year` และค้นแถวด้วยตัวตนก่อน ถ้าไม่พบจึงใช้ index เป็น fallback |
+| ข้อมูลสหกรณ์เดิมรั่วข้ามสหกรณ์ | เลือกสหกรณ์ใหม่ที่ไม่มี preload/ร่างเดิม แล้วฟิลด์การเงินและแท็บ 2–4 ยังเป็นของเดิม | จำ `__cpdActiveCoopKey` และล้าง State + ฟอร์มหน้า 1 เมื่อคีย์เปลี่ยน แล้วเรียก `onSelectCoop` เดิมซ้ำเพื่อเติมข้อมูลระบุตัวตน/คะแนน/แผน 12 เดือน/ร่างของสหกรณ์ใหม่ |
+| สูตรอัตราส่วนซ้ำสองที่ | `recalc4MRatios()` เขียน ROE/ROA ทับค่าไม่ปัดเศษ และเติม `opexToGrossProfitRatio` ด้วยสูตรเก่าเมื่อค่าเป็น 0 | ให้ `recalcFinancials()` เป็นเจ้าของอัตราส่วน CAD แต่เพียงผู้เดียว, `recalc4MRatios()` เติมเฉพาะเมื่อยังไม่มีค่าและปัดเศษ 4 ตำแหน่ง, ลบสูตร OPEX เก่า |
+| ตัวเลข Toyota ไม่ตรงข้อความตรวจสอบ | `recalcFinancials()` คำนวณ `totalEquity` และอัตราส่วนใหม่ทับค่าที่ตรวจสอบแล้ว | เพิ่ม `restoreVerifiedFinancials(pre)` คืน `totalEquity` + ratios หลัง recalc ใน `applyPreloadCoop()` และ `populate4MFromBaseForm()` |
+| `c69_tot` ว่างเมื่อโหลดจาก Dashboard | fallback ของ `loadCoopForEdit` ไม่ได้เติม `strength.totalByYear['2569']` | เติม `totalByYear['2568']` และ `['2569']` จาก `strengthScorePrev/Latest` |
+
+### ผลทดสอบ (local + production)
+
+- Toyota: `D/E 0.09, ROE 3.79%, ROA 3.67%, Current Ratio 4.18`, `totalEquity 402,525,936.88` ตรงกับข้อความตรวจสอบ
+- ไก่ไข่ชลบุรี: ข้อความธุรกิจ 1,628 ตัวอักษร, 3 ธุรกิจ, ยอดรวม `62,186,062.47`, ไม่มีคำเตือน `97.0% ของรายได้`
+- สลับสหกรณ์: ฟิลด์การเงิน/แท็บ 2–4 ถูกล้างเป็นของสหกรณ์ใหม่ ไม่มีข้อมูลเดิมค้าง
+- Dashboard: ปุ่มโหลดแก้ไขเลือกสหกรณ์ตรงกับแถวที่เห็นแม้ตารางถูกกรอง
+- Console errors: 0
+
+cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110a`
+

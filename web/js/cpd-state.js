@@ -965,7 +965,10 @@
     }
     // กันไม่ให้ maybeLoadSavedRecord ดึง record เก่ามาทับร่างล่าสุดในทันที
     var s = AppState;
-    global.__cpdLoadedKey = (s.coopProfile.coopId13 || '') + '|' + s.coopProfile.coopName + '|' + (s.meta.fiscalYear || '2570');
+    var draftKey = (s.coopProfile.coopId13 || '') + '|' + s.coopProfile.coopName + '|' + (s.meta.fiscalYear || '2570');
+    global.__cpdLoadedKey = draftKey;
+    // จำสหกรณ์ที่กำลังใช้งาน เพื่อไม่ให้ onSelectCoop ล้างร่างที่เพิ่งกู้คืนตอนเลือกสหกรณ์เดิมซ้ำ
+    if (s.coopProfile.coopName) global.__cpdActiveCoopKey = draftKey;
     return payload;
   }
 
@@ -1112,11 +1115,10 @@
     var equity = assets > 0 ? assets - liabilities : 0;
     var reserve = num(sum.reserveFundLatest);
     var income = num(N.totalIncome);
-    var expense = num(N.totalExpense);
 
     // D/E
     if (equity > 0 && !f.ratios.deRatio) {
-      f.ratios.deRatio = liabilities / equity;
+      f.ratios.deRatio = round4(liabilities / equity);
     }
 
     // คำนวณ 2-year average equity และ assets สำหรับ ROE และ ROA
@@ -1124,31 +1126,28 @@
     var avgEquity = prevEquity > 0 ? (equity + prevEquity) / 2 : equity;
     var avgAssets = assetsPrev > 0 ? (assets + assetsPrev) / 2 : assets;
 
-    // ROE (%) - ใช้ 2-year average equity
-    if (avgEquity > 0 && profit !== 0) {
-      f.ratios.roe = (profit / avgEquity) * 100;
+    // ROE (%) - ใช้ 2-year average equity (คำนวณเฉพาะเมื่อยังไม่มีค่า)
+    if (avgEquity > 0 && profit !== 0 && !f.ratios.roe) {
+      f.ratios.roe = round4((profit / avgEquity) * 100);
     }
 
-    // ROA (%) - ใช้ 2-year average assets
-    if (avgAssets > 0 && profit !== 0) {
-      f.ratios.roa = (profit / avgAssets) * 100;
+    // ROA (%) - ใช้ 2-year average assets (คำนวณเฉพาะเมื่อยังไม่มีค่า)
+    if (avgAssets > 0 && profit !== 0 && !f.ratios.roa) {
+      f.ratios.roa = round4((profit / avgAssets) * 100);
     }
 
     // Current Ratio
     if (bs.currentAssets && bs.currentLiabilities && !f.ratios.currentRatio) {
-      f.ratios.currentRatio = num(bs.currentAssets) / num(bs.currentLiabilities);
+      f.ratios.currentRatio = round4(num(bs.currentAssets) / num(bs.currentLiabilities));
     }
 
     // Reserve to Asset Ratio
     if (assets > 0 && !f.ratios.reserveToAssetRatio) {
-      f.ratios.reserveToAssetRatio = reserve / assets;
+      f.ratios.reserveToAssetRatio = round4(reserve / assets);
     }
 
-    // OPEX to Gross Profit Ratio
-    var grossProfit = income - expense;
-    if (grossProfit > 0 && expense > 0 && !f.ratios.opexToGrossProfitRatio) {
-      f.ratios.opexToGrossProfitRatio = (expense / grossProfit) * 100;
-    }
+    // หมายเหตุ: opexToGrossProfitRatio เป็นความรับผิดชอบของ recalcFinancials() เท่านั้น
+    // (อัตราค่าใช้จ่ายดำเนินงาน / กำไรก่อนหักค่าใช้จ่าย) — ห้ามคำนวณซ้ำด้วยสูตรเดิม
 
     // === 4M Extended Ratios (เติมเฉพาะถ้ายังไม่มีค่า) ===
 
