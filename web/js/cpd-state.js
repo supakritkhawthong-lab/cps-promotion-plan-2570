@@ -1233,9 +1233,11 @@
       // ถ้ายังไม่มีตัวชี้วัดที่ผู้ใช้แก้และไม่มีการกระจาย -> กระจาย dim1-4 จากหน้า 1
       var anyUserIndicator = Object.keys(dimHasUserIndicator).some(function(k) { return dimHasUserIndicator[k]; });
       
-      // เช็กว่ามีตัวชี้วัดที่ถูกกระจายค่าแล้วหรือไม่
+      // เช็กว่าปีนี้มีตัวชี้วัดที่ถูกกระจายค่าแล้วหรือไม่ (ต้องมีค่าจริงในปีนี้ด้วย)
+      // เดิมใช้ flag ร่วมทุกปี ทำให้ปี 2569 (ที่ preload มีแต่ปี 2568) ไม่ถูกกระจายค่าและผลหาย
       var hasAutoDistributedIndicator = STRENGTH_INDICATORS.some(function(ind) {
-        return (st.indicators[ind.id] || {})._autoDistributed === true;
+        var indData = st.indicators[ind.id] || {};
+        return indData._autoDistributed === true && num(indData[y]) > 0;
       });
       
       if (!anyUserIndicator && !hasAutoDistributedIndicator) {

@@ -77,6 +77,7 @@
     UI.renderAll();
     setTimeout(function () {
       selectStateCoopInDropdown();
+      applyMasterStrength69IfMissing();
       S.syncFromBaseFormToAllTabs();
       UI.renderAll();
     }, 300);
@@ -260,6 +261,81 @@
     if (src.ratios) S.mergeDeep(fin.ratios, src.ratios);
   }
 
+  /**
+   * applyStrength69Fallback(src)
+   * ข้อมูล preload บางแห่งมีผลประเมินเฉพาะปี 2568 ทำให้การ merge ทับผลปี 2569 จาก master จนหาย
+   * ฟังก์ชันนี้เติมผลปี 2569 จาก master (ระดับ/คะแนนรวม/4 มิติ) เมื่อยังไม่มีข้อมูลปี 2569
+   * src = { level, total, d1, d2, d3, d4 }
+   */
+  function applyStrength69Fallback(src) {
+    if (!src) return false;
+    var st = A().strength;
+    // มีข้อมูลปี 2569 จริงเมื่อมีคะแนนรวมหรือมิติใดมิติหนึ่งมากกว่า 0
+    // (บาง preload มีเพียงระดับชั้นปี 2569 แต่คะแนนเป็น 0 จึงต้องเติมจาก master)
+    var has69 = S.num(st.totalByYear['2569']) > 0 ||
+      S.num(st.dim1ByYear['2569']) > 0 || S.num(st.dim2ByYear['2569']) > 0 ||
+      S.num(st.dim3ByYear['2569']) > 0 || S.num(st.dim4ByYear['2569']) > 0;
+    var hasUser69 = S.STRENGTH_INDICATORS.some(function (ind) {
+      var d = st.indicators[ind.id] || {};
+      return S.num(d['2569']) > 0 && !d._autoDistributed;
+    });
+    if (has69 || hasUser69) return false;
+
+    var level = src.level || '';
+    var total = S.num(src.total);
+    var d1 = S.num(src.d1), d2 = S.num(src.d2), d3 = S.num(src.d3), d4 = S.num(src.d4);
+    // ต้องมีคะแนนหรือมิติจริง ไม่ใช่มีแต่ชื่อชั้น (ไม่เช่นนั้นจะล้างผลเดิมเป็น 0)
+    if (!total && !(d1 || d2 || d3 || d4)) return false;
+
+    st.classByYear['2569'] = level;
+    st.totalByYear['2569'] = total;
+    st.dim1ByYear['2569'] = d1;
+    st.dim2ByYear['2569'] = d2;
+    st.dim3ByYear['2569'] = d3;
+    st.dim4ByYear['2569'] = d4;
+
+    var map = {
+      c69_lv: level,
+      c69_tot: total || '',
+      c69_d1: d1,
+      c69_d2: d2,
+      c69_d3: d3,
+      c69_d4: d4
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = map[id];
+    });
+
+    if (typeof S.recalcStrength === 'function') S.recalcStrength();
+    return true;
+  }
+
+  /**
+   * applyMasterStrength69IfMissing()
+   * เติมผลเข้มแข็งปี 2569 จาก master ให้สหกรณ์ที่เลือกอยู่ เมื่อข้อมูลใน State/ฟอร์มยังว่าง
+   * (ใช้กับกรณีร่างเดิม/preload ที่มีแต่ผลปี 2568)
+   */
+  function applyMasterStrength69IfMissing() {
+    var c = selectedCoopInfo();
+    if (!c) {
+      var name = A().coopProfile && A().coopProfile.coopName;
+      if (name && global.masterCoops) {
+        c = global.masterCoops.filter(function (m) { return m.name === name; })[0] || null;
+      }
+    }
+    if (!c || !c.score69) return false;
+    var applied = applyStrength69Fallback({
+      level: c.score69.level, total: c.score69.total,
+      d1: c.score69.d1, d2: c.score69.d2, d3: c.score69.d3, d4: c.score69.d4
+    });
+    if (applied) {
+      S.applyStateToBaseForm();
+      UI.renderAll();
+    }
+    return applied;
+  }
+
   /** เติมข้อมูล preload ลงฟอร์มหน้า 1 + State แล้ววาดใหม่ทั้งหมด */
   function applyPreloadCoop(pre) {
     if (!pre) return false;
@@ -272,6 +348,16 @@
     global.__cpdPreloadApplied = pre;
     S.syncFromBaseFormToAllTabs();
     mergePreloadState(pre, true);
+    if (c && c.score69) {
+      applyStrength69Fallback({
+        level: c.score69.level,
+        total: c.score69.total,
+        d1: c.score69.d1,
+        d2: c.score69.d2,
+        d3: c.score69.d3,
+        d4: c.score69.d4
+      });
+    }
     S.recalcFinancials();
     S.recalcStrength();
     if (typeof S.recalc4MRatios === 'function') S.recalc4MRatios();
@@ -339,6 +425,7 @@
         // Zero-Click Auto Pipeline: หลังจาก sync แล้ว ให้รัน 4M และ 5.2 อัตโนมัติ
         setTimeout(function () {
           if (!pre) maybeLoadSavedRecord();
+          applyMasterStrength69IfMissing();
           autoPipeline4M(); // Zero-Click Pipeline
         }, 400);
 
@@ -1972,6 +2059,15 @@
         global.__cpdLoadedKey = key;
         global.__cpdActiveCoopKey = key;
         S.loadStateFromRecord(res.state);
+        // บันทึกเดิมอาจไม่มีผลประเมินปี 2569 -> เติมจาก master ไม่ให้ผลปี 69 หาย
+        var fallback69 = c.score69 ? applyStrength69Fallback({
+          level: c.score69.level, total: c.score69.total,
+          d1: c.score69.d1, d2: c.score69.d2, d3: c.score69.d3, d4: c.score69.d4
+        }) : false;
+        if (fallback69) {
+          S.applyStateToBaseForm();
+          UI.renderAll();
+        }
         showToast('โหลดข้อมูลที่บันทึกไว้เมื่อ ' + (res.savedAt || '-') + ' แล้ว', 'success');
       } else if (previousName && previousName !== c.name) {
         // เปลี่ยนสหกรณ์ -> เคลียร์ข้อมูลเฉพาะแท็บ 2-4 ไม่ให้ปนกับรายเดิม
@@ -2442,9 +2538,26 @@
       return;
     }
     showToast('กำลังโหลดข้อมูล ' + row.coopName + '...', 'info');
+    // ใช้ผลปี 2569 จาก master ถ้ามี (dashboard row อาจมาจากบันทึกเดิมที่ยังไม่มีผลปี 69)
+    var mc = null;
+    if (global.masterCoops && global.masterCoops.length) {
+      mc = global.masterCoops.filter(function (m) {
+        return (row.coopId && m.code13 === row.coopId) ||
+          (row.coopName && m.name === row.coopName);
+      })[0] || null;
+    }
+    var src69 = (mc && mc.score69) ? mc.score69 : {
+      level: row.class69, total: row.strengthScoreLatest,
+      d1: row.dim1, d2: row.dim2, d3: row.dim3, d4: row.dim4
+    };
     global.google.script.run.withSuccessHandler(function (res) {
       if (res && res.found && res.state) {
         S.loadStateFromRecord(res.state);
+        // บันทึกเดิมอาจไม่มีผลประเมินปี 2569 -> เติมจาก master ไม่ให้ผลปี 69 หาย
+        if (applyStrength69Fallback(src69)) {
+          S.applyStateToBaseForm();
+          UI.renderAll();
+        }
       } else {
         S.replaceState(S.defaultState());
         var st = A();
@@ -2458,13 +2571,15 @@
         st.coopProfile.primaryOfficer = row.primaryOfficer || '';
         st.coopProfile.fiscalEndDate = row.fiscalEndDate || '31 มีนาคม';
         st.strength.classByYear['2568'] = row.class68 || '';
-        st.strength.classByYear['2569'] = row.class69 || '';
+        st.strength.classByYear['2569'] = src69.level || row.class69 || '';
         st.strength.totalByYear['2568'] = S.num(row.strengthScorePrev);
-        st.strength.totalByYear['2569'] = S.num(row.strengthScoreLatest);
-        st.strength.dim1ByYear['2569'] = S.num(row.dim1);
-        st.strength.dim2ByYear['2569'] = S.num(row.dim2);
-        st.strength.dim3ByYear['2569'] = S.num(row.dim3);
-        st.strength.dim4ByYear['2569'] = S.num(row.dim4);
+        st.strength.totalByYear['2569'] = S.num(src69.total) || S.num(row.strengthScoreLatest);
+        st.strength.dim1ByYear['2569'] = S.num(src69.d1) || S.num(row.dim1);
+        st.strength.dim2ByYear['2569'] = S.num(src69.d2) || S.num(row.dim2);
+        st.strength.dim3ByYear['2569'] = S.num(src69.d3) || S.num(row.dim3);
+        st.strength.dim4ByYear['2569'] = S.num(src69.d4) || S.num(row.dim4);
+        // กระจายคะแนนมิติปี 2569 ลงตัวชี้วัด 18 ตัว เพื่อให้ตาราง Tab 2 แสดงครบ
+        S.recalcStrength();
         S.applyAutoDeadlines();
         S.applyStateToBaseForm();
         UI.renderAll();
