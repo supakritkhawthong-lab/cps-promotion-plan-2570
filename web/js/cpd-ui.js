@@ -2063,7 +2063,7 @@
 
     var filtered = rows.filter(function (r) {
       return matchFilter(r.district, filters.district) &&
-        matchFilter(r.coopSubType, filters.coopType) &&
+        matchCoopType(r.coopSubType, r.coopName, filters.coopType) &&
         matchFilter(r.primaryOfficer, filters.primaryOfficer);
     });
     var agg = aggregateClientRows(filtered);
@@ -2091,6 +2091,20 @@
     var cleanValue = String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
     var cleanFilter = String(filter || '').replace(/\s+/g, ' ').trim().toLowerCase();
     return cleanValue === cleanFilter;
+  }
+
+  function matchCoopType(coopSubType, coopName, filter) {
+    if (!filter) return true;
+    // Normalize
+    var cleanType = String(coopSubType || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    var cleanName = String(coopName || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    var cleanFilter = String(filter || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    
+    // Match โดยตรงหรือ contains
+    if (cleanType === cleanFilter || cleanType.indexOf(cleanFilter) !== -1) return true;
+    if (cleanName.indexOf(cleanFilter) !== -1) return true;
+    
+    return false;
   }
 
   /** คำนวณจำนวนวันจาก today ถึง targetDate (วว/ดด/ปปปป หรือ Date) คืนค่า null ถ้า parse ไม่ได้ */
@@ -3164,9 +3178,13 @@
     });
     
     // สร้างข้อความวิเคราะห์ธุรกิจอัตโนมัติจากข้อมูลที่ดึงมาจากไฟล์
-    generateBusinessAnalysis();
+    // แต่ไม่เขียนทับถ้ามี preload data อยู่แล้ว (เช่น สหกรณ์ผู้เลี้ยงไก่ไข่ชลบุรี)
+    var currentBizAnalysis = A().analysis.businessAnalysis || '';
+    if (!currentBizAnalysis || currentBizAnalysis === 'ด้านการบริหารจัดการธุรกิจ' || currentBizAnalysis.length < 100) {
+      generateBusinessAnalysis();
+    }
     
-    if (!silent && !force) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M และธุรกิจอัตโนมัติแล้ว', 'success');
+    if (!silent && !force) showToast('ดึงข้อมูลจากฟอร์มพื้นฐานวิเคราะห์ 4M อัตโนมัติแล้ว', 'success');
     return result;
   }
 
@@ -3278,13 +3296,15 @@
       }
     }
     
-    // 5. Operating Expense Ratio สูงกว่าเกณฑ์
-    if (income > 0 && expense > 0) {
-      var opexRatio = (expense / income) * 100;
+    // 5. Operating Expense Ratio สูงกว่าเกณฑ์ (ใช้ profitBeforeOpEx แทน income)
+    var opEx = S.num(f.incomeStatement.operatingExpense);
+    var profitBeforeOpEx = S.num(f.incomeStatement.profitBeforeOpEx);
+    if (profitBeforeOpEx > 0 && opEx > 0) {
+      var opexRatio = (opEx / profitBeforeOpEx) * 100;
       if (opexRatio > opexRatioThreshold) {
         weaknesses.push({
           code: '3.5',
-          goal: 'ควบคุมค่าใช้จ่ายดำเนินงานเนื่องจากสูงกว่าเกณฑ์ร้อยละ ' + opexRatioThreshold + ' (' + S.fmt(opexRatio, 1) + '% ของรายได้)',
+          goal: 'ควบคุมค่าใช้จ่ายดำเนินงานเนื่องจากสูงกว่าเกณฑ์ร้อยละ ' + opexRatioThreshold + ' (' + S.fmt(opexRatio, 1) + '% ของกำไรก่อนหักค่าใช้จ่ายดำเนินงาน)',
           target: '1',
           unit: 'ครั้ง',
           startDate: '',
@@ -3749,6 +3769,7 @@
 
   UI.switchTab = switchTab;
   UI.loadDashboard = loadDashboard;
+  UI.fallbackDashboard = fallbackDashboard;
   UI.saveCompletePlan = saveCompletePlan;
   UI.saveDraft = saveDraft;
   UI.showToast = showToast;
