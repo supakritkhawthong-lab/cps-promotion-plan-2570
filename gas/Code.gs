@@ -676,8 +676,19 @@ function parseAiJson_(raw) {
     try { return JSON.parse(candidate); } catch (e) { lastError = e; }
   }
 
+  // 3.1) เติม comma ที่ขาดระหว่างสมาชิกใน array/object (เช่น [1 2] หรือ {"a":1 "b":2})
+  const withCommas = repairMissingCommas_(candidate);
+  try { return JSON.parse(withCommas); } catch (e) { lastError = e; }
+
+  // 3.2) กรณี comma ที่ขาดอยู่ติดกับอัญประกาศจนตัวซ่อมสตริงรวมข้อความเข้าด้วยกัน
+  // ให้เติม comma จากข้อความต้นฉบับก่อน แล้วจึงซ่อมสตริง/อัญประกาศอีกครั้ง
+  const rawStart = text.indexOf('{');
+  const rawCandidate = rawStart > 0 ? text.slice(rawStart) : text;
+  const commaFirst = repairAiJsonText_(repairMissingCommas_(rawCandidate));
+  try { return JSON.parse(commaFirst); } catch (e) { lastError = e; }
+
   // 4) ปิดสตริง/วงเล็บที่ขาดหายกรณีคำตอบถูกตัดกลางคัน
-  const closed = closeTruncatedJson_(candidate);
+  const closed = closeTruncatedJson_(withCommas);
   try { return JSON.parse(closed); } catch (e) { lastError = e; }
 
   // 5) แจ้งข้อผิดพลาดพร้อมตำแหน่ง เพื่อให้ตรวจสอบได้ง่าย
@@ -698,7 +709,12 @@ function repairAiJsonText_(text) {
   let inString = false;
   let isKey = false;
   let escaped = false;
-  let lastSignificant = '';
+  const stack = [];
+
+  function topCtx() {
+    return stack.length ? stack[stack.length - 1] : null;
+  }
+
   for (let i = 0; i < text.length; i++) {
     const ch = text.charAt(i);
     if (!inString) {
@@ -706,9 +722,25 @@ function repairAiJsonText_(text) {
       if (ch === '"') {
         inString = true;
         escaped = false;
-        isKey = (lastSignificant === '{' || lastSignificant === ',');
+        const t = topCtx();
+        isKey = !!(t && t.type === 'object' && (t.state === 'key' || t.state === 'comma'));
+      } else if (ch === '{') {
+        stack.push({ type: 'object', state: 'key' });
+      } else if (ch === '[') {
+        stack.push({ type: 'array', state: 'value' });
+      } else if (ch === '}' || ch === ']') {
+        stack.pop();
+        const parent = topCtx();
+        if (parent) parent.state = 'comma';
+      } else if (ch === ':') {
+        const t = topCtx();
+        if (t && t.type === 'object') t.state = 'value';
+      } else if (ch === ',') {
+        const t = topCtx();
+        if (t) t.state = (t.type === 'object') ? 'key' : 'value';
       } else if (!/\s/.test(ch)) {
-        lastSignificant = ch;
+        const t = topCtx();
+        if (t && (t.state === 'value' || t.state === 'comma')) t.state = 'comma';
       }
       continue;
     }
@@ -726,9 +758,10 @@ function repairAiJsonText_(text) {
       if (isLikelyStringEnd_(text, i, isKey)) {
         out += ch;
         inString = false;
-        lastSignificant = '"';
         // AI บางครั้งพิมพ์คีย์แล้วไม่ใส่ colon ก่อนค่า (เช่น "key" "value")
         // เติม colon ให้อัตโนมัติเมื่อพบว่าคีย์ถูกปิดแล้วแต่ยังไม่มีเครื่องหมาย :
+        const t = topCtx();
+        let filledNull = false;
         if (isKey) {
           let j = i + 1;
           while (j < text.length && /\s/.test(text.charAt(j))) j++;
@@ -736,10 +769,15 @@ function repairAiJsonText_(text) {
           if (next !== ':') {
             if (next === '}' || next === ']' || next === ',' || next === '') {
               out += ':null';
+              filledNull = true;
             } else {
               out += ':';
             }
           }
+        }
+        if (t) {
+          if (isKey) t.state = filledNull ? 'comma' : 'value';
+          else t.state = 'comma';
         }
       } else {
         // อัญประกาศที่อยู่กลางข้อความ -> escape ไว้เป็นเนื้อหา
@@ -767,6 +805,8 @@ function isLikelyStringEnd_(text, index, isKey) {
   if (j >= text.length) return true;
   const next = text.charAt(j);
   if (next === '}' || next === ']') return true;
+  // อัญประกาศปิดสตริงตามด้วยอัญประกาศเปิดสตริงถัดไป = ขาด comma ระหว่างสมาชิก
+  if (next === '"') return true;
   if (next === ':') return !!isKey;
   // คีย์ที่ปิดแล้วแต่ไม่มี colon ตามด้วยค่าประเภทอื่นโดยตรง
   if (isKey && (next === '"' || next === '{' || next === '[' ||
@@ -783,6 +823,130 @@ function isLikelyStringEnd_(text, index, isKey) {
       /[0-9]/.test(after) || /[tfn]/.test(after);
   }
   return false;
+}
+
+/**
+ * เติม comma ที่ขาดระหว่างสมาชิกของ array/object
+ * เช่น ["a" "b"] -> ["a","b"], [{"a":1} {"b":2}] -> [{"a":1},{"b":2}]
+ * ใช้เมื่อ JSON.parse ล้มเหลวเท่านั้น เพื่อลดความเสี่ยงต่อ JSON ที่ถูกต้อง
+ */
+function repairMissingCommas_(text) {
+  let out = '';
+  const stack = [];
+  let i = 0;
+
+  function top() {
+    return stack.length ? stack[stack.length - 1] : null;
+  }
+
+  while (i < text.length) {
+    const ch = text.charAt(i);
+
+    if (/\s/.test(ch)) {
+      out += ch;
+      i++;
+      continue;
+    }
+
+    const t = top();
+
+    if (ch === '"') {
+      let j = i + 1;
+      let esc = false;
+      while (j < text.length) {
+        const c = text.charAt(j);
+        if (esc) { esc = false; j++; continue; }
+        if (c === '\\') { esc = true; j++; continue; }
+        if (c === '"') { j++; break; }
+        j++;
+      }
+      const str = text.slice(i, j);
+
+      if (t && t.type === 'object' && t.state === 'key') {
+        out += str;
+        t.state = 'colon';
+      } else if (t && t.type === 'object' && t.state === 'colon') {
+        out += ':' + str;
+        t.state = 'comma';
+      } else if (t && t.type === 'object' && t.state === 'comma') {
+        out += ',' + str;
+        t.state = 'colon';
+      } else if (t && t.type === 'array' && (t.state === 'value' || t.state === 'comma')) {
+        if (t.state === 'comma') out += ',';
+        out += str;
+        t.state = 'comma';
+      } else {
+        out += str;
+        if (t) t.state = 'comma';
+      }
+      i = j;
+      continue;
+    }
+
+    if (ch === '{' || ch === '[') {
+      if (t) {
+        if (t.state === 'comma') {
+          out += ',';
+        } else if (t.type === 'object' && t.state === 'colon') {
+          out += ':';
+        }
+      }
+      out += ch;
+      stack.push({
+        type: ch === '{' ? 'object' : 'array',
+        state: ch === '{' ? 'key' : 'value'
+      });
+      i++;
+      continue;
+    }
+
+    if (ch === '}' || ch === ']') {
+      const cur = top();
+      if (cur) {
+        if (cur.type === 'object') {
+          if (cur.state === 'colon') out += ':null';
+          else if (cur.state === 'value') out += 'null';
+        }
+        stack.pop();
+      }
+      out += ch;
+      const parent = top();
+      if (parent) parent.state = 'comma';
+      i++;
+      continue;
+    }
+
+    if (ch === ':') {
+      out += ch;
+      if (t && t.type === 'object') t.state = 'value';
+      i++;
+      continue;
+    }
+
+    if (ch === ',') {
+      out += ch;
+      if (t) t.state = (t.type === 'object') ? 'key' : 'value';
+      i++;
+      continue;
+    }
+
+    let j = i;
+    while (j < text.length && !/[\s,\]}:]/.test(text.charAt(j))) j++;
+    const token = text.slice(i, j);
+    if (t && t.state === 'comma') {
+      out += ',' + token;
+      t.state = 'comma';
+    } else if (t && t.type === 'object' && t.state === 'colon') {
+      out += ':' + token;
+      t.state = 'comma';
+    } else {
+      out += token;
+      if (t && (t.state === 'value' || t.state === 'comma')) t.state = 'comma';
+    }
+    i = j;
+  }
+
+  return out;
 }
 
 /**

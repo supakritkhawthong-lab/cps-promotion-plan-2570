@@ -794,4 +794,14 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 - ไม่มีการเปลี่ยนแปลง frontend หรือโครงสร้างข้อมูล
 - GAS: deployment @47
 
+### ระยะที่ 5I: ซ่อม JSON กรณี array/object ขาด comma
+
+- พบ error `Expected ',' or ']' after array element ...` และ `Expected ',' or '}' after property value ...`
+- เพิ่ม `repairMissingCommas_()` เติม comma ระหว่างสมาชิก array/object ด้วย state machine ที่ติดตามสแต็กของ object/array และไม่แตะข้อความภายในสตริง
+- ปรับ `repairAiJsonText_()` ให้ติดตามบริบท object/array เพื่อไม่เติม `:null` ให้สมาชิก array และให้รู้จักอัญประกาศปิดสตริงที่ตามด้วยอัญประกาศเปิดสตริงถัดไป (missing comma)
+- เรียก `repairMissingCommas_()` หลังซ่อมสตริง และก่อนปิด JSON ที่ถูกตัดกลางคัน
+- ผลทดสอบ: valid JSON ไม่ถูกแก้, missing comma ระหว่างสตริง/วัตถุ/ตัวเลข/ซ้อนกัน, missing colon, unescaped quotes, newline, truncated JSON และ JSON ขนาดใหญ่ — ผ่านทั้งหมด
+- ไม่มีการเปลี่ยนแปลง frontend
+- GAS: deployment @48
+
 
