@@ -362,16 +362,272 @@ function getFallbackModelsList(excludeList) {
   return fallback;
 }
 
+// ----------------------------------------------------------------------------
+// 2.1 แบ่งคำขอ AI เป็น 3 ระยะ + บังคับโครงสร้างด้วย responseSchema
+//     ระยะที่ 1: ตัวเลข/ข้อเท็จจริง | ระยะที่ 2: บทวิเคราะห์ 1-3 | ระยะที่ 3: สรุป 4
+//     การแบ่งรอบช่วยลดโอกาส JSON ถูกตัดกลางคัน ซึ่งเป็นสาเหตุหลักของ JSON พัง
+// ----------------------------------------------------------------------------
+const AI_FACT_STRING_FIELDS_ = [
+  'district', 'regDate', 'boardCount', 'auditorType', 'auditorName', 'fiscalDateFull', 'fyCheckNote',
+  'inspectorCount', 'inspectorName',
+  'yrLatest', 'yrPrev', 'memLatest', 'memPrev',
+  'assetLatest', 'assetPrev', 'debtLatest', 'debtPrev', 'shareLatest', 'sharePrev',
+  'reserveLatest', 'reservePrev', 'profitLatest', 'profitPrev', 'lossLatest', 'lossPrev',
+  'bizVolLatest', 'bizVolPrev',
+  'wcLatest', 'wcPrev', 'coopCapLatest', 'coopCapPrev', 'loanLatest', 'loanPrev',
+  'payableLatest', 'payablePrev', 'cashLatest', 'cashPrev', 'inventoryLatest', 'inventoryPrev',
+  'ppeLatest', 'ppePrev', 'receivableLatest', 'receivablePrev', 'otherAssetLatest', 'otherAssetPrev',
+  'incomeLatest', 'incomePrev', 'expenseLatest', 'expensePrev',
+  'salesTradingLatest', 'salesTradingPrev', 'costTradingLatest', 'costTradingPrev',
+  'profitTradingLatest', 'profitTradingPrev', 'planTradingLatest', 'planTradingPrev',
+  'salesProcessingLatest', 'salesProcessingPrev', 'costProcessingLatest', 'costProcessingPrev',
+  'profitProcessingLatest', 'profitProcessingPrev', 'planProcessingLatest', 'planProcessingPrev',
+  'depositAmountLatest', 'depositAmountPrev', 'profitDepositLatest', 'profitDepositPrev',
+  'membersDepositLatest', 'membersDepositPrev', 'membersTradingLatest', 'membersTradingPrev',
+  'membersProcessingLatest', 'membersProcessingPrev', 'agmAttendeesLatest', 'agmAttendeesPrev',
+  'avgProfit3Latest', 'avgProfit3Prev', 'avgSavingLatest', 'avgSavingPrev',
+  'avgDebtLatest', 'avgDebtPrev', 'staffCountLatest', 'staffCountPrev',
+  'businessTypes', 'targetProjects', 'issue1', 'issue2', 'issue3', 'promotionGoals', 'visitRemark',
+  'auditorObservations', 'auditorDefects', 'auditorCorrectionStatus',
+  'businessObservations', 'welfareObservations', 'publicBenefitObservations',
+  'welfareFundAmount', 'publicBenefitFundAmount'
+];
+
+const AI_FACT_NUMBER_FIELDS_ = ['assetNumeric', 'recommendedVisits'];
+const AI_FACT_BOOLEAN_FIELDS_ = ['auditorInternalControlWeakness'];
+const AI_CHANGE_KEYS_ = [
+  'wc', 'coopCap', 'loan', 'payable', 'cash', 'inventory', 'ppe', 'receivable', 'otherAsset',
+  'income', 'expense', 'salesTrading', 'costTrading', 'profitTrading',
+  'salesProcessing', 'costProcessing', 'profitProcessing',
+  'depositAmount', 'profitDeposit', 'assets', 'debt', 'share', 'reserve', 'profit'
+];
+
+const AI_FACT_STAGE_SUFFIX_ = '\n\n--- ขอบเขตคำตอบรอบนี้ ---\n' +
+  'ตอบเฉพาะข้อมูลที่สกัดได้จากเอกสาร (ตัวเลข ข้อเท็จจริง ข้อสังเกต ข้อมูลธุรกิจ สวัสดิการ) ' +
+  'ระบบกำหนดโครงสร้างคำตอบของรอบนี้เป็นฟิลด์ข้อมูล/ตัวเลขเท่านั้น ไม่มีฟิลด์บทวิเคราะห์ ' +
+  'ห้ามเขียนบทวิเคราะห์ข้อ 19-22 ในรอบนี้';
+
+const AI_NARRATIVE_STAGE_SUFFIX_ = '\n\n--- ขอบเขตคำตอบรอบนี้ ---\n' +
+  'ใช้ข้อเท็จจริงและตัวเลขจาก "ข้อมูลที่สกัดได้จากรอบแรก" เป็นหลัก ' +
+  'ระบบกำหนดโครงสร้างคำตอบของรอบนี้เพียง 3 ฟิลด์: orgAnalysis4M, businessAnalysis, welfareAnalysis ' +
+  'โดยเขียนตามบทวิเคราะห์ข้อ 19, 20 และ 21 และหลักการเขียนบทวิเคราะห์ ห้ามตอบฟิลด์อื่น';
+
+const AI_SUMMARY_STAGE_SUFFIX_ = '\n\n--- ขอบเขตคำตอบรอบนี้ ---\n' +
+  'ใช้ข้อมูลที่สกัดได้และบทวิเคราะห์หัวข้อ 1-3 ที่ให้มา ' +
+  'ระบบกำหนดโครงสร้างคำตอบของรอบนี้เพียง 1 ฟิลด์: summaryAnalysis ' +
+  'โดยเขียนตามบทวิเคราะห์ข้อ 22 ห้ามตอบฟิลด์อื่น';
+
+const AI_NARRATIVE_SCHEMA_ = {
+  type: 'OBJECT',
+  properties: {
+    orgAnalysis4M: { type: 'STRING' },
+    businessAnalysis: { type: 'STRING' },
+    welfareAnalysis: { type: 'STRING' }
+  },
+  required: ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis']
+};
+
+const AI_SUMMARY_SCHEMA_ = {
+  type: 'OBJECT',
+  properties: {
+    summaryAnalysis: { type: 'STRING' }
+  },
+  required: ['summaryAnalysis']
+};
+
+function buildFactResponseSchema_() {
+  const properties = {};
+  AI_FACT_STRING_FIELDS_.forEach(function (key) { properties[key] = { type: 'STRING' }; });
+  AI_FACT_NUMBER_FIELDS_.forEach(function (key) { properties[key] = { type: 'NUMBER' }; });
+  AI_FACT_BOOLEAN_FIELDS_.forEach(function (key) { properties[key] = { type: 'BOOLEAN' }; });
+
+  const changeProperties = {};
+  AI_CHANGE_KEYS_.forEach(function (key) { changeProperties[key] = { type: 'STRING' }; });
+  properties.changes = { type: 'OBJECT', properties: changeProperties };
+
+  properties.auditorWeaknessCategories = { type: 'ARRAY', items: { type: 'STRING' } };
+  properties.businessSegments = {
+    type: 'ARRAY',
+    items: {
+      type: 'OBJECT',
+      properties: {
+        name: { type: 'STRING' },
+        revenue: { type: 'NUMBER' },
+        cost: { type: 'NUMBER' },
+        profit: { type: 'NUMBER' },
+        note: { type: 'STRING' }
+      }
+    }
+  };
+
+  return { type: 'OBJECT', properties: properties };
+}
+
+function getAiModels_() {
+  return String(getProp_('GEMINI_MODELS') || 'gemini-3.5-flash,gemini-3.8-flash,gemini-2.5-flash')
+    .split(',')
+    .map(function (name) { return name.trim(); })
+    .filter(Boolean);
+}
+
+/**
+ * จำกัดขนาดข้อความจากไฟล์สำหรับระยะที่ 2 โดยแบ่งเพดานให้ทุกไฟล์เท่า ๆ กัน
+ * เพื่อไม่ให้ไฟล์หนึ่งกินพื้นที่จนไฟล์อื่นถูกตัดหายทั้งหมด
+ */
+function capTextParts_(parts, maxTotalChars) {
+  if (!parts.length) return parts;
+  const promptPart = parts[0];
+  const fileParts = parts.slice(1).filter(function (part) {
+    return !part.inlineData && part.text;
+  });
+  const perFile = fileParts.length
+    ? Math.max(4000, Math.floor(maxTotalChars / fileParts.length))
+    : maxTotalChars;
+
+  const result = [promptPart];
+  fileParts.forEach(function (part) {
+    const text = String(part.text || '');
+    if (text.length > perFile) {
+      result.push({ text: text.slice(0, perFile) + '\n...[ตัดข้อความเพื่อจำกัดขนาด]...\n' });
+    } else {
+      result.push(part);
+    }
+  });
+  return result;
+}
+
+function buildGeminiRequestBody_(parts, schema) {
+  const maxTokens = Number(getProp_('GEMINI_MAX_OUTPUT_TOKENS', '8192')) || 8192;
+  const generationConfig = {
+    temperature: 0.0,
+    maxOutputTokens: maxTokens,
+    responseMimeType: "application/json"
+  };
+  if (schema) generationConfig.responseSchema = schema;
+  return { contents: [{ parts: parts }], generationConfig: generationConfig };
+}
+
+function logAiStage_(stage, data) {
+  try {
+    const info = Object.assign({ stage: stage }, data || {});
+    console.log('[AI] ' + JSON.stringify(info));
+  } catch (e) {}
+}
+
+/**
+ * เรียก Gemini แล้วแปลงคำตอบเป็น JSON
+ * - ลองโมเดลตาม GEMINI_MODELS ก่อน แล้วค่อยดึงรายชื่อสำรอง
+ * - ถ้าโมเดลไม่รองรับ responseSchema (HTTP 400) จะลองใหม่แบบไม่ใส่ schema
+ * - เคารพ deadline เพื่อไม่ให้เกินเวลารันของ Apps Script
+ */
+function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
+  let modelsToTry = getAiModels_();
+  let triedFallback = false;
+  const errorLogs = [];
+  let lastParseError = null;
+
+  for (let m = 0; m < modelsToTry.length; m++) {
+    if (Date.now() >= deadline) {
+      errorLogs.push('หมดเวลาก่อนเรียกโมเดล ' + modelsToTry[m]);
+      break;
+    }
+    const modelName = modelsToTry[m];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${getGeminiKey_()}`;
+    const variants = schema
+      ? [{ schema: schema, label: 'schema' }, { schema: null, label: 'plain' }]
+      : [{ schema: null, label: 'plain' }];
+
+    let stageText = null;
+    let usedSchema = false;
+    let stageFinishReason = '';
+
+    for (let v = 0; v < variants.length && !stageText; v++) {
+      const requestBody = buildGeminiRequestBody_(parts, variants[v].schema);
+      const options = {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(requestBody),
+        muteHttpExceptions: true
+      };
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (Date.now() >= deadline) break;
+        const res = UrlFetchApp.fetch(url, options);
+        const code = res.getResponseCode();
+        const bodyText = res.getContentText();
+
+        if (code === 200) {
+          try {
+            const jsonRes = JSON.parse(bodyText);
+            const candidate = jsonRes.candidates && jsonRes.candidates[0];
+            const responseParts = candidate && candidate.content && candidate.content.parts;
+            const text = Array.isArray(responseParts)
+              ? responseParts.map(function (part) {
+                  return part && typeof part.text === 'string' ? part.text : '';
+                }).join('')
+              : '';
+            stageFinishReason = candidate && candidate.finishReason ? String(candidate.finishReason) : '';
+            if (text) { stageText = text; usedSchema = !!variants[v].schema; }
+          } catch (e) {}
+          if (!stageText) errorLogs.push(modelName + '(' + variants[v].label + ': ไม่มีคำตอบ)');
+          break;
+        }
+        if (code === 503 || code === 429) {
+          errorLogs.push(modelName + '(คิวเต็ม ' + code + ')');
+          Utilities.sleep(1200);
+          continue;
+        }
+        if (code === 400 && variants[v].schema) {
+          // โมเดลอาจไม่รองรับ responseSchema -> ลองแบบไม่ใส่ schema ต่อ
+          errorLogs.push(modelName + '(schema 400)');
+          break;
+        }
+        errorLogs.push(modelName + '(' + code + ')');
+        break;
+      }
+    }
+
+    if (stageText) {
+      try {
+        const parsed = parseAiJson_(stageText);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('AI ส่ง JSON ที่ไม่ใช่ object');
+        }
+        logAiStage_(stage, {
+          model: modelName,
+          schema: usedSchema,
+          finishReason: stageFinishReason,
+          ms: Date.now() - stageStart,
+          outputChars: stageText.length
+        });
+        return parsed;
+      } catch (e) {
+        lastParseError = e;
+        errorLogs.push(modelName + '(JSON ไม่ถูกต้อง)');
+      }
+    }
+
+    // หากลองครบทุกโมเดลในลิสต์แรกแล้วยังไม่ผ่าน จึงค่อยดึงรายชื่อโมเดลสำรองจาก ListModels
+    if (!triedFallback && m === modelsToTry.length - 1) {
+      triedFallback = true;
+      const extraModels = getFallbackModelsList(modelsToTry).slice(0, 6);
+      modelsToTry = modelsToTry.concat(extraModels);
+    }
+  }
+
+  let message = 'AI ประมวลผลไม่สำเร็จ: ' +
+    (errorLogs.length ? errorLogs.join(', ') : 'โมเดลไม่ได้ส่งคำตอบกลับมา (อาจถูกบล็อกด้วย safety filter)');
+  if (lastParseError && lastParseError.message) {
+    message += ' | ' + lastParseError.message;
+  }
+  throw new Error(message);
+}
+
 function analyzeUploadedFilesWithAI(payload) {
   // เรียกโมเดลความเร็วสูงทันทีโดยไม่ต้องเสียเวลาเรียก ListModels ก่อน
   // ดูลำดับรุ่นได้จาก Script Property GEMINI_MODELS (คั่นด้วยจุลภาค)
   // ค่าเริ่มต้น: gemini-3.5-flash → gemini-3.8-flash → gemini-2.5-flash
   // (gemini-2.0-flash เลิกให้บริการแล้ว จึงต้องไม่อยู่ในลิสต์)
-  let modelsToTry = String(getProp_('GEMINI_MODELS') || 'gemini-3.5-flash,gemini-3.8-flash,gemini-2.5-flash')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-
   const ruleWeaknessesText = (payload.weaknesses && payload.weaknesses.length > 0)
     ? payload.weaknesses.map((w, i) => `${i + 1}) ${w}`).join("\n")
     : "คะแนนตัวชี้วัดหลักอยู่ในเกณฑ์ดี ให้มุ่งเน้นการรักษามาตรฐานและการควบคุมภายใน";
@@ -579,72 +835,86 @@ ${ruleWeaknessesText}
     });
   }
 
-  let resText = null;
-  let errorLogs = [];
-  let triedFallback = false;
+  const stageStart = Date.now();
+  const deadlineMs = Number(getProp_('AI_DEADLINE_MS', '300000')) || 300000;
+  const overallDeadline = stageStart + deadlineMs;
 
-  for (let m = 0; m < modelsToTry.length; m++) {
-    const modelName = modelsToTry[m];
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${getGeminiKey_()}`;
+  // ระยะที่ 1: สกัดตัวเลขและข้อเท็จจริง (ต้องสำเร็จก่อน ถ้าล้มเหลวทั้งงานล้มเหลว)
+  const factsDeadline = Math.min(overallDeadline, stageStart + Math.min(deadlineMs, 210000));
+  const facts = callGeminiJson_(
+    parts.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
+    buildFactResponseSchema_(),
+    'facts',
+    factsDeadline,
+    stageStart
+  );
+  if (facts.fiscalDateFull) {
+    facts.fiscalDateFull = normalizeFiscalDate(facts.fiscalDateFull);
+  }
+  applyPrevYearFallbacks_(facts);
 
-    const requestBody = {
-      contents: [{ parts: parts }],
-      generationConfig: {
-        temperature: 0.0,
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json"
-      }
-    };
+  const result = {};
+  Object.keys(facts).forEach(function (key) { result[key] = facts[key]; });
 
-    const options = {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify(requestBody),
-      muteHttpExceptions: true
-    };
+  const warnings = [];
+  const factsBlock = '\n\n--- ข้อมูลที่สกัดได้จากรอบแรก (ใช้เป็นตัวเลขอ้างอิง) ---\n' +
+    JSON.stringify(facts) + '\n--- จบบล็อกข้อมูล ---';
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      const res = UrlFetchApp.fetch(url, options);
-      const code = res.getResponseCode();
-      const bodyText = res.getContentText();
-
-      if (code === 200) {
-        const jsonRes = JSON.parse(bodyText);
-        if (jsonRes.candidates && jsonRes.candidates[0].content.parts[0].text) {
-          resText = jsonRes.candidates[0].content.parts[0].text;
-          break;
-        }
-      } else if (code === 503 || code === 429) {
-        errorLogs.push(`${modelName}(คิวเต็ม ${code})`);
-        Utilities.sleep(1200);
-      } else {
-        errorLogs.push(`${modelName}(${code})`);
-        break;
-      }
-    }
-    if (resText) break;
-
-    // หากลองครบทุกโมเดลในลิสต์แรกแล้วยังไม่ผ่าน จึงค่อยดึงรายชื่อโมเดลสำรองจาก ListModels
-    if (!triedFallback && m === modelsToTry.length - 1) {
-      triedFallback = true;
-      const extraModels = getFallbackModelsList(modelsToTry);
-      modelsToTry = modelsToTry.concat(extraModels);
-    }
+  // ระยะที่ 2: บทวิเคราะห์หัวข้อ 1-3 (ตัด inlineData ออกเพื่อลดต้นทุน/เวลา)
+  try {
+    const narrativeParts = capTextParts_(
+      parts.filter(function (part) { return !part.inlineData; }),
+      90000
+    ).concat([
+        { text: factsBlock + '\n(ไฟล์สแกนที่ไม่มีข้อความถูกวิเคราะห์ในรอบแรกแล้ว ใช้ข้อมูลจากบล็อกด้านบน)' },
+        { text: AI_NARRATIVE_STAGE_SUFFIX_ }
+      ]);
+    const sections = callGeminiJson_(
+      narrativeParts,
+      AI_NARRATIVE_SCHEMA_,
+      'narrative',
+      overallDeadline,
+      stageStart
+    );
+    ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis'].forEach(function (key) {
+      if (typeof sections[key] === 'string' && sections[key].trim()) result[key] = sections[key];
+    });
+  } catch (e) {
+    warnings.push('บทวิเคราะห์หัวข้อ 1-3 ไม่สำเร็จ: ' + e.message);
+    logAiStage_('narrative-failed', { message: e.message });
   }
 
-  if (!resText) {
-    if (errorLogs.length === 0) {
-      throw new Error("AI ประมวลผลไม่สำเร็จ: โมเดลไม่ได้ส่งคำตอบกลับมา (อาจถูกบล็อกด้วย safety filter)");
+  // ระยะที่ 3: บทวิเคราะห์หัวข้อ 4 โดยอ้างอิงบทวิเคราะห์ 1-3 ที่เขียนแล้ว
+  try {
+    const sectionsBlock = '\n\n--- บทวิเคราะห์หัวข้อ 1-3 ที่เขียนไว้แล้ว ---\n' +
+      '1. orgAnalysis4M:\n' + (result.orgAnalysis4M || '(ไม่พบ)') + '\n\n' +
+      '2. businessAnalysis:\n' + (result.businessAnalysis || '(ไม่พบ)') + '\n\n' +
+      '3. welfareAnalysis:\n' + (result.welfareAnalysis || '(ไม่พบ)');
+    const summary = callGeminiJson_(
+      [{ text: promptText }, { text: factsBlock }, { text: sectionsBlock }, { text: AI_SUMMARY_STAGE_SUFFIX_ }],
+      AI_SUMMARY_SCHEMA_,
+      'summary',
+      overallDeadline,
+      stageStart
+    );
+    if (typeof summary.summaryAnalysis === 'string' && summary.summaryAnalysis.trim()) {
+      result.summaryAnalysis = summary.summaryAnalysis;
     }
-    throw new Error("AI ประมวลผลไม่สำเร็จ: " + errorLogs.join(", "));
+  } catch (e) {
+    warnings.push('บทวิเคราะห์หัวข้อ 4 ไม่สำเร็จ: ' + e.message);
+    logAiStage_('summary-failed', { message: e.message });
   }
 
-  const parsed = parseAiJson_(resText);
-  if (parsed.fiscalDateFull) {
-    parsed.fiscalDateFull = normalizeFiscalDate(parsed.fiscalDateFull);
+  if (warnings.length) {
+    result._aiWarnings = warnings;
   }
-  applyPrevYearFallbacks_(parsed);
-  return parsed;
+  logAiStage_('done', {
+    ms: Date.now() - stageStart,
+    warnings: warnings.length,
+    hasSections: !!(result.orgAnalysis4M || result.businessAnalysis || result.welfareAnalysis),
+    hasSummary: !!result.summaryAnalysis
+  });
+  return result;
 }
 
 // ---- AI JSON parser helpers (begin) ----

@@ -1235,8 +1235,17 @@
           validateAccountingEquation();
         }
 
-        alertBox.className = "alert alert-success mt-3";
-        alertBox.textContent = "✅ ประมวลผลเอกสารความเร็วสูง สกัดตัวเลขงบการเงิน และเกลาสำนวนราชการสำเร็จ!";
+        const aiWarnings = Array.isArray(res._aiWarnings) ? res._aiWarnings.filter(Boolean) : [];
+        if (aiWarnings.length) {
+          alertBox.className = "alert alert-warning mt-3";
+          alertBox.textContent = "⚠️ ประมวลผลสำเร็จบางส่วน: " + aiWarnings.join(' | ');
+          if (window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
+            window.CPD_UI.showToast('ประมวลผลบางส่วนไม่สำเร็จ ดูรายละเอียดในกล่องแจ้งเตือน', 'warning');
+          }
+        } else {
+          alertBox.className = "alert alert-success mt-3";
+          alertBox.textContent = "✅ ประมวลผลเอกสารความเร็วสูง สกัดตัวเลขงบการเงิน และเกลาสำนวนราชการสำเร็จ!";
+        }
         if (typeof window.CPD_scheduleSync === 'function') window.CPD_scheduleSync();
 
         // TASK 4: แจ้งเตือนกรณีไฟล์ PDF สแกนภาพ
@@ -1244,7 +1253,7 @@
           const scannedMsg = 'ตรวจพบไฟล์ PDF แบบสแกนภาพ ระบบผสานข้อมูลฐานข้อมูลสหกรณ์และใบโปรไฟล์ให้อัตโนมัติแล้ว';
           if (window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
             window.CPD_UI.showToast(scannedMsg, 'warning');
-          } else {
+          } else if (!aiWarnings.length) {
             alertBox.className = "alert alert-warning mt-3";
             alertBox.textContent = scannedMsg;
           }
