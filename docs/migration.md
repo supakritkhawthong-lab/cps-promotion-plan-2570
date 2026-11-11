@@ -832,6 +832,7 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 - เพิ่ม `.github/workflows/ci.yml` รันทั้งสองอย่างบน push/PR (Node 20) — **ยังไม่ผูกกับ workflow deploy** เพื่อไม่ให้ Pages/GAS หยุดกลางทางถ้าเทสต์แดง
 - คำสั่งในเครื่อง: `npm run check:gs`, `npm test`, `npm run verify` (ไม่ต้องติดตั้ง dependency ภายนอก ใช้ `node:test` เท่านั้น)
 - ผลทดสอบ: 53/53 ผ่าน, `check-gs` ผ่าน 8/8 ไฟล์
+- ผลทดสอบ production (หลัง deploy @49): อัปโหลด `สหกรณ์จังหวัดจังชลบุรี(5).pdf` ให้ `สหกรณ์การเกษตรเมืองชลบุรี จำกัด` — 3 ระยะใช้เวลารวม ~92 วินาที, ได้ครบหัวข้อ 1–4, หัวข้อ 1 มี Man/Material/Money (CAMELS)/Management, หัวข้อ 4 จับคู่ปัญหา–แนวทางแก้ไขครบ 3 ด้าน, ไม่มี `_aiWarnings`, ไม่มี `undefined`/`NaN`, console error 0
 - ไม่มีการเปลี่ยนแปลง frontend/GAS ที่ใช้งานจริง (เพิ่มเฉพาะไฟล์ทดสอบและ CI)
 - หมายเหตุ Windows: `node --test tests/ > ไฟล์` ผ่าน PowerShell ได้เอาต์พุตแบบ UTF-16LE ให้ถอดด้วย `utf16le` หรืออ่านจากหน้าจอโดยตรง
 
