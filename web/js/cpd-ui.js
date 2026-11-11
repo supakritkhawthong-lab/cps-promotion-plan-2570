@@ -155,6 +155,20 @@
     return String(value).trim();
   }
 
+  /**
+   * stripSectionHeadingText_(text, pattern)
+   * ตัดชื่อหัวข้อที่ AI พิมพ์ซ้ำกับป้าย textarea ของแบบฟอร์ม
+   * เช่น "4. สรุปผลการวิเคราะห์ 1) ด้าน..." -> "1) ด้าน..."
+   * ตัดเฉพาะต้นข้อความ และต้องเหลือเนื้อหาจริงมากพอ (กันข้อความทั้งก้อนเป็นชื่อหัวข้อ)
+   */
+  function stripSectionHeadingText_(text, pattern) {
+    var t = String(text || '').trim();
+    if (!t || !pattern) return t;
+    var stripped = t.replace(pattern, '').trim();
+    if (stripped === t) return t;
+    return stripped.length >= 30 ? stripped : t;
+  }
+
   function classifyBusinessName(name) {
     var t = String(name || '');
     if (/ฝาก/.test(t)) return 'deposit';
@@ -306,9 +320,18 @@
     setText('coopDefects', defectsText, preDefectsText);
 
     // 2) ข้อวิเคราะห์ 4 ด้านที่ AI สกัดแยกตามหัวข้อจากไฟล์ที่อัปโหลด
-    function setUploadedSection(displayKey, uploadedKey, value, verified) {
+    // pattern ใช้ตัดชื่อหัวข้อที่ AI พิมพ์ซ้ำกับป้าย textarea ในแบบฟอร์ม
+    var SECTION_HEADING_PATTERNS = {
+      org: /^\s*(?:1\s*[.)]\s*)?ด้านการบริหารจัดการองค์กร(?:\s*\(หลัก\s*4M\))?\s*[:：–—]?\s*/,
+      business: /^\s*(?:2\s*[.)]\s*)?ด้านการบริหารจัดการธุรกิจ\s*[:：–—]?\s*/,
+      welfare: /^\s*(?:3\s*[.)]\s*)?ด้านการจัดสวัสดิการ(?:และสาธารณประโยชน์)?\s*[:：–—]?\s*/,
+      summary: /^\s*(?:4\s*[.)]\s*)?สรุปผลการวิเคราะห์\s*[:：–—]?\s*/
+    };
+
+    function setUploadedSection(displayKey, uploadedKey, value, verified, headingPattern) {
       var text = aiText(value);
       if (!text) return false;
+      text = stripSectionHeadingText_(text, headingPattern);
       // ห้ามเขียนทับข้อความที่ผ่านการตรวจสอบแล้ว (preload) ของสหกรณ์นั้น
       if (verified && String(verified).trim()) return false;
       s.analysis[uploadedKey] = text;
@@ -319,12 +342,15 @@
       applied = true;
       return true;
     }
-    setUploadedSection('orgAnalysis4M', 'uploadedOrgAnalysis4M', res.orgAnalysis4M, preOrgText);
-    setUploadedSection('businessAnalysis', 'uploadedBusinessAnalysis', res.businessAnalysis, preBusinessText);
-    setUploadedSection('welfareAnalysis', 'uploadedWelfareAnalysis', res.welfareAnalysis, preWelfareText);
+    setUploadedSection('orgAnalysis4M', 'uploadedOrgAnalysis4M', res.orgAnalysis4M, preOrgText,
+      SECTION_HEADING_PATTERNS.org);
+    setUploadedSection('businessAnalysis', 'uploadedBusinessAnalysis', res.businessAnalysis, preBusinessText,
+      SECTION_HEADING_PATTERNS.business);
+    setUploadedSection('welfareAnalysis', 'uploadedWelfareAnalysis', res.welfareAnalysis, preWelfareText,
+      SECTION_HEADING_PATTERNS.welfare);
     // สรุปผลการวิเคราะห์: ใช้ข้อความจากไฟล์ เว้นแต่เป็นสหกรณ์ที่มีข้อความตรวจสอบแล้ว
     setUploadedSection('summaryAnalysis', 'uploadedSummaryAnalysis', res.summaryAnalysis,
-      preOrgText || preBusinessText || preWelfareText);
+      preOrgText || preBusinessText || preWelfareText, SECTION_HEADING_PATTERNS.summary);
 
     // 3) ข้อมูล/ข้อสังเกตด้านธุรกิจจากเอกสารที่อัปโหลด
     var segments = Array.isArray(res.businessSegments) ? res.businessSegments : [];
