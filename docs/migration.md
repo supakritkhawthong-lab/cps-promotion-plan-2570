@@ -785,4 +785,13 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 - ผลทดสอบ local: ไก่ไข่ชลบุรี (generated), สยามโตโยต้า (preload), สหกรณ์ไม่มี preload และกรณีธุรกิจขาดทุน แสดงปัญหา–แนวทางแก้ไขครบทั้ง 3 ด้าน ไม่มี `undefined`/`NaN`, console error 0
 - cache-bust: `cpd-ui.js` = `v20261110l`
 
+### ระยะที่ 5H: ซ่อม JSON กรณีคีย์ขาดเครื่องหมาย colon
+
+- พบ error `Expected ':' after property name in JSON at position ...` จากคำตอบ AI ที่พิมพ์คีย์แล้วไม่ใส่ `:` ก่อนค่า เช่น `"summaryAnalysis" "..."`
+- เพิ่มการเติม `:` อัตโนมัติใน `repairAiJsonText_()` เมื่อพบว่าคีย์ถูกปิดแล้วแต่ตัวถัดไปไม่ใช่ `:` และปรับ `isLikelyStringEnd_()` ให้รู้จักจุดสิ้นสุดของคีย์เมื่อตามด้วยค่าโดยตรง (สตริง วัตถุ อาร์เรย์ ตัวเลข true/false/null)
+- กรณีคีย์ตามด้วย `,` หรือ `}` โดยไม่มีค่า ระบบเติม `:null` ให้ JSON ยังคงแปลงได้
+- ผลทดสอบ parser: valid JSON, unescaped quotes, newline ในสตริง, code fence, truncated JSON, key ขาด colon หลายรูปแบบ, key ตามด้วย object/array/number/boolean/null และ JSON ขนาดใหญ่ที่ตัด colon ออก — ผ่านทั้งหมด
+- ไม่มีการเปลี่ยนแปลง frontend หรือโครงสร้างข้อมูล
+- GAS: deployment @47
+
 

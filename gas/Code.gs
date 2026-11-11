@@ -727,6 +727,20 @@ function repairAiJsonText_(text) {
         out += ch;
         inString = false;
         lastSignificant = '"';
+        // AI บางครั้งพิมพ์คีย์แล้วไม่ใส่ colon ก่อนค่า (เช่น "key" "value")
+        // เติม colon ให้อัตโนมัติเมื่อพบว่าคีย์ถูกปิดแล้วแต่ยังไม่มีเครื่องหมาย :
+        if (isKey) {
+          let j = i + 1;
+          while (j < text.length && /\s/.test(text.charAt(j))) j++;
+          const next = j < text.length ? text.charAt(j) : '';
+          if (next !== ':') {
+            if (next === '}' || next === ']' || next === ',' || next === '') {
+              out += ':null';
+            } else {
+              out += ':';
+            }
+          }
+        }
       } else {
         // อัญประกาศที่อยู่กลางข้อความ -> escape ไว้เป็นเนื้อหา
         out += '\\"';
@@ -754,6 +768,11 @@ function isLikelyStringEnd_(text, index, isKey) {
   const next = text.charAt(j);
   if (next === '}' || next === ']') return true;
   if (next === ':') return !!isKey;
+  // คีย์ที่ปิดแล้วแต่ไม่มี colon ตามด้วยค่าประเภทอื่นโดยตรง
+  if (isKey && (next === '"' || next === '{' || next === '[' ||
+      next === '-' || /[0-9]/.test(next) || /[tfn]/.test(next))) {
+    return true;
+  }
   if (next === ',') {
     let k = j + 1;
     while (k < text.length && /\s/.test(text.charAt(k))) k++;
