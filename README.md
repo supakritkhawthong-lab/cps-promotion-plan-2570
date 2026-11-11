@@ -34,10 +34,19 @@
 │  ├─ appsscript.json
 │  └─ .clasp.json               # สร้างจาก .clasp.json.example
 ├─ tools/
-│  └─ serve-web.ps1             # static server ในเครื่อง (Windows, ไม่ต้องใช้ Node)
+│  ├─ serve-web.ps1             # static server ในเครื่อง (Windows, ไม่ต้องใช้ Node)
+│  └─ check-gs.js               # ตรวจ syntax gas/**/*.gs ด้วย node --check
+├─ tests/                       # ชุดทดสอบที่โหลดไฟล์จริงของโปรเจกต์ (node:test)
+│  ├─ helpers/sandbox.js        # ตัวโหลด GAS (new Function) และ web/js (vm)
+│  ├─ ai-json.test.js           # ตัวอ่าน/ซ่อม JSON ของ AI
+│  ├─ ai-staged.test.js         # การแบ่งคำขอ AI 3 ระยะ + responseSchema
+│  ├─ state.test.js             # ปีงบประมาณ/กำหนดเวลา/วันรับรองงบ
+│  ├─ preload.test.js           # ข้อมูล preload ตรวจสอบแล้วต้องไม่ถูกทับ
+│  └─ contract.test.js          # สัญญาระหว่าง index.html / Api.gs / gas
 ├─ .github/workflows/
 │  ├─ pages.yml                 # deploy web/ → GitHub Pages
-│  └─ gas-deploy.yml            # clasp push/deploy → Apps Script
+│  ├─ gas-deploy.yml            # clasp push/deploy → Apps Script
+│  └─ ci.yml                    # ตรวจ syntax + รันชุดทดสอบบน push/PR
 └─ docs/
    ├─ architecture.md
    ├─ migration.md
@@ -68,6 +77,7 @@
 | GitHub repo | ✅ <https://github.com/supakritkhawthong-lab/cps-promotion-plan-2570> (public) |
 | GitHub Pages | ✅ <https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/> (รอ UI 5 แท็บรอบใหม่) |
 | GitHub Actions (gas-deploy) | 🟡 มี workflow แล้ว — ยังต้องใส่ `CLASPRC_JSON` + `GAS_DEPLOYMENT_ID` ถ้าจะให้ deploy GAS อัตโนมัติ |
+| ชุดทดสอบ + CI | ✅ `node:test` 53 เคส ผ่านทั้งหมด, `check-gs` ผ่าน 8/8 ไฟล์, workflow `ci.yml` รันบน push/PR |
 
 > ผลทดสอบ Phase 1 อยู่ใน `docs/migration.md` หัวข้อ 1.9 และผล SPA 5 แท็บอยู่ในหัวข้อ 2A
 
@@ -129,6 +139,20 @@
    - Secret `CLASPRC_JSON` = เนื้อหาไฟล์ `~/.clasprc.json`
    - Variable `GAS_DEPLOYMENT_ID` = id จาก `clasp deployments`
    - ใช้ tag `gas-v1.0.0` เพื่อ trigger deploy
+
+## ทดสอบอัตโนมัติ (ไม่ต้องติดตั้ง dependency)
+
+```bash
+npm run check:gs   # ตรวจ syntax gas/**/*.gs ทุกไฟล์
+npm test           # รันชุดทดสอบทั้งหมด (node --test tests/)
+npm run verify     # ทำทั้งสองอย่างตามลำดับ — ใช้ก่อน commit
+```
+
+ชุดทดสอบโหลด **ไฟล์จริง** ของโปรเจกต์ (`gas/Code.gs` ผ่าน `new Function`, `web/js/*.js` ผ่าน `vm`)
+จึงไม่มีสำเนาโค้ดให้เพี้ยนตามกัน และไม่ต้องใช้ของปลอมแทนระบบจริง
+
+> Windows: ถ้า redirect ผลลัพธ์ลงไฟล์ด้วย PowerShell (`node --test tests/ > out.txt`)
+> ไฟล์จะถูกเขียนเป็น UTF-16LE — อ่านด้วย `-Encoding Unicode` หรือปล่อยให้พิมพ์บนหน้าจอโดยตรง
 
 ## ทดสอบหน้าเว็บบนเครื่องก่อน deploy
 

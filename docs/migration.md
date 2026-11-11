@@ -819,4 +819,20 @@ cache-bust: `cpd-state.js` / `cpd-ui.js` = `v20261110g`
 - ผลทดสอบ: schema ครอบคลุม 106/106 ฟิลด์จาก prompt เดิม (ไม่มีตกหล่น/ซ้ำ/ชนิดผิด), จำลอง 3 ระยะสำเร็จ, บทวิเคราะห์ล้มเหลวแต่ได้ผลบางส่วน, โมเดลไม่รองรับ schema แล้ว fallback, และระยะแรกล้มเหลวแล้วแจ้ง error — ผ่านทั้งหมด
 - GAS: deployment @49
 
+### ระยะที่ 5K: ชุดทดสอบอัตโนมัติ + CI
+
+- ย้ายชุดทดสอบที่เคยรันด้วยสคริปต์ชั่วคราวเข้า repo (`tests/`) โดย **โหลดไฟล์จริงของโปรเจกต์** ไม่คัดลอกโค้ดซ้ำ:
+  - `tests/helpers/sandbox.js` — โหลด `gas/Code.gs` ด้วย `new Function()` และโหลด `web/js/*.js` ด้วย `vm` + `window` ปลอม พร้อม stub `UrlFetchApp` ของ Gemini และตรวจระยะ `facts` / `narrative` / `summary` จาก prompt
+  - `tests/ai-json.test.js` — ตัวอ่าน/ซ่อม JSON ของ AI (21 เคส: อัญประกาศซ้อน, ขาด colon, ขาด comma, ถูกตัดกลางคัน, code fence, ข้อความที่ไม่ใช่ JSON)
+  - `tests/ai-staged.test.js` — schema ครอบคลุมฟิลด์ครบ, ลำดับ 3 ระยะ, การตัด `inlineData`, ความล้มเหลวบางระยะ, fallback เมื่อโมเดลไม่รองรับ `responseSchema`
+  - `tests/state.test.js` — ปีงบประมาณ/กำหนดเวลา 30 และ 150 วัน/วันที่รับรองงบตรงเดือนประชุมใหญ่/ไม่ทับค่าที่ผู้ใช้กรอก
+  - `tests/preload.test.js` — ข้อมูล preload ที่ตรวจสอบแล้วต้องไม่ถูกเขียนทับ ไม่มี `undefined`/`NaN`/`null` และไม่แต่งกิจกรรมที่ไม่มีข้อมูลจริง
+  - `tests/contract.test.js` — ไฟล์ที่ `index.html` อ้างถึงต้องมีจริง, โมดูล `web/js` ถูกโหลดครบ, cache-bust, allowlist ของ `Api.gs` ตรงกับฟังก์ชันที่มีจริงใน `gas/*.gs`, manifest ของ web app
+- เพิ่ม `tools/check-gs.js` ตรวจ syntax ของ `gas/**/*.gs` ทุกไฟล์ด้วย `node --check` ก่อน deploy
+- เพิ่ม `.github/workflows/ci.yml` รันทั้งสองอย่างบน push/PR (Node 20) — **ยังไม่ผูกกับ workflow deploy** เพื่อไม่ให้ Pages/GAS หยุดกลางทางถ้าเทสต์แดง
+- คำสั่งในเครื่อง: `npm run check:gs`, `npm test`, `npm run verify` (ไม่ต้องติดตั้ง dependency ภายนอก ใช้ `node:test` เท่านั้น)
+- ผลทดสอบ: 53/53 ผ่าน, `check-gs` ผ่าน 8/8 ไฟล์
+- ไม่มีการเปลี่ยนแปลง frontend/GAS ที่ใช้งานจริง (เพิ่มเฉพาะไฟล์ทดสอบและ CI)
+- หมายเหตุ Windows: `node --test tests/ > ไฟล์` ผ่าน PowerShell ได้เอาต์พุตแบบ UTF-16LE ให้ถอดด้วย `utf16le` หรืออ่านจากหน้าจอโดยตรง
+
 
