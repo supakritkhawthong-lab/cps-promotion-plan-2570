@@ -42,6 +42,8 @@
 │  ├─ ai-staged.test.js         # การแบ่งคำขอ AI 3 ระยะ + responseSchema
 │  ├─ state.test.js             # ปีงบประมาณ/กำหนดเวลา/วันรับรองงบ
 │  ├─ preload.test.js           # ข้อมูล preload ตรวจสอบแล้วต้องไม่ถูกทับ
+│  ├─ uploaded-analysis.test.js # ตัดชื่อหัวข้อซ้ำ/ไม่ทับข้อความ preload
+│  ├─ summary.test.js           # บทสรุปผู้บริหาร + แผนดำเนินการ 3 ระยะ
 │  └─ contract.test.js          # สัญญาระหว่าง index.html / Api.gs / gas
 ├─ .github/workflows/
 │  ├─ pages.yml                 # deploy web/ → GitHub Pages
@@ -77,7 +79,7 @@
 | GitHub repo | ✅ <https://github.com/supakritkhawthong-lab/cps-promotion-plan-2570> (public) |
 | GitHub Pages | ✅ <https://supakritkhawthong-lab.github.io/cps-promotion-plan-2570/> (รอ UI 5 แท็บรอบใหม่) |
 | GitHub Actions (gas-deploy) | 🟡 มี workflow แล้ว — ยังต้องใส่ `CLASPRC_JSON` + `GAS_DEPLOYMENT_ID` ถ้าจะให้ deploy GAS อัตโนมัติ |
-| ชุดทดสอบ + CI | ✅ `node:test` 53 เคส ผ่านทั้งหมด, `check-gs` ผ่าน 8/8 ไฟล์, workflow `ci.yml` รันบน push/PR |
+| ชุดทดสอบ + CI | ✅ `node:test` 62 เคส ผ่านทั้งหมด, `check-gs` ผ่าน 8/8 ไฟล์, workflow `ci.yml` รันบน push/PR |
 
 > ผลทดสอบ Phase 1 อยู่ใน `docs/migration.md` หัวข้อ 1.9 และผล SPA 5 แท็บอยู่ในหัวข้อ 2A
 

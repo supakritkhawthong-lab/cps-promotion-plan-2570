@@ -2977,6 +2977,58 @@
   }
 
   /**
+   * classifyActionPriority_(text) — จัดลำดับความสำคัญของแนวทางแก้ไขจากคำสำคัญ
+   * urgent = กระทบฐานะการเงิน/ความอยู่รอด, long = ข้อมูลยังไม่ครบหรือเป็นงานระยะยาว, อื่น ๆ = ระยะกลาง
+   */
+  function classifyActionPriority_(text) {
+    var t = String(text || '');
+    var urgentWords = [
+      'ขาดทุน', 'สภาพคล่อง', 'หนี้ค้าง', 'หนี้ไม่ก่อให้เกิดรายได้',
+      'ทุนสำรองต่ำ', 'ความเพียงพอของทุน'
+    ];
+    for (var i = 0; i < urgentWords.length; i++) {
+      if (t.indexOf(urgentWords[i]) !== -1) return 'urgent';
+    }
+    var longWords = [
+      'ไม่พบข้อมูล', 'ยังไม่มีข้อมูล', 'ยังไม่มีการ', 'จัดเก็บ',
+      'ข้อมูลไม่เพียงพอ', 'ไม่เพียงพอต่อการประเมิน'
+    ];
+    for (var j = 0; j < longWords.length; j++) {
+      if (t.indexOf(longWords[j]) !== -1) return 'long';
+    }
+    return 'mid';
+  }
+
+  /**
+   * shortText_(text, max) — ตัดข้อความยาวให้อ่านง่ายในแผนดำเนินการ โดยคงสาระสำคัญไว้
+   */
+  function shortText_(text, max) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    var limit = max || 120;
+    if (t.length <= limit) return t;
+    return t.slice(0, limit - 3).replace(/[\s,;:]+$/, '') + '...';
+  }
+
+  /**
+   * plainRiskText_(problem) — แปลงชื่อปัญหาทางเทคนิคให้เป็นภาษาง่ายสำหรับบทสรุปผู้บริหาร
+   */
+  function plainRiskText_(problem) {
+    var t = String(problem || '');
+    if (t.indexOf('ขาดทุนสะสม') !== -1) return 'ขาดทุนสะสม';
+    if (t.indexOf('ขาดทุน') !== -1) return 'ผลการดำเนินงานขาดทุน';
+    if (t.indexOf('สภาพคล่อง') !== -1) return 'สภาพคล่องต่ำกว่าเกณฑ์';
+    if (t.indexOf('หนี้ค้าง') !== -1 || t.indexOf('หนี้ไม่ก่อให้เกิดรายได้') !== -1 ||
+      t.indexOf('คุณภาพสินทรัพย์') !== -1) return 'คุณภาพลูกหนี้และหนี้ค้างชำระ';
+    if (t.indexOf('สวัสดิการ') !== -1) return 'ความต่อเนื่องของการจัดสวัสดิการ';
+    if (t.indexOf('ความเพียงพอของทุน') !== -1 ||
+      (t.indexOf('ทุน') !== -1 && t.indexOf('ต่ำ') !== -1)) return 'ความเพียงพอของทุนต่ำ';
+    if (t.indexOf('พึ่งพิงหนี้สิน') !== -1) return 'การพึ่งพิงหนี้สินสูง';
+    if (t.indexOf('แผนกลยุทธ์') !== -1) return 'ยังไม่มีแผนกลยุทธ์ระยะยาว';
+    if (t.indexOf('ไม่พบข้อมูล') !== -1 || t.indexOf('ยังไม่มีข้อมูล') !== -1) return 'ข้อมูลบางด้านยังไม่ครบถ้วน';
+    return shortText_(t, 100);
+  }
+
+  /**
    * yoyText(curr, prev, unit) — คำนวณ YoY change พร้อม %
    * ถ้าทั้ง curr และ prev > 0: คำนวณ diff และ pct
    * คืนค่า: "(เพิ่มขึ้น/ลดลงจากปีก่อน X บาท หรือร้อยละ Y%)"
@@ -3644,9 +3696,18 @@
     // สรุปปัญหาที่พบจากข้อ 1–3 และจับคู่กับแนวทางดำเนินการแก้ไขเป็นรายประเด็น
     // -------------------------------------------------------------------
     var summary = [];
-    summary.push('สรุปผลการวิเคราะห์');
-    summary.push('(สรุปปัญหาที่พบจากข้อ 1–3 และแนวทางดำเนินการแก้ไขเป็นรายประเด็น)');
-    summary.push('');
+    var actionPool = [];
+    function registerActions(areaNo, problems) {
+      for (var ai = 0; ai < problems.length; ai++) {
+        actionPool.push({
+          areaNo: areaNo,
+          n: ai + 1,
+          problem: problems[ai].p,
+          action: problems[ai].a,
+          priority: classifyActionPriority_(problems[ai].p)
+        });
+      }
+    }
 
     // 4.1 ภาพรวมผลการดำเนินงาน (ข้อมูลอ้างอิงสั้น ๆ)
     summary.push('ภาพรวมผลการดำเนินงาน:');
@@ -3737,6 +3798,7 @@
         summary.push('  แนวทางดำเนินการ: ' + orgProblems[op].a + ' (แก้ไขปัญหาที่ ' + (op + 1) + ')');
       }
     }
+    registerActions(1, orgProblems);
     summary.push('');
 
     // 4.3 ด้านการบริหารจัดการธุรกิจ
@@ -3794,6 +3856,7 @@
         summary.push('  แนวทางดำเนินการ: ' + bizProblems[bp].a + ' (แก้ไขปัญหาที่ ' + (bp + 1) + ')');
       }
     }
+    registerActions(2, bizProblems);
     summary.push('');
 
     // 4.4 ด้านการจัดสวัสดิการและสาธารณประโยชน์ — ปัญหาและแนวทางแก้ไขรายประเด็น
@@ -3852,9 +3915,35 @@
         summary.push('  แนวทางดำเนินการ: ' + welfareProblems[wp].a + ' (แก้ไขปัญหาที่ ' + (wp + 1) + ')');
       }
     }
+    registerActions(3, welfareProblems);
     summary.push('');
 
-    // 4.5 ผลการจัดชั้นความเข้มแข็งและเป้าหมายปีถัดไป
+    // 4.5 แผนดำเนินการเพื่อส่งเสริมสหกรณ์ — จัดลำดับความสำคัญและอ้างอิงหมายเลขปัญหา
+    summary.push('แผนดำเนินการเพื่อส่งเสริมสหกรณ์ (เรียงตามลำดับความสำคัญ):');
+    var priorityGroups = { urgent: [], mid: [], long: [] };
+    for (var pa = 0; pa < actionPool.length; pa++) {
+      priorityGroups[actionPool[pa].priority].push({
+        label: 'ด้านที่ ' + actionPool[pa].areaNo + ' ปัญหาที่ ' + actionPool[pa].n,
+        action: actionPool[pa].action
+      });
+    }
+    function pushPriorityGroup(title, key, emptyText) {
+      summary.push('- ' + title + ':');
+      var items = priorityGroups[key];
+      if (!items.length) {
+        summary.push('  - ' + emptyText);
+        return;
+      }
+      for (var pi = 0; pi < items.length; pi++) {
+        summary.push('  - ' + items[pi].label + ': ' + items[pi].action);
+      }
+    }
+    pushPriorityGroup('เร่งด่วน (ภายใน 3 เดือน)', 'urgent', 'ไม่มีรายการเร่งด่วนจากข้อมูลที่มี');
+    pushPriorityGroup('ระยะกลาง (3–12 เดือน)', 'mid', 'ไม่มีรายการระยะกลางจากข้อมูลที่มี');
+    pushPriorityGroup('ระยะยาว (มากกว่า 1 ปี)', 'long', 'ไม่มีรายการระยะยาวจากข้อมูลที่มี');
+    summary.push('');
+
+    // 4.6 ผลการจัดชั้นความเข้มแข็งและเป้าหมายปีถัดไป
     summary.push('ผลการจัดชั้นความเข้มแข็งและเป้าหมายปี ' + String(mgmtTargetYear) + ':');
     summary.push('- ผลการจัดชั้นความเข้มแข็ง ประจำปี ' + String(mgmtStrengthYear) +
       ' อยู่ในระดับชั้น ' + fmtTextOrPlaceholder(mgmtStrengthClass) +
@@ -3864,12 +3953,93 @@
       ' ในปี ' + String(mgmtTargetYear));
     summary.push('- แนวทางดำเนินการ: ให้หน่วยงานส่งเสริมติดตามการแก้ไขปัญหาตามข้อ 1–3 ข้างต้น โดยเน้นการเสริมความแข็งแกร่งของทุน คุณภาพลูกหนี้ สภาพคล่อง ประสิทธิภาพของแต่ละธุรกิจ และความต่อเนื่องของการจัดสวัสดิการ');
 
+    // 4.7 บทสรุปผู้บริหาร — ภาษาง่าย กระชับ 2–4 ประโยค เพื่อให้เห็นสถานะ จุดแข็ง ความเสี่ยง และเป้าหมาย
+    var execStatus;
+    if (income > 0 || expense > 0 || profit !== 0) {
+      execStatus = 'ในปีบัญชี ' + String(acctYear) + ' สหกรณ์';
+      if (profit > 0) execStatus += 'มีกำไรสุทธิ ' + valOrText(profit);
+      else if (profit < 0) execStatus += 'มีผลขาดทุนสุทธิ ' + valOrText(Math.abs(profit));
+      else execStatus += 'มีผลการดำเนินงานใกล้เคียงจุดคุ้มทุน';
+      if (assets > 0) execStatus += ' มีสินทรัพย์รวม ' + valOrText(assets);
+      if (currentRatio > 0) {
+        execStatus += ' และมีอัตราส่วนทุนหมุนเวียน ' + S.fmt(currentRatio, 2) + ' เท่า';
+      }
+      if (profit > 0 && profitPrev > 0) {
+        var execYoy = yoyText(profit, profitPrev);
+        if (execYoy) execStatus += ' ' + execYoy;
+      }
+    } else {
+      execStatus = 'ยังไม่พบข้อมูลผลการดำเนินงานและฐานะการเงินที่เพียงพอในระบบ';
+    }
+
+    var execStrengths = [];
+    if (profit > 0) execStrengths.push('มีกำไรสุทธิ ' + valOrText(profit));
+    if (capitalAssetRatio >= 20) {
+      execStrengths.push('ฐานทุนแข็งแกร่ง (' + S.fmt(capitalAssetRatio, 1) + '% ของสินทรัพย์รวม)');
+    } else if (capitalAssetRatio >= 10) {
+      execStrengths.push('ฐานทุนอยู่ในเกณฑ์ (' + S.fmt(capitalAssetRatio, 1) + '% ของสินทรัพย์รวม)');
+    }
+    if (currentRatio >= crMin && currentRatio <= crMax) {
+      execStrengths.push('สภาพคล่องอยู่ในเกณฑ์ (' + S.fmt(currentRatio, 2) + ' เท่า)');
+    }
+    if (shortTermPaidRatio >= collectionThresholdCamels) {
+      execStrengths.push('ลูกหนี้ชำระตามกำหนด ' + S.fmt(shortTermPaidRatio, 2) + '%');
+    }
+    if (mgmtStrengthClass) {
+      execStrengths.push('ผลการจัดชั้นความเข้มแข็งระดับ ' + fmtTextOrPlaceholder(mgmtStrengthClass) +
+        (mgmtStrengthTotal > 0 ? ' (' + S.fmt(mgmtStrengthTotal, 2) + ' คะแนน)' : ''));
+    }
+    if (execStrengths.length > 2) execStrengths = execStrengths.slice(0, 2);
+
+    var execRisks = [];
+    function addExecRisk(item) {
+      if (execRisks.length >= 2) return;
+      var label = 'ด้านที่ ' + item.areaNo + ' ปัญหาที่ ' + item.n +
+        ' (' + plainRiskText_(item.problem) + ')';
+      if (execRisks.indexOf(label) === -1) execRisks.push(label);
+    }
+    // ให้ปัญหาที่กระทบผลการดำเนินงานโดยตรง (ขาดทุน) ขึ้นเป็นความเสี่ยงอันดับแรก
+    for (var er0 = 0; er0 < actionPool.length; er0++) {
+      if (actionPool[er0].priority === 'urgent' && actionPool[er0].problem.indexOf('ขาดทุน') !== -1) {
+        addExecRisk(actionPool[er0]);
+      }
+    }
+    for (var er = 0; er < actionPool.length; er++) {
+      if (actionPool[er].priority === 'urgent') addExecRisk(actionPool[er]);
+    }
+    for (var er2 = 0; er2 < actionPool.length; er2++) addExecRisk(actionPool[er2]);
+
+    var urgentCount = 0;
+    for (var uc = 0; uc < actionPool.length; uc++) {
+      if (actionPool[uc].priority === 'urgent') urgentCount++;
+    }
+    var execTarget = 'เป้าหมายในปีงบประมาณ พ.ศ. ' + String(planYear) + ' คือ ';
+    if (mgmtStrengthClass) {
+      execTarget += 'รักษาระดับชั้น ' + fmtTextOrPlaceholder(mgmtTargetClass) + ' และ';
+    }
+    execTarget += urgentCount > 0
+      ? 'แก้ไขปัญหาเร่งด่วน ' + urgentCount + ' รายการให้แล้วเสร็จภายใน 3 เดือน'
+      : 'แก้ไขปัญหาที่พบและยกระดับผลการดำเนินงานให้ดีขึ้น';
+
+    var execSummary = [];
+    execSummary.push('บทสรุปผู้บริหาร');
+    execSummary.push(execStatus);
+    execSummary.push('จุดแข็งที่ควรคงไว้ คือ ' +
+      (execStrengths.length
+        ? execStrengths.join(' และ ')
+        : 'ยังไม่พบจุดแข็งที่มีข้อมูลชัดเจน ควรจัดเก็บข้อมูลพื้นฐานให้ครบถ้วน'));
+    execSummary.push('ความเสี่ยงสำคัญที่ต้องแก้ไข คือ ' +
+      (execRisks.length
+        ? execRisks.join(' และ ')
+        : 'ยังไม่พบความเสี่ยงที่มีนัยสำคัญจากข้อมูลที่มี'));
+    execSummary.push(execTarget);
+    execSummary.push('');
 
     var result = {
       orgAnalysis4M: org.join('\n'),
       businessAnalysis: business.join('\n'),
       welfareAnalysis: welfare.join('\n'),
-      summaryAnalysis: summary.join('\n')
+      summaryAnalysis: execSummary.concat(summary).join('\n')
     };
 
     // ข้อวิเคราะห์ที่ AI สกัดแยกตามหัวข้อจากไฟล์ที่อัปโหลด เป็นแหล่งข้อมูลหลัก
