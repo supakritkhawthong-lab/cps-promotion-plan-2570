@@ -52,6 +52,8 @@
 └─ docs/
    ├─ architecture.md
    ├─ migration.md
+   ├─ upload-data-flow.md
+   ├─ upload-quality-upgrade.md
    ├─ api.md
    └─ data-model.md
 ```
@@ -184,5 +186,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve-web.ps1
 
 - `docs/architecture.md` — ภาพรวมและหน้าที่ของแต่ละส่วน
 - `docs/migration.md` — ขั้นตอนย้ายโค้ดเดิมและแผนพัฒนาเป็นระยะ
+- `docs/upload-data-flow.md` — แผนผังเส้นทางข้อมูลหลังอัปโหลด + ฟิลด์จาก AI ไปยังหน้าจอ/State
+- `docs/upload-quality-upgrade.md` — แผนอัพเกรดคุณภาพข้อมูลอัปโหลด (extraction → contract → validation → safe apply)
 - `docs/api.md` — สัญญา API / วิธีเพิ่ม endpoint
 - `docs/data-model.md` — โครงสร้างชีตปัจจุบัน + ข้อเสนอ schema v2 + โฟลเดอร์ Drive
