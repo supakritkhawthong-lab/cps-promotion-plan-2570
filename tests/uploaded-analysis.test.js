@@ -28,6 +28,36 @@ const SUMMARY_WITH_HEADING =
   '1) ด้านการบริหารจัดการองค์กร (หลัก 4M): - ปัญหาที่ 1: ทุนสำรองต่ำ ' +
   'แนวทางดำเนินการ: จัดสรรกำไรเข้าเป็นทุนสำรอง (แก้ไขปัญหาที่ 1)';
 
+test('บันทึกปีบัญชีและ runId ของบทวิเคราะห์ที่อัปโหลด', function () {
+  const web = setup();
+  web.CPD_AppState.meta.fiscalYear = '2570';
+  web.CPD_AppState.analysis.uploadMeta = { runId: 'up-test-1', fiscalYear: '2570' };
+
+  web.CPD_UI.applyUploadedAnalysisNotes({ orgAnalysis4M: 'บทวิเคราะห์องค์กรจากไฟล์รอบนี้' });
+
+  const a = web.CPD_AppState.analysis;
+  assert.strictEqual(a.uploadedSectionsRunId, 'up-test-1');
+  assert.strictEqual(a.uploadedSectionsFiscalYear, '2570');
+  assert.strictEqual(a.uploadedSectionsStatus, 'partial');
+  assert.strictEqual(a.uploadMeta.notes.sections.join(','), 'orgAnalysis4M');
+  assert.ok(a.uploadMeta.notes.missingSections.indexOf('summaryAnalysis') !== -1);
+});
+
+test('รอบใหม่ไม่มีบทวิเคราะห์บางหัวข้อ ต้องคงข้อความเดิมและติดธง partial', function () {
+  const web = setup();
+  web.CPD_AppState.analysis.uploadMeta = { runId: 'up-test-2', fiscalYear: '2570' };
+  web.CPD_AppState.analysis.uploadedSummaryAnalysis = 'บทสรุปเดิมที่ตรวจแล้ว';
+  web.CPD_AppState.analysis.summaryAnalysis = 'บทสรุปเดิมที่ตรวจแล้ว';
+
+  web.CPD_UI.applyUploadedAnalysisNotes({ orgAnalysis4M: 'บทวิเคราะห์องค์กรรอบใหม่' });
+
+  const a = web.CPD_AppState.analysis;
+  assert.strictEqual(a.summaryAnalysis, 'บทสรุปเดิมที่ตรวจแล้ว', 'ต้องไม่ลบข้อความเดิมทิ้ง');
+  assert.strictEqual(a.uploadedSectionsStatus, 'partial');
+  assert.ok(a.uploadMeta.notes.missingSections.indexOf('summaryAnalysis') !== -1);
+  assert.ok(a.uploadMeta.warnings.some(function (w) { return w.indexOf('ข้อ 4') !== -1; }));
+});
+
 test('ตัดชื่อหัวข้อ 4 ที่ AI พิมพ์ซ้ำกับป้าย textarea', function () {
   const web = setup();
   const applied = web.CPD_UI.applyUploadedAnalysisNotes({ summaryAnalysis: SUMMARY_WITH_HEADING });

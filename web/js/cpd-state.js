@@ -349,6 +349,9 @@
         welfareFundAmount: '',
         publicBenefitFundAmount: '',
         uploadedSectionsCoop: '',
+        uploadedSectionsFiscalYear: '',
+        uploadedSectionsRunId: '',
+        uploadedSectionsStatus: '',
         uploadedOrgAnalysis4M: '',
         uploadedBusinessAnalysis: '',
         uploadedWelfareAnalysis: '',
@@ -356,7 +359,10 @@
         orgAnalysis4M: '',
         businessAnalysis: '',
         welfareAnalysis: '',
-        summaryAnalysis: ''
+        summaryAnalysis: '',
+        // --- Phase 0: metadata ของรอบอัปโหลด (optional, ไม่กระทบโครงสร้างเดิม) ---
+        uploadMeta: null,
+        uploadHistory: []
       },
       scheduleAndActivities: {
         visitFrequencyPerYear: 4,
@@ -404,13 +410,32 @@
 
   function num(value) {
     if (typeof value === 'number') return isFinite(value) ? value : 0;
-    var s = String(value === undefined || value === null ? '' : value)
+    var raw = String(value === undefined || value === null ? '' : value).trim();
+    if (!raw || raw === '-' || raw === '–' || raw === '—') return 0;
+
+    // วงเล็บในงบการเงินหมายถึงค่าลบ: (1,234.50) → -1234.50
+    var negative = /^\(.*\)$/.test(raw);
+    var s = raw
+      .replace(/[๐-๙]/g, function (ch) { return String('๐๑๒๓๔๕๖๗๘๙'.indexOf(ch)); })
       .replace(/,/g, '')
       .replace(/[()]/g, '')
+      .replace(/บาท/g, '')
+      .replace(/\s+/g, '')
       .trim();
     if (!s || s === '-') return 0;
+
+    if (/-$/.test(s)) {
+      negative = true;
+      s = s.replace(/-$/, '');
+    }
+    if (/^-/.test(s)) {
+      negative = true;
+      s = s.replace(/^-/, '');
+    }
+
     var n = Number(s);
-    return isFinite(n) ? n : 0;
+    if (!isFinite(n)) return 0;
+    return negative ? -Math.abs(n) : n;
   }
 
   function fmt(value, dec) {

@@ -102,6 +102,13 @@
         </div>
       </div>
       <div id="aiAlert" class="alert alert-info mt-3 d-none"></div>
+      <div id="uploadReview" class="mt-3 d-none"></div>
+      <div id="uploadRollbackBox" class="mt-2 d-none">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="rollbackLastUpload()">
+          ↩ ย้อนกลับผลอัปโหลดครั้งล่าสุด
+        </button>
+        <span id="uploadMetaHint" class="text-muted small ms-2"></span>
+      </div>
     </div>
   </div>
 
@@ -929,7 +936,10 @@
   // ระบบอ่านและคัดกรองหน้าสำคัญอัจฉริยะ (Smart Fast-Read PDF) โดยไม่ต้องระบุเลขหน้า
   async function smartProcessFile(file, category, maxFallbackPages) {
     if (file.type.startsWith('image/')) {
-      return await compressImageFile(file, category);
+      var img = await compressImageFile(file, category);
+      img.mode = 'image';
+      img.lowTextPdf = true;
+      return img;
     }
     var fileName = String(file.name || '').toLowerCase();
     var isPdf = file.type.includes('pdf') || fileName.endsWith('.pdf');
@@ -939,12 +949,16 @@
       try {
         var docText = await extractDocText(file);
         if (docText && docText.length > 40) {
-          return { name: file.name, category: category, extractedText: docText.substring(0, 40000) };
+          return {
+            name: file.name, category: category, extractedText: docText.substring(0, 40000),
+            mode: 'doc', chars: docText.length, truncated: docText.length > 40000
+          };
         }
       } catch (e) { console.warn('DOC extract fallback:', e); }
       var docRaw = await fileToBase64(file);
       docRaw.category = category;
       docRaw.mimeType = 'application/msword';
+      docRaw.mode = 'doc';
       return docRaw;
     }
 
@@ -953,12 +967,16 @@
       try {
         var docxText = await extractDocxText(file);
         if (docxText && docxText.length > 40) {
-          return { name: file.name, category: category, extractedText: docxText.substring(0, 40000) };
+          return {
+            name: file.name, category: category, extractedText: docxText.substring(0, 40000),
+            mode: 'docx', chars: docxText.length, truncated: docxText.length > 40000
+          };
         }
       } catch (e) { console.warn('DOCX extract fallback:', e); }
       var docxRaw = await fileToBase64(file);
       docxRaw.category = category;
       docxRaw.mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      docxRaw.mode = 'docx';
       return docxRaw;
     }
 
@@ -967,18 +985,24 @@
       try {
         var xlsxText = await extractXlsxText(file);
         if (xlsxText && xlsxText.length > 20) {
-          return { name: file.name, category: category, extractedText: xlsxText.substring(0, 40000) };
+          return {
+            name: file.name, category: category, extractedText: xlsxText.substring(0, 40000),
+            mode: 'xlsx', chars: xlsxText.length, truncated: xlsxText.length > 40000
+          };
         }
       } catch (e) { console.warn('XLSX extract fallback:', e); }
       var xlsxRaw = await fileToBase64(file);
       xlsxRaw.category = category;
       xlsxRaw.mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      xlsxRaw.mode = 'xlsx';
       return xlsxRaw;
     }
 
     if (!isPdf) {
       const raw = await fileToBase64(file);
       raw.category = category;
+      raw.mode = 'binary';
+      raw.lowTextPdf = true;
       return raw;
     }
 
@@ -1015,6 +1039,11 @@
           return {
             name: file.name,
             category: category,
+            mode: 'text',
+            totalPages: numPages,
+            pagesRead: extractedPagesText.length,
+            chars: profileText.length,
+            truncated: profileText.length > 35000,
             extractedText: profileText.substring(0, 35000),
             profileExtract: (window.CPD_PRELOAD && typeof window.CPD_PRELOAD.parseSmartCoopProfile === 'function')
               ? window.CPD_PRELOAD.parseSmartCoopProfile(profileText) : null
@@ -1033,7 +1062,10 @@
           const copiedPages = await newDoc.copyPages(srcDoc, indices);
           copiedPages.forEach(page => newDoc.addPage(page));
           const base64Sliced = await newDoc.saveAsBase64();
-          return { name: file.name, category: category, mimeType: 'application/pdf', base64: base64Sliced, lowTextPdf: true };
+          return {
+            name: file.name, category: category, mimeType: 'application/pdf', base64: base64Sliced,
+            mode: 'scan', lowTextPdf: true, totalPages: totalPages, pagesRead: limit, truncated: totalPages > limit
+          };
         }
       }
     } catch (e) {
@@ -1042,6 +1074,7 @@
 
     const fallback = await fileToBase64(file);
     fallback.category = category;
+    fallback.mode = 'binary';
     fallback.lowTextPdf = true;
     return fallback;
   }
@@ -1092,6 +1125,47 @@
     return res;
   }
 
+  /**
+   * แสดงสถานะรอบอัปโหลดล่าสุด + ปุ่มย้อนกลับ
+   */
+  function refreshUploadMetaHint() {
+    var box = document.getElementById('uploadRollbackBox');
+    var hint = document.getElementById('uploadMetaHint');
+    if (!box || !hint) return;
+    var meta = window.CPD_AppState && window.CPD_AppState.analysis && window.CPD_AppState.analysis.uploadMeta;
+    if (!meta) {
+      box.classList.add('d-none');
+      hint.textContent = '';
+      return;
+    }
+    var counts = meta.counts || {};
+    box.classList.remove('d-none');
+    hint.textContent = 'รอบ ' + (meta.runId || '-') +
+      ' • ปี ' + (meta.fiscalYear || '-') +
+      ' • เติม ' + (counts.updated || 0) + ' ฟิลด์' +
+      ' • รอตรวจ ' + (counts.review || 0) + ' ฟิลด์' +
+      ' • ไม่พบ ' + (counts.missing || 0) + ' ฟิลด์';
+  }
+
+  /**
+   * ย้อนกลับผลอัปโหลดครั้งล่าสุด (snapshot ที่เก็บไว้ตอน commit)
+   */
+  function rollbackLastUpload() {
+    if (!window.CPD_UPLOAD || typeof window.CPD_UPLOAD.rollback !== 'function') return;
+    var restored = window.CPD_UPLOAD.rollback({ document: document });
+    if (!restored) {
+      if (window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
+        window.CPD_UI.showToast('ไม่พบผลอัปโหลดให้ย้อนกลับ', 'warning');
+      }
+      return;
+    }
+    refreshUploadMetaHint();
+    if (typeof window.CPD_scheduleSync === 'function') window.CPD_scheduleSync();
+    if (window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
+      window.CPD_UI.showToast('ย้อนกลับผลอัปโหลดแล้ว ' + restored + ' ฟิลด์', 'success');
+    }
+  }
+
   async function runAIAnalysis() {
     if (currentCoopIndex < 0) { alert("กรุณาเลือกชื่อสหกรณ์ก่อนครับ"); return; }
     const c = masterCoops[currentCoopIndex];
@@ -1137,92 +1211,42 @@
         btn.disabled = false;
         btn.textContent = "⚡ ประมวลผลเอกสารความเร็วสูงด้วย AI (ดึงตัวเลขและเกลาสำนวนราชการ)";
 
-        // TASK 4: ถ้าเป็น PDF สแกนภาพ ห้ามเขียนทับตัวเลขเดิม/ข้อมูล preload ด้วยค่า 0
-        if (hasLowTextPdf && res && typeof res === 'object') {
-          Object.keys(res).forEach(k => {
-            if (/(Latest|Prev)$/.test(k) && (res[k] === 0 || res[k] === '0' || res[k] === '0.00')) delete res[k];
-          });
-        }
+        var upload = window.CPD_UPLOAD;
+        var beforeValues = upload ? upload.captureValues(document) : {};
+        var fileMeta = upload ? upload.normalizeFiles(filesToUpload) : [];
+        if (!res || typeof res !== 'object') res = {};
 
-        if (res.district) document.getElementById('district').value = res.district;
-        if (res.regDate) document.getElementById('reg_date').value = res.regDate;
-        if (res.boardCount) document.getElementById('board_count').value = res.boardCount;
-        if (res.auditorType) { document.getElementById('auditor_type').value = res.auditorType.includes('เอกชน') ? 'ภาคเอกชน' : 'ภาครัฐ'; onAuditorTypeChange(); }
-        if (res.auditorName) {
-          if (res.auditorName.includes('พรทิพย์')) document.getElementById('gov_auditor_name').value = 'พรทิพย์';
-          else if (res.auditorName.includes('คนึงศรี')) document.getElementById('gov_auditor_name').value = 'คนึงศรี';
-          else document.getElementById('priv_auditor_name').value = res.auditorName;
-        }
-        if (res.fiscalDateFull) setFiscalDropdownByText(res.fiscalDateFull);
-        if (res.inspectorCount) document.getElementById('inspector_count').value = res.inspectorCount;
-        if (res.inspectorName) document.getElementById('inspector_name').value = res.inspectorName;
-
-        // คำนวณ Year N-1 จากข้อความ "เพิ่มขึ้น/ลดลง" ก่อนเติมลงช่องทั้งหมด
+        // คำนวณ Year N-1 จากข้อความ "เพิ่มขึ้น/ลดลง" ก่อนจัดแผนเติมค่า
         applyClientDeltaFallback(res);
 
-        if (res.yrLatest) document.getElementById('yr_latest').value = res.yrLatest;
-        if (res.yrPrev) document.getElementById('yr_prev').value = res.yrPrev;
-        if (res.memLatest) document.getElementById('mem_latest').value = res.memLatest;
-        if (res.memPrev) document.getElementById('mem_prev').value = res.memPrev;
-        if (res.assetLatest) document.getElementById('asset_latest').value = res.assetLatest;
-        if (res.assetPrev) document.getElementById('asset_prev').value = res.assetPrev;
-        if (res.debtLatest) document.getElementById('debt_latest').value = res.debtLatest;
-        if (res.debtPrev) document.getElementById('debt_prev').value = res.debtPrev;
-        if (res.shareLatest) document.getElementById('share_latest').value = res.shareLatest;
-        if (res.sharePrev) document.getElementById('share_prev').value = res.sharePrev;
-        if (res.reserveLatest) document.getElementById('reserve_latest').value = res.reserveLatest;
-        if (res.reservePrev) document.getElementById('reserve_prev').value = res.reservePrev;
-        if (res.profitLatest) document.getElementById('profit_latest').value = res.profitLatest;
-        if (res.profitPrev) document.getElementById('profit_prev').value = res.profitPrev;
-        if (res.lossLatest) document.getElementById('loss_latest').value = res.lossLatest;
-        if (res.lossPrev) document.getElementById('loss_prev').value = res.lossPrev;
-        if (res.bizVolLatest) document.getElementById('biz_vol_latest').value = res.bizVolLatest;
-        if (res.bizVolPrev) document.getElementById('biz_vol_prev').value = res.bizVolPrev;
-        if (res.businessTypes) document.getElementById('business_types').value = res.businessTypes;
-
-        // ผลการดำเนินงานฉบับละเอียด Year N / Year N-1
-        const detailMap = [
-          ['agmAttendees', 'agm_attend'], ['membersDeposit', 'mem_biz_deposit'],
-          ['membersTrading', 'mem_biz_trading'], ['membersProcessing', 'mem_biz_processing'],
-          ['wc', 'wc'], ['coopCap', 'coopcap'], ['loan', 'loan'],
-          ['payable', 'payable'], ['cash', 'cash'], ['inventory', 'inventory'],
-          ['ppe', 'ppe'], ['receivable', 'receivable'], ['otherAsset', 'otherasset'],
-          ['income', 'income'], ['expense', 'expense'],
-          ['salesTrading', 'sales_trading'], ['costTrading', 'cost_trading'],
-          ['profitTrading', 'profit_biz_trading'], ['planTrading', 'plan_trading'],
-          ['salesProcessing', 'sales_processing'], ['costProcessing', 'cost_processing'],
-          ['profitProcessing', 'profit_biz_processing'], ['planProcessing', 'plan_processing'],
-          ['depositAmount', 'deposit_amount'], ['profitDeposit', 'profit_biz_deposit'],
-          ['avgProfit3', 'avgprofit3'], ['avgSaving', 'avgsaving'],
-          ['avgDebt', 'avgdebt'], ['staffCount', 'staff_count']
-        ];
-        detailMap.forEach(pair => {
-          const latestEl = document.getElementById(pair[1] + '_latest');
-          const prevEl = document.getElementById(pair[1] + '_prev');
-          if (latestEl && res[pair[0] + 'Latest'] !== undefined) latestEl.value = res[pair[0] + 'Latest'];
-          if (prevEl && res[pair[0] + 'Prev'] !== undefined) prevEl.value = res[pair[0] + 'Prev'];
-        });
-        if (res.targetProjects) document.getElementById('target_projects').value = res.targetProjects;
+        // Phase 0: วางแผนแบบ field-level diff — ไม่ทับค่าที่มีอยู่โดยไม่แจ้ง
+        var uploadPlan = null;
+        var appliedRecords = [];
+        if (upload) {
+          var prevMeta = window.CPD_AppState && window.CPD_AppState.analysis && window.CPD_AppState.analysis.uploadMeta;
+          uploadPlan = upload.plan(res, {
+            formValues: beforeValues,
+            files: fileMeta,
+            fiscalYear: document.getElementById('fiscal_year').value,
+            previousFields: (prevMeta && prevMeta.fields) || {}
+          });
+          appliedRecords = upload.applyPlan(uploadPlan, { document: document });
+        }
 
         if (res.assetNumeric) currentAssetNumeric = Number(res.assetNumeric);
         generate12MonthSchedule();
         validateAccountingEquation();
 
-        if (res.issue1) document.getElementById('issue_1').value = res.issue1;
-        if (res.issue2) document.getElementById('issue_2').value = res.issue2;
-        if (res.issue3) document.getElementById('issue_3').value = res.issue3;
-        if (res.promotionGoals) document.getElementById('promotion_goals').value = res.promotionGoals;
-        if (res.visitRemark) document.getElementById('visit_remark').value = res.visitRemark;
-
         // TASK 4: ผสานข้อมูลจากใบโปรไฟล์ Smart Coop (regex ข้อ 1–47) เฉพาะช่องที่ยังว่าง
+        var profileFilledIds = [];
         if (profileExtract && (Object.keys(profileExtract.form).length || Object.keys(profileExtract.details).length)) {
           Object.keys(profileExtract.form).forEach(k => {
             const el = document.getElementById(k);
-            if (el && !String(el.value || '').trim()) el.value = profileExtract.form[k];
+            if (el && !String(el.value || '').trim()) { el.value = profileExtract.form[k]; profileFilledIds.push(k); }
           });
           Object.keys(profileExtract.details).forEach(k => {
             const el = document.getElementById(k);
-            if (el && !String(el.value || '').trim()) el.value = profileExtract.details[k];
+            if (el && !String(el.value || '').trim()) { el.value = profileExtract.details[k]; profileFilledIds.push(k); }
           });
           const memberMale = profileExtract.form.member_male;
           const memberFemale = profileExtract.form.member_female;
@@ -1230,9 +1254,42 @@
           if (memEl && !String(memEl.value || '').trim() && memberMale !== undefined && memberFemale !== undefined) {
             const total = Number(profileExtract.form.mem_latest ? String(profileExtract.form.mem_latest).split('/')[0] : 0) || (Number(memberMale) + Number(memberFemale));
             memEl.value = total + '/' + total + '/0';
+            profileFilledIds.push('mem_latest');
           }
           onAuditorTypeChange();
           validateAccountingEquation();
+        }
+
+        // Phase 0: เก็บ snapshot + metadata ของรอบอัปโหลด (ใช้ย้อนกลับได้)
+        if (upload && uploadPlan) {
+          upload.commit(uploadPlan, {
+            before: beforeValues,
+            applied: appliedRecords,
+            extraIds: profileFilledIds,
+            env: { state: window.CPD_AppState, document: document }
+          });
+          refreshUploadMetaHint();
+
+          // แสดงรายการที่ "ไม่ถูกเติมอัตโนมัติ" ให้ผู้ใช้เลือกเอง
+          upload.renderReview(uploadPlan, document.getElementById('uploadReview'), {
+            onApply: function (ids) {
+              if (!ids || !ids.length) return;
+              var records = upload.applyPlan(uploadPlan, { document: document }, ids);
+              upload.commit(uploadPlan, {
+                before: beforeValues,
+                applied: records,
+                env: { state: window.CPD_AppState, document: document }
+              });
+              validateAccountingEquation();
+              refreshUploadMetaHint();
+              if (typeof window.CPD_scheduleSync === 'function') window.CPD_scheduleSync();
+              if (typeof window.CPD_autoPipeline === 'function') window.CPD_autoPipeline();
+              else if (window.CPD_UI && typeof window.CPD_UI.autoPipeline4M === 'function') window.CPD_UI.autoPipeline4M();
+              if (window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
+                window.CPD_UI.showToast('ใช้ค่าที่เลือก ' + ids.length + ' ฟิลด์แล้ว', 'success');
+              }
+            }
+          });
         }
 
         const aiWarnings = Array.isArray(res._aiWarnings) ? res._aiWarnings.filter(Boolean) : [];
@@ -1389,6 +1446,7 @@
 <script src="js/cpd-mis-reports.js?v=20260214a"></script>
 <script src="js/cpd-4m-engine.js?v=20260214b"></script>
 <script src="js/cpd-business-analysis.js?v=20260214f"></script>
+<script src="js/cpd-upload.js?v=20261116a"></script>
 <script src="js/cpd-ui.js?v=20261112a"></script>
 </body>
 </html>

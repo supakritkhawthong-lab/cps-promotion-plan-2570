@@ -292,6 +292,10 @@
     var preAuditorText = String(preAnalysis.auditorObservations || '').trim();
     var preDefectsText = String(preAnalysis.coopDefects || '').trim();
     var applied = false;
+    var runId = String((s.analysis.uploadMeta && s.analysis.uploadMeta.runId) || '');
+    var fiscalYear = String((s.meta && s.meta.fiscalYear) || '');
+    var appliedNotes = [];
+    var appliedSections = [];
 
     function setText(key, value, verified) {
       var text = aiText(value);
@@ -304,6 +308,7 @@
       var box = document.querySelector('[data-cpd="analysis.' + key + '"]');
       if (box) box.value = text;
       applied = true;
+      if (appliedNotes.indexOf(key) === -1) appliedNotes.push(key);
       return true;
     }
 
@@ -336,10 +341,14 @@
       if (verified && String(verified).trim()) return false;
       s.analysis[uploadedKey] = text;
       s.analysis.uploadedSectionsCoop = s.coopProfile.coopName || '';
+      s.analysis.uploadedSectionsFiscalYear = fiscalYear;
+      s.analysis.uploadedSectionsRunId = runId;
+      s.analysis.uploadedSectionsStatus = 'uploaded';
       s.analysis[displayKey] = text;
       var box = document.querySelector('[data-cpd="analysis.' + displayKey + '"]');
       if (box) box.value = text;
       applied = true;
+      if (appliedSections.indexOf(displayKey) === -1) appliedSections.push(displayKey);
       return true;
     }
     setUploadedSection('orgAnalysis4M', 'uploadedOrgAnalysis4M', res.orgAnalysis4M, preOrgText,
@@ -403,6 +412,34 @@
           correctionStatus: status
         };
         applied = true;
+      }
+    }
+
+    // Phase 0: บันทึกว่าข้อความชุดใดถูกใช้ในรอบนี้ และหัวข้อใดไม่มีในรอบนี้
+    if (s.analysis.uploadMeta) {
+      var missingSections = ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis', 'summaryAnalysis']
+        .filter(function (k) { return appliedSections.indexOf(k) === -1; });
+      s.analysis.uploadMeta.notes = {
+        runId: runId,
+        fiscalYear: fiscalYear,
+        applied: appliedNotes,
+        sections: appliedSections,
+        missingSections: missingSections
+      };
+      if (appliedSections.length && missingSections.length) {
+        s.analysis.uploadedSectionsStatus = 'partial';
+        var sectionLabels = {
+          orgAnalysis4M: 'ข้อ 1', businessAnalysis: 'ข้อ 2',
+          welfareAnalysis: 'ข้อ 3', summaryAnalysis: 'ข้อ 4'
+        };
+        var staleMsg = 'รอบนี้ไม่มีบทวิเคราะห์ ' +
+          missingSections.map(function (k) { return sectionLabels[k] || k; }).join(', ') +
+          ' — ใช้ข้อความเดิมของสหกรณ์';
+        var metaWarnings = Array.isArray(s.analysis.uploadMeta.warnings)
+          ? s.analysis.uploadMeta.warnings.slice() : [];
+        if (metaWarnings.indexOf(staleMsg) === -1) metaWarnings.push(staleMsg);
+        s.analysis.uploadMeta.warnings = metaWarnings;
+        if (typeof showToast === 'function') showToast(staleMsg, 'warning');
       }
     }
 
@@ -754,6 +791,10 @@
     renderMonthlyVolume();
     renderActivities();
     updateOutputs();
+    // Phase 0: อัปเดตกล่องสถานะ/ปุ่มย้อนกลับหลังโหลดร่างหรือเปลี่ยนสหกรณ์
+    if (typeof global.refreshUploadMetaHint === 'function') {
+      try { global.refreshUploadMetaHint(); } catch (e) { /* ignore */ }
+    }
   };
 
   // =========================================================================
@@ -3440,7 +3481,10 @@
       ' และมีเป้าหมายรักษาระดับชั้น ' + fmtTextOrPlaceholder(mgmtTargetClass) +
       ' ในปี ' + String(mgmtTargetYear));
     var analysisInfo = s.analysis || {};
-    var uploadedForThisCoop = String(analysisInfo.uploadedSectionsCoop || '') === String(coopName || '');
+    var currentFy = String((s.meta && s.meta.fiscalYear) || '');
+    var uploadedFy = String(analysisInfo.uploadedSectionsFiscalYear || '');
+    var uploadedForThisCoop = String(analysisInfo.uploadedSectionsCoop || '') === String(coopName || '') &&
+      (!uploadedFy || !currentFy || uploadedFy === currentFy);
     var uploadedOrg = uploadedForThisCoop ? String(analysisInfo.uploadedOrgAnalysis4M || '').trim() : '';
     var uploadedBiz = uploadedForThisCoop ? String(analysisInfo.uploadedBusinessAnalysis || '').trim() : '';
     var uploadedWelfare = uploadedForThisCoop ? String(analysisInfo.uploadedWelfareAnalysis || '').trim() : '';
