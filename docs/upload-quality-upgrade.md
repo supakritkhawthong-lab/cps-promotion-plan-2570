@@ -23,7 +23,7 @@
 
 | # | จุดเสี่ยง | ผลกระทบ | ตำแหน่งในโค้ด |
 | --- | --- | --- | --- |
-| 1 | PDF ถูกอ่านสูงสุด 25 หน้า และตัดที่ ~35,000 ตัวอักษร | ข้อมูลหน้าหลังหรือตารางยาวหายเงียบ ๆ | `smartProcessFile()` ใน `web/index.html` |
+| 1 | ~~PDF ถูกอ่านสูงสุด 25 หน้า และตัดที่ ~35,000 ตัวอักษร~~ → **แก้แล้วใน Phase 1A** (อ่านทุกหน้า, ตัดที่ขอบหน้า, coverage) | ข้อมูลหน้าหลังหรือตารางยาวหายเงียบ ๆ | `smartProcessFile()` ใน `web/index.html` |
 | 2 | ข้อความ PDF จาก PDF.js ถูกยุบเป็นบรรทัดเดียว | หัวข้อกับตัวเลขสลับคู่กันได้ง่าย | `smartProcessFile()` |
 | 3 | ระยะ `facts` ขอ ~106 ฟิลด์ในครั้งเดียว | ฟิลด์จับคู่ผิด/ตอบไม่ครบ/ถูกตัด | `AI_FACT_STRING_FIELDS_`, `buildFactResponseSchema_()` |
 | 4 | AI ใช้ `0` หรือค่าว่างแทน "ไม่พบ" ปนกัน | แยกไม่ได้ว่าศูนย์จริงหรืออ่านไม่เจอ | `AI_FACT_STRING_FIELDS_` |
@@ -42,31 +42,37 @@
 
 ### 3.1 อ่านแบบมี manifest ต่อไฟล์
 
-ให้ `smartProcessFile()` คืนข้อมูลเพิ่ม:
+ให้ `smartProcessFile()` คืนข้อมูลเพิ่ม (✅ ลงแล้วใน Phase 1A):
 
 ```js
 {
   name: 'งบการเงิน 2568.pdf',
   category: 'งบการเงิน/รายงานสอบบัญชี',
-  extractedText: '...',
-  pages: [1, 2, 3, 12, 13],
+  extractedText: '[หน้า 1] ...\n[หน้า 3] ...',
   totalPages: 48,
-  chars: 35210,
+  pagesRead: 41,           // จำนวนหน้าที่ส่งเข้า AI
+  chars: 52310,
   mode: 'text' | 'scan' | 'docx' | 'xlsx',
-  sha256: '...'
+  coverage: {
+    totalPages: 48, pagesRead: 48, pagesIncluded: 41,
+    pagesSkipped: [7, 8, 22], skippedCount: 7,
+    pagesSkippedHighScore: [8], charsTotal: 120000, charsSent: 52310,
+    complete: false
+  }
 }
 ```
 
 ประโยชน์:
-- รู้ว่าอ่านไปกี่หน้าจากทั้งหมด
-- ตรวจไฟล์ซ้ำด้วย hash
-- ตรวจย้อนกลับได้ว่าข้อมูลมาจากไฟล์ใด
+- รู้ว่าอ่านไปกี่หน้าจากทั้งหมด และหน้าใดถูกข้าม
+- ตรวจย้อนหลังได้ว่าข้อมูลมาจากไฟล์ใด
+- `sha256` สำหรับตรวจไฟล์ซ้ำยังเป็นงานของ Phase 1D
 
 ### 3.2 ไม่ตัดข้อความแบบเงียบ ๆ
 
-- ถ้าเอกสารยาว ให้แบ่งเป็นช่วงหน้า (เช่น 8–10 หน้าต่อช่วง) แล้วสกัด facts ต่อช่วง
+- ✅ Phase 1A: ทุกไฟล์ถูกตัดที่ **ขอบหน้า** ตาม budget 55,000 ตัวอักษร/ไฟล์ และ 180,000 ตัวอักษรรวม พร้อมแสดง coverage ให้ผู้ใช้เห็น
+- ยังเหลือ Phase 1C: แบ่งข้อความเป็นช่วงหน้า (8–10 หน้าต่อช่วง) แล้วสกัด facts ต่อช่วง
 - รวมผลด้วยกติกา: ค่าที่มีหลักฐานชัดกว่า/ไฟล์ที่มีลำดับความน่าเชื่อถือสูงกว่าชนะ
-- แสดงให้ผู้ใช้เห็น "อ่านแล้ว 32/48 หน้า" และเตือนถ้ายังมีหน้าสำคัญที่ไม่ได้อ่าน
+- ✅ แสดง "อ่าน 48/48 หน้า • ส่งเข้า AI 41 หน้า • ข้าม 7 หน้า" และเตือนถ้ายังมีหน้าสำคัญที่ไม่ได้อ่าน
 
 ### 3.3 รักษาโครงสร้างตาราง
 
@@ -235,7 +241,9 @@ analysis.uploadMeta.previous = {
 | ระยะ | สิ่งที่ทำ | ผลลัพธ์ | ไฟล์หลัก |
 | --- | --- | --- | --- |
 | **Phase 0** ✅ *(ดำเนินการแล้ว)* | safe merge + diff + snapshot, null/0 semantics, per-file scan flag, year/run metadata, เตือนหัวข้อที่รอบใหม่ไม่มี | ข้อมูลเดิมไม่หาย, รู้ว่าอะไรเปลี่ยน | `web/js/cpd-upload.js`, `web/index.html`, `web/js/cpd-ui.js`, `web/js/cpd-state.js` |
-| **Phase 1** | chunk extraction ต่อไฟล์/หน้า + provenance, normalize ตัวเลข, validation engine, หน้า review | ตรวจย้อนกลับได้, ลดการจับคู่ผิด | `web/index.html`, `gas/Code.gs`, `web/js/cpd-ui.js`, `tests/` |
+| **Phase 1A** ✅ *(ดำเนินการแล้ว)* | อ่านทุกหน้า (150 หน้า / 45 วินาที), page scoring, budget ต่อไฟล์ 55k + รวม 180k, coverage UI, ไม่ตัดกลางหน้า | PDF ดิจิทัลอ่านครบขึ้นและรู้ว่าขาดหน้าใด | `web/index.html`, `web/js/cpd-upload.js`, `tests/` |
+| **Phase 1B** | evidence windows + อ่านซ้ำเฉพาะฟิลด์ที่ขาด | เก็บเลขที่หลุดจากการตัดข้อความได้แม่นขึ้น | `web/index.html`, `gas/Code.gs` |
+| **Phase 1C** | chunked facts ต่อช่วงหน้า + merge + provenance | ไฟล์ 100 หน้าอ่านครบโดยไม่เกินเวลา GAS | `web/index.html`, `gas/Code.gs`, `web/js/cpd-upload.js` |
 | **Phase 2** | layout-aware table extraction, ส่งภาพหน้าสำคัญ, OCR confidence, double-pass ฟิลด์วิกฤต, conflict priority | ข้อมูลตารางแม่นขึ้น, ลด hallucination | `web/index.html`, `gas/Code.gs` |
 | **Phase 3** | audit log ต่อรอบ, เก็บ hash/ไฟล์ต้นฉบับ (ถ้าอนุญาต), quality dashboard, prompt/schema versioning | ตรวจสอบย้อนหลังและวัดคุณภาพได้ | `gas/CPD_Database.gs`, docs |
 
@@ -268,7 +276,30 @@ analysis.uploadMeta.previous = {
   - `applyUploadedAnalysisNotes()` บันทึก `runId`/ปีบัญชี/หัวข้อที่ใช้ และเตือนหัวข้อที่รอบใหม่ไม่มี (สถานะ `partial`)
   - `analyze4M` แสดงบทวิเคราะห์ที่อัปโหลดเฉพาะเมื่อชื่อสหกรณ์ **และ** ปีบัญชีตรงกัน
 
-**เทสต์:** `tests/upload-plan.test.js` (17 เทสต์) + `tests/uploaded-analysis.test.js` เพิ่ม 2 เทสต์ → `npm run verify` ผ่าน 81/81
+**เทสต์:** `tests/upload-plan.test.js` (26 เทสต์) + `tests/uploaded-analysis.test.js` 2 เทสต์ → `npm run verify` ผ่าน 90/90
+
+### 7.2 Phase 1A — สิ่งที่ลงโค้ดแล้ว
+
+**`web/js/cpd-upload.js` — ฟังก์ชันใหม่ (pure/testable)**
+
+| ฟังก์ชัน | หน้าที่ |
+| --- | --- |
+| `scorePageText(text, pageNo)` | ให้คะแนนหน้า: หัวข้อการเงิน +3/คำ (สูงสุด 9), คำสำคัญ +1/คำ (สูงสุด 5), ตัวเลขหนาแน่นสูงสุด +6, ตารางตัวเลข +3, หน้า 1–3 +2 |
+| `selectPages(pages, opts)` | เลือกหน้า 1–3 เสมอ + หน้าคะแนนสูงจนเต็ม `maxChars` (ค่าเริ่มต้น 55,000) แล้วคืนข้อความเรียงตามหน้า พร้อม `pagesSelected`, `pagesSkipped`, `skippedCount`, `pagesSkippedHighScore`, `complete` |
+| `trimFileToChars(file, target)` | ตัดข้อความที่ **ขอบหน้า** เท่านั้น โดยตัดหน้าที่คะแนนต่ำสุดก่อน (เก็บหน้า 1–3 และหน้าสำคัญท้ายไฟล์) แล้วอัปเดต `coverage` |
+| `applyTotalBudget(files, opts)` | จำกัดตัวอักษรรวม (180,000) โดยตัดไฟล์ที่ใหญ่ที่สุดก่อน และไม่ตัดต่ำกว่า `minPerFile` (12,000) |
+| `pagePartsFromText()` / `pageNumbersFromText()` | แยก/อ่านเลขหน้าจากข้อความที่ทำเครื่องหมาย `[หน้า N]` |
+| `normalizeFiles()` | เก็บ `coverage` (อ่าน/ส่ง/ข้าม/หน้าที่มีคะแนนสูง) ลง `uploadMeta` แบบจำกัดขนาด |
+
+**`web/index.html`**
+
+- `smartProcessFile()` อ่าน PDF ทุกหน้า (สูงสุด 150 หน้า / 45 วินาที) แล้วเรียก `selectPages()` — ไม่มี `scanLimit = 25` และไม่มี `substring(0, 35000)` อีก
+- เพิ่ม `trimTextAtLineBoundary()` สำหรับ DOC/DOCX/XLSX (ตัดที่ขอบบรรทัด ไม่ตัดกลางบรรทัด)
+- `runAIAnalysis()` เรียก `applyTotalBudget()` ก่อนส่ง payload และแสดงการ์ด `#uploadCoverage` ผ่าน `renderUploadCoverage()`
+- `plan()` สร้างคำเตือนจาก `coverage`: อ่านกี่หน้า / ส่งเข้า AI กี่หน้า / ข้ามกี่หน้า / หน้าที่มีแนวโน้มสำคัญแต่ยังไม่ได้ส่ง
+- bump cache เป็น `cpd-upload.js?v=20261116c`
+
+**ยังไม่ทำในรอบนี้:** 1B (evidence windows), 1C (chunked facts + merge/provenance), 1D (scan batches + hash cache) — ต้องแตะ `gas/Code.gs` และ deploy GAS
 
 ---
 

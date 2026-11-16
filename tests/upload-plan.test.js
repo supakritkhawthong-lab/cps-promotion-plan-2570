@@ -330,3 +330,206 @@ test('plan: fields ที่มี id ไม่ซ้ำกัน (กันก�
     seen[def.id] = true;
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1A: page scoring / selection / per-file + total budget
+// ---------------------------------------------------------------------------
+
+function makePages(count) {
+  const pages = [];
+  for (let p = 1; p <= count; p++) {
+    let text = 'ข้อความทั่วไป ' + p + ' ' + 'รายละเอียด '.repeat(3);
+    if (p <= 3) text = 'ข้อมูลพื้นฐาน ' + p + ' ' + 'คำอธิบาย '.repeat(3);
+    if (p === 8) text = 'งบฐานะการเงิน รวมสินทรัพย์ 1,234.50 หนี้สิน 2,345.60 กำไร 3,456.70 ทุนเรือนหุ้น 4,567.80';
+    pages.push({ page: p, text: text });
+  }
+  return pages;
+}
+
+function makeFile(name, pages) {
+  const text = pages.map(function (t, i) { return '[หน้า ' + (i + 1) + '] ' + t; }).join('\n');
+  return {
+    name: name,
+    mode: 'text',
+    extractedText: text,
+    chars: text.length,
+    pagesRead: pages.length,
+    coverage: {
+      totalPages: pages.length,
+      pagesRead: pages.length,
+      pagesIncluded: pages.length,
+      pagesSkipped: [],
+      skippedCount: 0,
+      pagesSkippedHighScore: [],
+      charsTotal: text.length,
+      charsSent: text.length,
+      complete: true
+    }
+  };
+}
+
+test('scorePageText: หน้างบการเงินได้คะแนนสูงกว่าหน้าปก และตรวจพบตัวเลข/ตาราง', function () {
+  const web = setup();
+  const score = web.CPD_UPLOAD.scorePageText;
+  const cover = score('รายงานประจำปี 2569 สหกรณ์ทดสอบ จำกัด', 1);
+  const fin = score('งบฐานะการเงิน ณ วันที่ 31 มีนาคม 2569 รวมสินทรัพย์ 12,345,678.90 รวมหนี้สิน 5,000,000.00 ทุนเรือนหุ้น 3,000,000.00 ทุนสำรอง 1,500,000.00', 20);
+  const table = score('1,234.00 2,345.00 3,456.00 4,567.00 5,678.00 6,789.00', 30);
+
+  assert.ok(fin.score > cover.score, 'หน้างบควรได้คะแนนมากกว่าหน้าปก');
+  assert.ok(fin.numbers >= 4);
+  assert.ok(fin.reasons.length > 0);
+  assert.ok(table.score >= 4, 'ตารางตัวเลขควรได้คะแนนนำ');
+  assert.strictEqual(web.CPD_UPLOAD.countNumberTokens(''), 0);
+  assert.strictEqual(web.CPD_UPLOAD.countNumberTokens('(1,234.50) 2,000'), 2);
+});
+
+test('selectPages: เก็บหน้า 1-3 เสมอ เรียงตามหน้า และเคารพ budget', function () {
+  const web = setup();
+  const sel = web.CPD_UPLOAD.selectPages(makePages(10), {
+    maxChars: 300,
+    alwaysPages: 3,
+    declaredTotalPages: 10
+  });
+
+  assert.strictEqual(sel.pagesSelected.slice(0, 3).join(','), '1,2,3');
+  assert.ok(sel.pagesSelected.indexOf(8) !== -1, 'หน้าคะแนนสูงควรถูกเลือก');
+  assert.ok(sel.charsSelected <= 300);
+  assert.strictEqual(sel.pagesSelectedCount, sel.pagesSelected.length);
+  assert.strictEqual(sel.complete, false);
+  assert.ok(sel.skippedCount > 0);
+  assert.ok(sel.pagesSkipped.length > 0);
+  assert.ok(sel.text.indexOf('[หน้า 1] ') === 0);
+});
+
+test('selectPages: หน้าที่คะแนนสูงแต่เกิน budget ต้องถูกบันทึกไว้เตือนผู้ใช้', function () {
+  const web = setup();
+  const sel = web.CPD_UPLOAD.selectPages(makePages(10), {
+    maxChars: 200,
+    alwaysPages: 3,
+    declaredTotalPages: 10
+  });
+
+  assert.ok(sel.pagesSelected.indexOf(8) === -1);
+  assert.ok(sel.pagesSkippedHighScore.indexOf(8) !== -1);
+  assert.strictEqual(sel.complete, false);
+});
+
+test('selectPages: ข้อความพอดี budget → complete = true และไม่มีการข้าม', function () {
+  const web = setup();
+  const pages = [
+    { page: 1, text: 'ข้อมูลพื้นฐานสหกรณ์ ทดสอบระบบ' },
+    { page: 2, text: 'รายชื่อคณะกรรมการดำเนินการประจำปี' },
+    { page: 3, text: 'ประวัติโดยย่อของสหกรณ์ทดสอบ' }
+  ];
+  const sel = web.CPD_UPLOAD.selectPages(pages, {
+    maxChars: 100000,
+    declaredTotalPages: 3
+  });
+
+  assert.strictEqual(sel.pagesSelected.join(','), '1,2,3');
+  assert.strictEqual(sel.skippedCount, 0);
+  assert.strictEqual(sel.complete, true);
+});
+
+test('applyTotalBudget: ตัดไฟล์ใหญ่สุดก่อน ทีละหน้า ไม่ตัดกลางหน้า และอัปเดต coverage', function () {
+  const web = setup();
+  const big = makeFile('big.pdf', Array.from({ length: 10 }, function () { return 'x'.repeat(2000); }));
+  const small = makeFile('small.pdf', ['y'.repeat(2000)]);
+  const smallChars = small.extractedText.length;
+
+  web.CPD_UPLOAD.applyTotalBudget([big, small], {
+    maxTotalChars: 12000,
+    minPerFile: 3000
+  });
+
+  assert.ok(big.extractedText.length < 22011, 'ไฟล์ใหญ่ต้องถูกตัด');
+  assert.strictEqual(small.extractedText.length, smallChars, 'ไฟล์เล็กกว่า minPerFile ต้องไม่ถูกตัด');
+  assert.strictEqual(big.truncated, true);
+  assert.strictEqual(big.coverage.complete, false);
+  assert.ok(big.coverage.skippedCount >= 1);
+  assert.strictEqual(big.coverage.pagesIncluded, big.extractedText.split('\n').length);
+
+  const lines = big.extractedText.split('\n');
+  lines.forEach(function (line, i) {
+    assert.ok(/^\[หน้า \d+\] x+$/.test(line), 'บรรทัดที่ ' + (i + 1) + ' ต้องเป็นหน้าทั้งหน้า');
+  });
+  assert.ok(big.extractedText.length + small.extractedText.length <= 12000);
+});
+
+test('applyTotalBudget: ตัดหน้าคะแนนต่ำก่อน และเก็บหน้าสำคัญท้ายไฟล์ไว้', function () {
+  const web = setup();
+  const filler = 'z'.repeat(1900);
+  const pages = [];
+  for (let i = 1; i <= 10; i++) {
+    pages.push(i === 10
+      ? 'งบฐานะการเงิน รวมสินทรัพย์ 123,456.00 ทุนเรือนหุ้น 50,000.00 ENDOF10'
+      : filler);
+  }
+  const fin = makeFile('fin.pdf', pages);
+  const extra = makeFile('extra.pdf', ['y'.repeat(6000)]);
+
+  web.CPD_UPLOAD.applyTotalBudget([fin, extra], {
+    maxTotalChars: 13000,
+    minPerFile: 6000
+  });
+
+  assert.ok(fin.extractedText.indexOf('ENDOF10') !== -1, 'หน้าคะแนนสูงท้ายไฟล์ต้องยังอยู่');
+  const keptPages = web.CPD_UPLOAD.pageNumbersFromText(fin.extractedText);
+  assert.strictEqual(keptPages.join(','), '1,2,3,10');
+  assert.ok(fin.coverage.skippedCount >= 6);
+  assert.ok(fin.coverage.pagesSkippedHighScore.indexOf(10) === -1);
+});
+
+test('normalizeFiles: เก็บ coverage (อ่าน/ส่ง/ข้าม) ไว้ใน uploadMeta', function () {
+  const web = setup();
+  const files = web.CPD_UPLOAD.normalizeFiles([{
+    name: 'annual.pdf',
+    mode: 'text',
+    coverage: {
+      totalPages: 62,
+      pagesRead: 62,
+      pagesIncluded: 41,
+      pagesSkipped: Array.from({ length: 120 }, function (_, i) { return i + 1; }),
+      skippedCount: 21,
+      pagesSkippedHighScore: [8, 12],
+      charsTotal: 100000,
+      charsSent: 54000,
+      complete: false
+    }
+  }]);
+
+  assert.strictEqual(files[0].coverage.totalPages, 62);
+  assert.strictEqual(files[0].coverage.pagesRead, 62);
+  assert.strictEqual(files[0].coverage.pagesIncluded, 41);
+  assert.strictEqual(files[0].coverage.skippedCount, 21);
+  assert.strictEqual(files[0].coverage.pagesSkippedHighScore.join(','), '8,12');
+  assert.strictEqual(files[0].coverage.pagesSkipped.length, 100, 'ต้องจำกัดขนาด metadata');
+});
+
+test('plan: เตือน coverage — อ่าน/ส่ง/ข้าม และหน้าที่มีแนวโน้มสำคัญ', function () {
+  const web = setup();
+  const plan = web.CPD_UPLOAD.plan({}, {
+    formValues: {},
+    fiscalYear: '2570',
+    files: [{
+      name: 'annual.pdf',
+      mode: 'text',
+      coverage: {
+        totalPages: 62,
+        pagesRead: 62,
+        pagesIncluded: 41,
+        pagesSkipped: [7, 8],
+        skippedCount: 21,
+        pagesSkippedHighScore: [8, 12],
+        charsTotal: 100000,
+        charsSent: 54000,
+        complete: false
+      }
+    }]
+  });
+  const text = plan.warnings.join(' | ');
+  assert.ok(text.indexOf('อ่าน 62/62 หน้า') !== -1);
+  assert.ok(text.indexOf('ส่งเข้า AI 41 หน้า') !== -1);
+  assert.ok(text.indexOf('ข้าม 21 หน้า') !== -1);
+  assert.ok(text.indexOf('หน้า 8, 12') !== -1);
+});

@@ -284,6 +284,34 @@
   function normalizeFiles(files) {
     return (files || []).map(function (f) {
       if (!f || typeof f !== 'object') return null;
+      var cov = f.coverage;
+      var coverage = null;
+      if (cov && typeof cov === 'object') {
+        var pagesIncluded = Number(cov.pagesIncluded);
+        if (!isFinite(pagesIncluded)) {
+          pagesIncluded = Number(cov.pagesSelectedCount);
+        }
+        if (!isFinite(pagesIncluded)) {
+          pagesIncluded = typeof f.pagesRead === 'number' ? f.pagesRead : 0;
+        }
+        var skippedList = Array.isArray(cov.pagesSkipped) ? cov.pagesSkipped.slice(0, 100) : [];
+        var pagesRead = Number(cov.pagesRead);
+        if (!isFinite(pagesRead)) {
+          pagesRead = typeof f.pagesRead === 'number' ? f.pagesRead : pagesIncluded;
+        }
+        coverage = {
+          totalPages: Number(cov.totalPages) || (typeof f.totalPages === 'number' ? f.totalPages : null),
+          pagesRead: pagesRead,
+          pagesIncluded: pagesIncluded,
+          pagesSkipped: skippedList,
+          skippedCount: Number(cov.skippedCount) || skippedList.length,
+          pagesSkippedHighScore: Array.isArray(cov.pagesSkippedHighScore)
+            ? cov.pagesSkippedHighScore.slice(0, 30) : [],
+          charsTotal: Number(cov.charsTotal) || null,
+          charsSent: Number(cov.charsSent) || null,
+          complete: !!cov.complete
+        };
+      }
       return {
         name: String(f.name || ''),
         category: String(f.category || ''),
@@ -292,7 +320,8 @@
         totalPages: typeof f.totalPages === 'number' ? f.totalPages : null,
         pagesRead: typeof f.pagesRead === 'number' ? f.pagesRead : null,
         chars: typeof f.chars === 'number' ? f.chars : (f.extractedText ? String(f.extractedText).length : null),
-        truncated: !!f.truncated
+        truncated: !!f.truncated,
+        coverage: coverage
       };
     }).filter(Boolean);
   }
@@ -301,6 +330,278 @@
     return (files || []).some(function (f) {
       return f && (f.lowTextPdf || f.mode === 'scan' || f.mode === 'image');
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Page manifest / selection (Phase 1A)
+  //
+  // เป้าหมาย: อ่านทุกหน้า แล้วเลือกหน้าที่มีโอกาสสูงสุดให้อยู่ใน budget
+  // แทนการตัดข้อความกลางหน้าแบบเดิม เพื่อไม่ให้หน้าท้าย ๆ หายเงียบ
+  // ---------------------------------------------------------------------------
+
+  var STRONG_PAGE_KEYWORDS = [
+    'งบฐานะการเงิน', 'งบดุล', 'งบกำไรขาดทุน', 'งบกำไรขาดทุนเบ็ดเสร็จ',
+    'งบกระแสเงินสด', 'งบแสดงการเปลี่ยนแปลงส่วนของเจ้าของ',
+    'รวมสินทรัพย์', 'รวมหนี้สิน', 'ทุนเรือนหุ้น', 'ทุนสำรอง'
+  ];
+
+  var WEAK_PAGE_KEYWORDS = [
+    'สินทรัพย์', 'หนี้สิน', 'รายได้', 'ค่าใช้จ่าย', 'กำไร', 'ขาดทุน',
+    'เงินให้กู้', 'เงินรับฝาก', 'เงินฝาก', 'สมาชิก', 'ผู้สอบบัญชี',
+    'ผู้ตรวจสอบกิจการ', 'ข้อสังเกต', 'ปริมาณธุรกิจ', 'จดทะเบียน', 'คณะกรรมการ'
+  ];
+
+  function countNumberTokens(text) {
+    var m = String(text || '').match(/(?:\d[\d,]*\.?\d*|\([\d,]+\.?\d*\))/g);
+    return m ? m.length : 0;
+  }
+
+  /**
+   * ให้คะแนนหน้าตามโอกาสที่จะมีตัวเลข/ข้อมูลสำคัญ
+   *   - หัวข้อการเงิน (+3 ต่อคำ, สูงสุด 9)
+   *   - คำสำคัญทั่วไป (+1 ต่อคำ, สูงสุด 5)
+   *   - ความหนาแน่นของตัวเลข (+สูงสุด 6)
+   *   - ลักษณะตารางตัวเลข (+3)
+   *   - หน้าแรก ๆ ของไฟล์ (+2)
+   */
+  function scorePageText(text, pageNo) {
+    var t = String(text || '');
+    var score = 0;
+    var reasons = [];
+    var strongHits = STRONG_PAGE_KEYWORDS.filter(function (k) { return t.indexOf(k) !== -1; });
+    if (strongHits.length) {
+      score += Math.min(9, strongHits.length * 3);
+      reasons.push('หัวข้อการเงิน: ' + strongHits.slice(0, 3).join(', '));
+    }
+    var weakHits = WEAK_PAGE_KEYWORDS.filter(function (k) { return t.indexOf(k) !== -1; });
+    if (weakHits.length) {
+      score += Math.min(5, weakHits.length);
+      reasons.push('คำสำคัญ: ' + weakHits.slice(0, 4).join(', '));
+    }
+    var numbers = countNumberTokens(t);
+    if (numbers >= 6) {
+      score += Math.min(6, Math.floor(numbers / 6));
+      reasons.push('ตัวเลข ' + numbers + ' รายการ');
+    }
+    if (/(?:\d[\d,]*\.?\d*\s+){4,}\d/.test(t)) {
+      score += 3;
+      reasons.push('ลักษณะตารางตัวเลข');
+    }
+    var p = Number(pageNo) || 0;
+    if (p >= 1 && p <= 3) {
+      score += 2;
+      reasons.push('หน้าข้อมูลพื้นฐาน');
+    }
+    return { page: p, score: score, reasons: reasons, numbers: numbers };
+  }
+
+  /**
+   * selectPages(pageTexts, options)
+   *   pageTexts = [{ page, text }]  (อ่านมาทุกหน้าแล้ว)
+   * คืนข้อความที่เลือก (คงลำดับหน้า) + coverage สำหรับแจ้งผู้ใช้
+   */
+  function selectPages(pageTexts, options) {
+    var opts = options || {};
+    var maxChars = Number(opts.maxChars) > 0 ? Number(opts.maxChars) : 55000;
+    var alwaysPages = Number(opts.alwaysPages) > 0 ? Number(opts.alwaysPages) : 3;
+    var minPageChars = Number(opts.minPageChars) > 0 ? Number(opts.minPageChars) : 20;
+    var highScore = Number(opts.highScore) > 0 ? Number(opts.highScore) : 5;
+    var declaredTotal = Number(opts.declaredTotalPages) > 0
+      ? Number(opts.declaredTotalPages)
+      : (pageTexts || []).length;
+
+    var scored = [];
+    (pageTexts || []).forEach(function (p) {
+      if (!p) return;
+      var text = String(p.text || '').trim();
+      if (text.length < minPageChars) return;
+      var s = scorePageText(text, p.page);
+      scored.push({ page: s.page, text: text, chars: text.length, score: s.score, reasons: s.reasons });
+    });
+    scored.sort(function (a, b) { return a.page - b.page; });
+
+    var selected = {};
+    var usedChars = 0;
+    function include(item, force) {
+      if (selected[item.page]) return true;
+      var cost = item.chars + 12; // "[หน้า 999] "
+      if (!force && usedChars + cost > maxChars && Object.keys(selected).length > 0) return false;
+      selected[item.page] = true;
+      usedChars += cost;
+      return true;
+    }
+
+    // 1) หน้าแรก ๆ (ข้อมูลพื้นฐาน/ใบโปรไฟล์) ต้องมีเสมอ
+    scored.forEach(function (item) {
+      if (item.page <= alwaysPages) include(item, true);
+    });
+
+    // 2) เติมหน้าคะแนนสูงจนเต็ม budget
+    var rest = scored.filter(function (item) { return !selected[item.page]; })
+      .sort(function (a, b) { return b.score - a.score || a.page - b.page; });
+    rest.forEach(function (item) { include(item, false); });
+
+    var kept = scored.filter(function (item) { return selected[item.page]; });
+    var skipped = scored.filter(function (item) { return !selected[item.page]; });
+    var pagesUnread = Math.max(0, declaredTotal - scored.length);
+
+    return {
+      text: kept.map(function (item) { return '[หน้า ' + item.page + '] ' + item.text; }).join('\n'),
+      pagesSelected: kept.map(function (item) { return item.page; }),
+      pagesSelectedCount: kept.length,
+      pagesSkipped: skipped.map(function (item) { return item.page; }).slice(0, 200),
+      skippedCount: skipped.length + pagesUnread,
+      pagesSkippedHighScore: skipped.filter(function (item) { return item.score >= highScore; })
+        .map(function (item) { return item.page; }).slice(0, 50),
+      charsTotal: scored.reduce(function (sum, item) { return sum + item.chars; }, 0),
+      charsSelected: usedChars,
+      totalPages: declaredTotal,
+      pagesWithText: scored.length,
+      pagesUnread: pagesUnread,
+      complete: skipped.length === 0 && pagesUnread === 0
+    };
+  }
+
+  function pagePartsFromText(text) {
+    var t = String(text || '');
+    if (!/\[หน้า \d+\]/.test(t)) return null;
+    return t.split(/(?=\[หน้า \d+\] )/)
+      .map(function (s) { return s.replace(/\n+$/, ''); })
+      .filter(function (s) { return s.trim(); });
+  }
+
+  function pageNumbersFromText(text) {
+    var out = [];
+    var re = /\[หน้า (\d+)\]/g;
+    var m;
+    while ((m = re.exec(String(text || '')))) out.push(Number(m[1]));
+    return out;
+  }
+
+  /**
+   * trimFileToChars(file, targetChars)
+   * ตัดข้อความของไฟล์ที่ระดับ "หน้า" (ไม่ตัดกลางหน้า) และอัปเดต coverage
+   * เลือกตัด "หน้าที่คะแนนต่ำสุด" ก่อน เพื่อไม่ให้หน้าสำคัญท้ายไฟล์หายก่อน
+   */
+  function trimFileToChars(file, targetChars) {
+    if (!file || !file.extractedText) return false;
+    var current = String(file.extractedText);
+    var target = Math.max(0, Number(targetChars) || 0);
+    if (current.length <= target) return false;
+
+    var parts = pagePartsFromText(current);
+    var nextText;
+    var removedParts = {};
+    if (parts) {
+      var items = parts.map(function (part) {
+        var m = part.match(/^\[หน้า (\d+)\]/);
+        var page = m ? Number(m[1]) : 0;
+        return { page: page, text: part, chars: part.length, score: scorePageText(part, page).score };
+      });
+      var used = items.reduce(function (sum, it) { return sum + it.chars + 1; }, 0) - 1;
+      while (used > target && items.length > 1) {
+        // เก็บหน้า 1-3 (ข้อมูลพื้นฐาน) ไว้ก่อน แล้วตัดหน้าที่คะแนนต่ำสุด/หน้าท้ายสุด
+        var pool = items.filter(function (it) { return it.page > 3; });
+        if (!pool.length) pool = items.slice();
+        pool.sort(function (a, b) { return a.score - b.score || b.page - a.page; });
+        var victim = pool[0];
+        used -= (victim.chars + 1);
+        if (victim.page) removedParts[victim.page] = victim.text;
+        items = items.filter(function (it) { return it !== victim; });
+      }
+      items.sort(function (a, b) { return a.page - b.page; });
+      nextText = items.map(function (it) { return it.text; }).join('\n');
+    } else {
+      var cut = current.lastIndexOf('\n', target);
+      if (cut < Math.floor(target * 0.6)) cut = target;
+      nextText = current.slice(0, cut).trim();
+    }
+    if (nextText.length >= current.length) return false;
+
+    var beforeNumbers = pageNumbersFromText(current);
+    var afterNumbers = pageNumbersFromText(nextText);
+    var removed = beforeNumbers.filter(function (p) { return afterNumbers.indexOf(p) === -1; });
+
+    file.extractedText = nextText;
+    file.chars = nextText.length;
+    file.truncated = true;
+    file.pagesRead = parts ? afterNumbers.length : file.pagesRead;
+    if (file.coverage) {
+      var cov = file.coverage;
+      cov.charsSent = nextText.length;
+      if (parts) cov.pagesIncluded = afterNumbers.length;
+      if (Array.isArray(cov.pagesSelected)) {
+        cov.pagesSelected = cov.pagesSelected.filter(function (p) { return afterNumbers.indexOf(p) !== -1; });
+      }
+      var skipped = Array.isArray(cov.pagesSkipped) ? cov.pagesSkipped.slice() : [];
+      removed.forEach(function (p) {
+        if (skipped.indexOf(p) === -1 && skipped.length < 200) skipped.push(p);
+      });
+      skipped.sort(function (a, b) { return a - b; });
+      cov.pagesSkipped = skipped;
+      if (parts && Number(cov.totalPages) > 0) {
+        cov.skippedCount = Math.max(0, Number(cov.totalPages) - afterNumbers.length);
+      } else {
+        cov.skippedCount = (Number(cov.skippedCount) || 0) + removed.length;
+      }
+      cov.complete = false;
+      // เตือนเฉพาะหน้าที่ "มีคะแนนสูง" จริง ไม่ใช่ทุกหน้าที่ถูกตัดเพราะ budget
+      var high = Array.isArray(cov.pagesSkippedHighScore) ? cov.pagesSkippedHighScore.slice() : [];
+      removed.forEach(function (p) {
+        var partText = removedParts[p];
+        var important = partText ? scorePageText(partText, p).score >= 5 : false;
+        if (important && high.indexOf(p) === -1 && high.length < 50) high.push(p);
+      });
+      high.sort(function (a, b) { return a - b; });
+      cov.pagesSkippedHighScore = high;
+    }
+    return true;
+  }
+
+  /**
+   * applyTotalBudget(files, options)
+   * จำกัดตัวอักษรรวมทุกไฟล์ (เช่น 180,000) โดยตัดไฟล์ที่ใหญ่ที่สุดก่อน
+   * ภายในไฟล์จะตัดหน้าที่คะแนนต่ำสุดและไม่ตัดกลางหน้า
+   */
+  function applyTotalBudget(files, options) {
+    var opts = options || {};
+    var maxTotal = Number(opts.maxTotalChars) > 0 ? Number(opts.maxTotalChars) : 180000;
+    var minPerFile = Number(opts.minPerFile) > 0 ? Number(opts.minPerFile) : 12000;
+    var list = files || [];
+
+    function totalChars() {
+      return list.reduce(function (sum, f) {
+        return sum + (f && f.extractedText ? String(f.extractedText).length : 0);
+      }, 0);
+    }
+
+    var total = totalChars();
+    var guard = 0;
+    while (total > maxTotal && guard++ < 100) {
+      var candidates = list.filter(function (f) {
+        return f && f.extractedText && String(f.extractedText).length > minPerFile;
+      });
+      if (!candidates.length) break;
+      candidates.sort(function (a, b) {
+        return String(b.extractedText).length - String(a.extractedText).length;
+      });
+      var f = candidates[0];
+      var current = String(f.extractedText).length;
+      var overflow = total - maxTotal;
+      var target = Math.max(minPerFile, current - Math.max(1000, overflow));
+      var changed = trimFileToChars(f, target);
+      if (!changed) {
+        var parts = pagePartsFromText(f.extractedText);
+        if (parts && parts.length > 1) {
+          changed = trimFileToChars(f, current - parts[parts.length - 1].length - 2);
+        } else {
+          changed = trimFileToChars(f, Math.max(minPerFile, current - 1000));
+        }
+      }
+      if (!changed) break;
+      total = totalChars();
+    }
+    return list;
   }
 
   // ---------------------------------------------------------------------------
@@ -608,8 +909,29 @@
     var aiWarnings = Array.isArray(res && res._aiWarnings) ? res._aiWarnings.filter(Boolean) : [];
     aiWarnings.forEach(function (w) { warnings.push('AI: ' + w); });
     files.forEach(function (f) {
-      if (f.truncated) {
-        warnings.push('ไฟล์ ' + f.name + ' ถูกตัดข้อความที่ 35,000 ตัวอักษร (อ่าน ' +
+      var cov = f.coverage;
+      var totalPages = (cov && cov.totalPages) || f.totalPages;
+      var included = cov ? cov.pagesIncluded : f.pagesRead;
+      var readCount = cov ? (cov.pagesRead || included) : f.pagesRead;
+      if (cov) {
+        if (!cov.complete && totalPages) {
+          var msg = 'ไฟล์ ' + f.name + ': อ่าน ' + (readCount || '?') + '/' + totalPages + ' หน้า';
+          if (included && readCount && included !== readCount) {
+            msg += ' • ส่งเข้า AI ' + included + ' หน้า';
+          }
+          if (cov.skippedCount > 0) msg += ' • ข้าม ' + cov.skippedCount + ' หน้า';
+          warnings.push(msg);
+          if (cov.pagesSkippedHighScore && cov.pagesSkippedHighScore.length) {
+            warnings.push('ไฟล์ ' + f.name + ': หน้าที่มีแนวโน้มสำคัญแต่ยังไม่ได้อ่าน — หน้า ' +
+              cov.pagesSkippedHighScore.slice(0, 12).join(', ') +
+              (cov.pagesSkippedHighScore.length > 12 ? ' …' : '') +
+              ' (ลองแยกเฉพาะหน้าเหล่านี้เป็นไฟล์ใหม่แล้วอัปโหลดซ้ำ)');
+          }
+        } else if (included && totalPages && included < totalPages) {
+          warnings.push('ไฟล์ ' + f.name + ' อ่าน ' + included + ' จาก ' + totalPages + ' หน้า');
+        }
+      } else if (f.truncated) {
+        warnings.push('ไฟล์ ' + f.name + ' ถูกตัดข้อความ (อ่าน ' +
           (f.pagesRead || '?') + ' จาก ' + (f.totalPages || '?') + ' หน้า)');
       } else if (f.totalPages && f.pagesRead && f.pagesRead < f.totalPages) {
         warnings.push('ไฟล์ ' + f.name + ' อ่าน ' + f.pagesRead + ' จาก ' + f.totalPages + ' หน้า');
@@ -928,6 +1250,13 @@
     validateProjected: validateProjected,
     captureValues: captureValues,
     normalizeFiles: normalizeFiles,
+    countNumberTokens: countNumberTokens,
+    scorePageText: scorePageText,
+    selectPages: selectPages,
+    pagePartsFromText: pagePartsFromText,
+    pageNumbersFromText: pageNumbersFromText,
+    trimFileToChars: trimFileToChars,
+    applyTotalBudget: applyTotalBudget,
     plan: plan,
     applyPlan: applyPlan,
     commit: commit,

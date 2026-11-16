@@ -102,6 +102,7 @@
         </div>
       </div>
       <div id="aiAlert" class="alert alert-info mt-3 d-none"></div>
+      <div id="uploadCoverage" class="mt-2 d-none"></div>
       <div id="uploadReview" class="mt-3 d-none"></div>
       <div id="uploadRollbackBox" class="mt-2 d-none">
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="rollbackLastUpload()">
@@ -933,7 +934,16 @@
     return out.join('\n').trim();
   }
 
-  // ระบบอ่านและคัดกรองหน้าสำคัญอัจฉริยะ (Smart Fast-Read PDF) โดยไม่ต้องระบุเลขหน้า
+  // ตัดข้อความที่ขอบบรรทัด (ไม่ตัดกลางบรรทัด) สำหรับไฟล์ที่ไม่มีแนวคิดเรื่องหน้า
+  function trimTextAtLineBoundary(text, maxChars) {
+    var t = String(text || '');
+    if (t.length <= maxChars) return { text: t, truncated: false };
+    var cut = t.lastIndexOf('\n', maxChars);
+    if (cut < Math.floor(maxChars * 0.6)) cut = maxChars;
+    return { text: t.slice(0, cut).trim(), truncated: true };
+  }
+
+  // ระบบอ่านและคัดกรองหน้าสำคัญอัจฉริยะ (Smart Read PDF) โดยไม่ต้องระบุเลขหน้า
   async function smartProcessFile(file, category, maxFallbackPages) {
     if (file.type.startsWith('image/')) {
       var img = await compressImageFile(file, category);
@@ -949,9 +959,10 @@
       try {
         var docText = await extractDocText(file);
         if (docText && docText.length > 40) {
+          var docTrim = trimTextAtLineBoundary(docText, 55000);
           return {
-            name: file.name, category: category, extractedText: docText.substring(0, 40000),
-            mode: 'doc', chars: docText.length, truncated: docText.length > 40000
+            name: file.name, category: category, extractedText: docTrim.text,
+            mode: 'doc', chars: docText.length, truncated: docTrim.truncated
           };
         }
       } catch (e) { console.warn('DOC extract fallback:', e); }
@@ -967,9 +978,10 @@
       try {
         var docxText = await extractDocxText(file);
         if (docxText && docxText.length > 40) {
+          var docxTrim = trimTextAtLineBoundary(docxText, 55000);
           return {
-            name: file.name, category: category, extractedText: docxText.substring(0, 40000),
-            mode: 'docx', chars: docxText.length, truncated: docxText.length > 40000
+            name: file.name, category: category, extractedText: docxTrim.text,
+            mode: 'docx', chars: docxText.length, truncated: docxTrim.truncated
           };
         }
       } catch (e) { console.warn('DOCX extract fallback:', e); }
@@ -985,9 +997,10 @@
       try {
         var xlsxText = await extractXlsxText(file);
         if (xlsxText && xlsxText.length > 20) {
+          var xlsxTrim = trimTextAtLineBoundary(xlsxText, 40000);
           return {
-            name: file.name, category: category, extractedText: xlsxText.substring(0, 40000),
-            mode: 'xlsx', chars: xlsxText.length, truncated: xlsxText.length > 40000
+            name: file.name, category: category, extractedText: xlsxTrim.text,
+            mode: 'xlsx', chars: xlsxText.length, truncated: xlsxTrim.truncated
           };
         }
       } catch (e) { console.warn('XLSX extract fallback:', e); }
@@ -1009,44 +1022,89 @@
     try {
       const arrayBuffer = await file.arrayBuffer();
 
-      // ขั้นที่ 1: ใช้ PDF.js สกัดข้อความพร้อมตรวจจับหน้าที่มีคำสำคัญทางบัญชี/สหกรณ์
+      // ขั้นที่ 1: PDF.js อ่านข้อความ "ทุกหน้า" (ไม่จำกัด 25 หน้าเหมือนเดิม)
+      //   - อ่านสูงสุด 150 หน้า หรือจนครบเวลาอ่าน ~45 วินาที
+      //   - ให้คะแนนหน้า → เลือกเข้าชุดข้อมูลตาม budget → ไม่ตัดกลางหน้า
+      //   - coverage บอกผู้ใช้ว่าอ่านกี่หน้า / ส่งกี่หน้า / ข้ามหน้าใด
       if (window.pdfjsLib) {
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
         const numPages = pdf.numPages;
-        const scanLimit = Math.min(numPages, 25); // สแกนสูงสุด 25 หน้าแรกด้วยความเร็วสูง
-        const keywords = ['งบฐานะการเงิน', 'งบดุล', 'สินทรัพย์', 'หนี้สิน', 'ทุนเรือนหุ้น', 'ทุนสำรอง', 'งบกำไรขาดทุน', 'กำไรสุทธิ', 'ผู้สอบบัญชี', 'ผู้ตรวจสอบกิจการ', 'ข้อสังเกต', 'ข้อบกพร่อง', 'สมาชิก', 'คณะกรรมการ', 'จดทะเบียน', 'ปริมาณธุรกิจ'];
+        const maxReadPages = Math.min(numPages, 150);
+        const readDeadline = Date.now() + 45000;
 
-        let extractedPagesText = [];
-        let totalChars = 0;
+        const pages = [];
+        let charsAll = 0;
+        let pagesReadCount = 0;
+        let stoppedEarly = false;
 
-        for (let p = 1; p <= scanLimit; p++) {
-          const page = await pdf.getPage(p);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items.map(item => item.str).join(' ').replace(/\s+/g, ' ').trim();
-          totalChars += pageText.length;
-
-          const hasKeyword = keywords.some(k => pageText.includes(k));
-          if (p <= 5 || hasKeyword) {
-            if (pageText.length > 20) {
-              extractedPagesText.push(`[หน้า ${p}] ${pageText}`);
-            }
+        for (let p = 1; p <= maxReadPages; p++) {
+          if (Date.now() > readDeadline) { stoppedEarly = true; break; }
+          try {
+            const page = await pdf.getPage(p);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ')
+              .replace(/\s+/g, ' ').trim();
+            pagesReadCount++;
+            charsAll += pageText.length;
+            if (pageText.length > 20) pages.push({ page: p, text: pageText });
+          } catch (pageErr) {
+            console.warn('อ่าน PDF หน้า ' + p + ' ไม่สำเร็จ:', pageErr);
           }
         }
 
-        // หากไฟล์ PDF มีข้อความดิจิทัลชัดเจน ส่งเฉพาะ Text ที่สกัดได้ไปให้ AI (เร็วกว่าส่งไฟล์ PDF 5 เท่า!)
-        if (totalChars > 250 && extractedPagesText.length > 0) {
-          var profileText = extractedPagesText.join('\n');
+        if (charsAll > 250 && pages.length) {
+          const fullText = pages.map(x => `[หน้า ${x.page}] ${x.text}`).join('\n');
+          const selection = (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.selectPages === 'function')
+            ? window.CPD_UPLOAD.selectPages(pages, {
+                maxChars: 55000,
+                alwaysPages: 3,
+                declaredTotalPages: numPages
+              })
+            : {
+                text: fullText,
+                pagesSelected: pages.map(x => x.page),
+                pagesSelectedCount: pages.length,
+                pagesSkipped: [],
+                skippedCount: Math.max(0, numPages - pages.length),
+                pagesSkippedHighScore: [],
+                charsTotal: charsAll,
+                charsSelected: fullText.length,
+                totalPages: numPages,
+                pagesWithText: pages.length,
+                pagesUnread: Math.max(0, numPages - pages.length),
+                complete: pages.length === numPages
+              };
+
+          const coverage = {
+            totalPages: numPages,
+            pagesRead: pagesReadCount,
+            pagesIncluded: selection.pagesSelectedCount,
+            pagesSelected: selection.pagesSelected,
+            pagesSkipped: selection.pagesSkipped,
+            skippedCount: selection.skippedCount,
+            pagesSkippedHighScore: selection.pagesSkippedHighScore,
+            charsTotal: selection.charsTotal,
+            charsSent: selection.charsSelected,
+            pagesUnread: selection.pagesUnread,
+            readCapHit: numPages > maxReadPages || stoppedEarly,
+            complete: selection.complete
+          };
+
+          // ใบโปรไฟล์ Smart Coop: ใช้ข้อความจากทุกหน้าที่อ่านได้ (ไม่ใช่แค่ 5 หน้าแรก)
+          const profileTrimmed = trimTextAtLineBoundary(fullText, 120000);
+
           return {
             name: file.name,
             category: category,
             mode: 'text',
             totalPages: numPages,
-            pagesRead: extractedPagesText.length,
-            chars: profileText.length,
-            truncated: profileText.length > 35000,
-            extractedText: profileText.substring(0, 35000),
+            pagesRead: selection.pagesSelectedCount,
+            chars: selection.charsSelected,
+            truncated: (pages.length - selection.pagesSelectedCount) > 0 || selection.pagesUnread > 0,
+            extractedText: selection.text,
+            coverage: coverage,
             profileExtract: (window.CPD_PRELOAD && typeof window.CPD_PRELOAD.parseSmartCoopProfile === 'function')
-              ? window.CPD_PRELOAD.parseSmartCoopProfile(profileText) : null
+              ? window.CPD_PRELOAD.parseSmartCoopProfile(profileTrimmed.text) : null
           };
         }
       }
@@ -1064,7 +1122,19 @@
           const base64Sliced = await newDoc.saveAsBase64();
           return {
             name: file.name, category: category, mimeType: 'application/pdf', base64: base64Sliced,
-            mode: 'scan', lowTextPdf: true, totalPages: totalPages, pagesRead: limit, truncated: totalPages > limit
+            mode: 'scan', lowTextPdf: true, totalPages: totalPages, pagesRead: limit, truncated: totalPages > limit,
+            coverage: {
+              totalPages: totalPages,
+              pagesRead: limit,
+              pagesIncluded: limit,
+              pagesSelected: [],
+              pagesSkipped: [],
+              skippedCount: Math.max(0, totalPages - limit),
+              pagesSkippedHighScore: [],
+              charsTotal: null,
+              charsSent: null,
+              complete: totalPages <= limit
+            }
           };
         }
       }
@@ -1126,6 +1196,65 @@
   }
 
   /**
+   * แสดงการ์ด "อ่านกี่หน้า / ส่งกี่หน้า / ข้ามหน้าใด" หลังอ่านไฟล์ (Phase 1A)
+   */
+  function renderUploadCoverage(files) {
+    var box = document.getElementById('uploadCoverage');
+    if (!box) return;
+    var rows = (files || []).filter(function (f) { return f && f.coverage; });
+    if (!rows.length) {
+      box.classList.add('d-none');
+      box.innerHTML = '';
+      return;
+    }
+    var esc = (window.CPD_UPLOAD && window.CPD_UPLOAD.escapeHtml)
+      ? window.CPD_UPLOAD.escapeHtml
+      : function (s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      };
+
+    var html = '<div class="card border-info shadow-sm">' +
+      '<div class="card-header py-1 small fw-bold text-info">📄 ความครบถ้วนของการอ่านไฟล์</div>' +
+      '<ul class="list-group list-group-flush small">';
+
+    rows.forEach(function (f) {
+      var cov = f.coverage || {};
+      var total = Number(cov.totalPages) || 0;
+      var included = Number(cov.pagesIncluded) || 0;
+      var readCount = Number(cov.pagesRead) || included;
+      var pct = total ? Math.round(included * 100 / total) : 0;
+      var complete = !!cov.complete;
+      var badgeClass = complete ? 'bg-success' : (pct >= 80 ? 'bg-warning text-dark' : 'bg-danger');
+      var detail = 'อ่าน ' + readCount + '/' + total + ' หน้า • ส่งเข้า AI ' + included + ' หน้า';
+      var skipped = Number(cov.skippedCount) || 0;
+      if (!complete && skipped > 0) detail += ' • ข้าม ' + skipped + ' หน้า';
+
+      html += '<li class="list-group-item py-2">';
+      html += '<div class="d-flex justify-content-between align-items-center gap-2">';
+      html += '<span class="text-truncate" title="' + esc(f.name) + '">' + esc(f.name) + '</span>';
+      html += '<span class="badge ' + badgeClass + '">' +
+        (complete ? 'ครบทุกหน้า' : included + '/' + total + ' หน้า') + '</span>';
+      html += '</div>';
+      html += '<div class="text-muted mt-1">' + detail + '</div>';
+      if (cov.readCapHit) {
+        html += '<div class="text-warning mt-1">⚠ อ่านถึงขีดจำกัด (150 หน้า / 45 วินาที) — หน้าท้ายไฟล์อาจยังไม่ได้อ่าน</div>';
+      }
+      if (!complete && cov.pagesSkippedHighScore && cov.pagesSkippedHighScore.length) {
+        var list = cov.pagesSkippedHighScore.slice(0, 10).join(', ');
+        if (cov.pagesSkippedHighScore.length > 10) list += ' …';
+        html += '<div class="text-warning mt-1">⚠ หน้าที่มีแนวโน้มสำคัญแต่ยังไม่ได้ส่ง: ' + list + '</div>';
+      }
+      html += '</li>';
+    });
+
+    html += '</ul></div>';
+    box.innerHTML = html;
+    box.classList.remove('d-none');
+  }
+
+  /**
    * แสดงสถานะรอบอัปโหลดล่าสุด + ปุ่มย้อนกลับ
    */
   function refreshUploadMetaHint() {
@@ -1184,7 +1313,16 @@
       for (let f of document.getElementById('fileOther').files) tasks.push(smartProcessFile(f, 'ไฟล์อื่นๆ', 5));
 
       // ประมวลผลทุกไฟล์พร้อมกันแบบขนาน (Parallel Processing)
-      const filesToUpload = await Promise.all(tasks);
+      let filesToUpload = await Promise.all(tasks);
+
+      // Phase 1A: จำกัดตัวอักษรรวมทุกไฟล์ และตัดที่ขอบหน้า (ไม่ตัดกลางหน้า)
+      if (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.applyTotalBudget === 'function') {
+        window.CPD_UPLOAD.applyTotalBudget(filesToUpload, {
+          maxTotalChars: 180000,
+          minPerFile: 12000
+        });
+      }
+      renderUploadCoverage(filesToUpload);
 
       // TASK 4: PDF สแกนภาพ (ข้อความ < 50 ตัวอักษร) + ข้อมูลจากใบโปรไฟล์ Smart Coop
       const hasLowTextPdf = filesToUpload.some(f => f && f.lowTextPdf);
@@ -1446,7 +1584,7 @@
 <script src="js/cpd-mis-reports.js?v=20260214a"></script>
 <script src="js/cpd-4m-engine.js?v=20260214b"></script>
 <script src="js/cpd-business-analysis.js?v=20260214f"></script>
-<script src="js/cpd-upload.js?v=20261116a"></script>
+<script src="js/cpd-upload.js?v=20261116c"></script>
 <script src="js/cpd-ui.js?v=20261112a"></script>
 </body>
 </html>
