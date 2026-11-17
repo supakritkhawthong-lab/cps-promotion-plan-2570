@@ -698,3 +698,81 @@ test('normalizeFiles: เก็บ evidence metadata แบบจำกัดข
   assert.strictEqual(files[0].coverage.evidenceWindows, 12);
   assert.strictEqual(files[0].coverage.evidenceCapped, true);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1C: chunked facts — provenance และ conflict
+// ---------------------------------------------------------------------------
+
+test('plan: เก็บที่มา (source) ของค่าที่ AI สกัดจากหลายช่วงลง uploadMeta', function () {
+  const web = setup();
+  const doc = ensureEls(makeDoc({}), allIds(web));
+  const plan = web.CPD_UPLOAD.plan({
+    assetLatest: '1,000.00',
+    _aiFieldSources: {
+      assetLatest: { file: 'fin.pdf', pages: '1–10', chunk: 2 },
+      debtLatest: { file: '', pages: '' }
+    }
+  }, {
+    formValues: web.CPD_UPLOAD.captureValues(doc),
+    fiscalYear: '2570'
+  });
+
+  const source = plan.fields.assetLatest.source;
+  assert.deepStrictEqual(
+    { file: source.file, pages: source.pages, chunk: source.chunk },
+    { file: 'fin.pdf', pages: '1–10', chunk: '2' }
+  );
+  assert.strictEqual(plan.fields.debtLatest.source, undefined, 'ที่มาว่างเปล่าต้องไม่ถูกเก็บ');
+
+  const meta = web.CPD_UPLOAD.commit(plan, {
+    before: web.CPD_UPLOAD.captureValues(doc),
+    applied: plan.updates,
+    env: { state: web.CPD_AppState, document: doc }
+  });
+  const committed = meta.fields.assetLatest.source;
+  assert.deepStrictEqual(
+    { file: committed.file, pages: committed.pages, chunk: committed.chunk },
+    { file: 'fin.pdf', pages: '1–10', chunk: '2' }
+  );
+  assert.strictEqual(meta.conflicts, undefined, 'ไม่มีค่าขัดกันต้องไม่เพิ่มฟิลด์ conflicts');
+});
+
+test('plan: ค่าขัดกันต้องเตือน เก็บ conflicts และจำกัดขนาด', function () {
+  const web = setup();
+  const doc = ensureEls(makeDoc({}), allIds(web));
+  const conflicts = {
+    assetLatest: [
+      { value: '1,000.00', file: 'fin.pdf', pages: '1–10' },
+      { value: '2,000.00', file: 'other.pdf', pages: '3' }
+    ],
+    debtLatest: [{ value: 'only-one', file: 'fin.pdf', pages: '1' }]
+  };
+  for (let i = 0; i < 25; i++) {
+    conflicts['field' + i] = [
+      { value: 'a' + i, file: 'f.pdf', pages: '1' },
+      { value: 'b' + i, file: 'g.pdf', pages: '2' }
+    ];
+  }
+
+  const plan = web.CPD_UPLOAD.plan({
+    assetLatest: '1,000.00',
+    _aiConflicts: conflicts
+  }, {
+    formValues: web.CPD_UPLOAD.captureValues(doc),
+    fiscalYear: '2570'
+  });
+
+  assert.ok(plan.warnings.join(' | ').indexOf('พบค่าขัดกัน') !== -1);
+  assert.ok(plan.conflicts.assetLatest, 'ต้องเก็บค่าที่ขัดกัน');
+  assert.strictEqual(plan.conflicts.assetLatest.length, 2);
+  assert.strictEqual(plan.conflicts.debtLatest, undefined, 'รายการเดียวไม่ถือว่าขัดกัน');
+  assert.ok(Object.keys(plan.conflicts).length <= 20, 'ต้องจำกัดจำนวนฟิลด์ที่ขัดกัน');
+
+  const meta = web.CPD_UPLOAD.commit(plan, {
+    before: web.CPD_UPLOAD.captureValues(doc),
+    applied: plan.updates,
+    env: { state: web.CPD_AppState, document: doc }
+  });
+  assert.ok(meta.conflicts && meta.conflicts.assetLatest);
+  assert.strictEqual(meta.conflicts.assetLatest[1].file, 'other.pdf');
+});

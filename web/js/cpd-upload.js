@@ -1052,6 +1052,44 @@
     return 'up-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
   }
 
+  /**
+   * sanitizeFieldSource_(src)
+   * จำกัดขนาดข้อมูลที่มาของค่า (ไฟล์/ช่วงหน้า/ช่วงที่) ก่อนเก็บลง uploadMeta
+   * Phase 1C: GAS ส่ง `_aiFieldSources` กลับมาเฉพาะฟิลด์ที่สกัดจากหลายช่วง
+   */
+  function sanitizeFieldSource_(src) {
+    if (!src || typeof src !== 'object') return null;
+    var file = String(src.file || '').slice(0, 120);
+    var pages = String(src.pages || '').slice(0, 24);
+    var chunk = src.chunk;
+    if (!file && !pages) return null;
+    return {
+      file: file,
+      pages: pages,
+      chunk: (typeof chunk === 'number' || typeof chunk === 'string')
+        ? String(chunk).slice(0, 12) : ''
+    };
+  }
+
+  /** จำกัดรายการค่าที่ขัดกันก่อนเก็บลง uploadMeta (สูงสุด 20 ฟิลด์ × 3 ค่า) */
+  function sanitizeConflicts_(raw) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).slice(0, 20).forEach(function (key) {
+      var list = raw[key];
+      if (!Array.isArray(list)) return;
+      var values = list.slice(0, 3).map(function (item) {
+        return {
+          value: String((item && item.value) || '').slice(0, 80),
+          file: String((item && item.file) || '').slice(0, 120),
+          pages: String((item && item.pages) || '').slice(0, 24)
+        };
+      }).filter(function (item) { return item.value; });
+      if (values.length > 1) out[key] = values;
+    });
+    return out;
+  }
+
   function plan(res, options) {
     var opts = options || {};
     var formValues = opts.formValues || {};
@@ -1065,6 +1103,9 @@
     (opts.lockedIds || []).forEach(function (id) { locked[id] = true; });
 
     var previousFields = opts.previousFields || {};
+    var fieldSources = (res && res._aiFieldSources && typeof res._aiFieldSources === 'object')
+      ? res._aiFieldSources : {};
+    var conflicts = sanitizeConflicts_(res && res._aiConflicts);
 
     var ctx = { locked: locked, previousFields: previousFields, hasScan: scan };
     var updates = [];
@@ -1099,6 +1140,8 @@
         value: incoming.value,
         isZero: incoming.isZero
       };
+      var source = sanitizeFieldSource_(fieldSources[def.key]);
+      if (source) record.source = source;
 
       if (status === 'missing') {
         missing.push(record);
@@ -1155,6 +1198,10 @@
 
     // --- คำเตือนเรื่องไฟล์ ---
     var warnings = validation.warnings.slice();
+    if (Object.keys(conflicts).length) {
+      warnings.push('พบค่าขัดกัน ' + Object.keys(conflicts).length +
+        ' ฟิลด์จากหลายช่วงเอกสาร — ระบบเลือกค่าที่น่าเชื่อถือที่สุดและเก็บที่มาไว้ใน metadata');
+    }
     var aiWarnings = Array.isArray(res && res._aiWarnings) ? res._aiWarnings.filter(Boolean) : [];
     aiWarnings.forEach(function (w) { warnings.push('AI: ' + w); });
     files.forEach(function (f) {
@@ -1204,6 +1251,7 @@
       locked: lockedOut,
       fields: fields,
       warnings: warnings,
+      conflicts: conflicts,
       validation: validation
     };
   }
@@ -1317,6 +1365,10 @@
         fiscalYear: prevMeta.fiscalYear
       } : null
     };
+    // Phase 1C: เก็บเฉพาะเมื่อมีค่าขัดกันจริง (ประหยัดพื้นที่ State)
+    if (plan.conflicts && Object.keys(plan.conflicts).length) {
+      meta.conflicts = plan.conflicts;
+    }
 
     var history = Array.isArray(s.analysis.uploadHistory) ? s.analysis.uploadHistory.slice() : [];
     var lastIdx = history.length - 1;
@@ -1397,6 +1449,16 @@
     return map[status] || status;
   }
 
+  function sourceLine(record) {
+    if (!record || !record.source) return '';
+    var bits = [];
+    if (record.source.file) bits.push(record.source.file);
+    if (record.source.pages) bits.push('หน้า ' + record.source.pages);
+    if (record.source.chunk && record.source.chunk !== '1') bits.push('ช่วง ' + record.source.chunk);
+    if (!bits.length) return '';
+    return '<div class="small text-muted">ที่มา: ' + escapeHtml(bits.join(' • ')) + '</div>';
+  }
+
   function renderReview(plan, container, options) {
     if (!container) return;
     var opts = options || {};
@@ -1429,7 +1491,7 @@
           escapeHtml(r.id) + '"></td>' +
           '<td>' + escapeHtml(r.label) + '</td>' +
           '<td class="text-muted">' + escapeHtml(r.before || '—') + '</td>' +
-          '<td class="fw-bold">' + escapeHtml(r.after || '—') + '</td>' +
+          '<td class="fw-bold">' + escapeHtml(r.after || '—') + sourceLine(r) + '</td>' +
           '<td class="small">' + escapeHtml(r.reason || statusLabel(r.status)) + '</td>' +
           '</tr>';
       });

@@ -312,6 +312,8 @@ test('repair: อ่านซ้ำเฉพาะฟิลด์วิกฤต
   assert.strictEqual(result.yrLatest, 'ธ.ค. 68');
   assert.strictEqual(result.fiscalDateFull, '31 มีนาคม');
   assert.strictEqual(result._aiWarnings, undefined);
+  assert.strictEqual(result._aiFieldSources.debtLatest.file, 'หลักฐานเสริม (อ่านซ้ำ)',
+    'ฟิลด์ที่ได้จากการอ่านซ้ำต้องมีที่มา');
 });
 
 test('repair: ถ้าอ่านซ้ำล้มเหลว งานยังสำเร็จพร้อม _aiWarnings', function () {
@@ -376,4 +378,192 @@ test('findMissingCriticalFacts_: แยกค่าว่าง/ขีด/ศู
   assert.ok(missing.indexOf('assetLatest') === -1, 'ศูนย์จริงต้องไม่ถือว่าขาด');
   assert.ok(missing.indexOf('reserveLatest') === -1);
   assert.strictEqual(gas.AI_CRITICAL_FACT_KEYS_.length, 19);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1C: chunked facts + merge + provenance
+// ---------------------------------------------------------------------------
+
+function pageBlock(fileName, pageCount, charsPerPage) {
+  const filler = 'ข้อมูล '.repeat(Math.ceil((charsPerPage || 1200) / 7));
+  return Array.from({ length: pageCount }, function (_, i) {
+    return '[หน้า ' + (i + 1) + '] ' + fileName + ' หน้า ' + (i + 1) + ' ' + filler;
+  }).join('\n');
+}
+
+function chunkPayload() {
+  return {
+    coopName: 'สหกรณ์ทดสอบ จำกัด',
+    coopCategoryName: 'สหกรณ์การเกษตร',
+    dbFiscalYear: '2570',
+    weaknesses: [],
+    score68: { level: 'ดี', total: 80 },
+    score69: { level: 'ดีมาก', total: 88 },
+    plannedVisits: 4,
+    files: [
+      {
+        name: 'fin.pdf',
+        category: 'งบการเงิน/รายงานสอบบัญชี',
+        extractedText: pageBlock('fin.pdf', 10, 1200)
+      },
+      {
+        name: 'other.pdf',
+        category: 'ไฟล์อื่นๆ',
+        extractedText: pageBlock('other.pdf', 10, 1200)
+      }
+    ]
+  };
+}
+
+test('splitFileToPageUnits_: แยกหน่วยหน้าจาก marker [หน้า N]', function () {
+  const gas = loadGasStaged({});
+  const units = gas.splitFileToPageUnits_('[หน้า 1] หนึ่ง\n[หน้า 3] สาม');
+  assert.strictEqual(units.length, 2);
+  assert.strictEqual(units[0].page, 1);
+  assert.strictEqual(units[0].text, 'หนึ่ง');
+  assert.strictEqual(units[1].page, 3);
+  assert.strictEqual(units[1].text, 'สาม');
+  assert.deepStrictEqual(gas.splitFileToPageUnits_('ไม่มี marker'), [{ page: 0, text: 'ไม่มี marker' }]);
+  assert.deepStrictEqual(gas.splitFileToPageUnits_(''), []);
+});
+
+test('buildFactChunks_: แบ่งตามช่วงหน้า ครอบทุกหน้า และไม่ผสมไฟล์ในรอบเดียว', function () {
+  const gas = loadGasStaged({});
+  const files = [
+    { name: 'annual.pdf', category: 'งบการเงิน/รายงานสอบบัญชี', extractedText: pageBlock('annual.pdf', 12, 1000) },
+    { name: 'profile.pdf', category: 'ข้อมูลพื้นฐาน', extractedText: pageBlock('profile.pdf', 4, 1000) }
+  ];
+
+  const chunks = gas.buildFactChunks_(files, {
+    thresholdChars: 1000,
+    targetChars: 4000,
+    maxChunks: 20
+  });
+
+  assert.ok(chunks.length > 1, 'ต้องแบ่งหลายช่วง');
+  chunks.forEach(function (chunk) {
+    assert.ok(chunk.file === 'annual.pdf' || chunk.file === 'profile.pdf');
+    assert.ok(chunk.chars <= 4000 + 1100, 'ช่วงต้องไม่เกินเพดาน (บวกหน้าเดียวยาวสุด)');
+    const pages = Array.from(chunk.pageText.matchAll(/\[หน้า (\d+)\]/g)).map(function (m) {
+      return Number(m[1]);
+    });
+    assert.strictEqual(pages[0], chunk.pagesFrom);
+    assert.strictEqual(pages[pages.length - 1], chunk.pagesTo);
+    assert.ok(!chunk.pageText.includes('annual.pdf') || !chunk.pageText.includes('profile.pdf'),
+      'ห้ามผสมสองไฟล์ในรอบเดียว');
+  });
+
+  const covered = chunks.reduce(function (acc, chunk) {
+    chunk.pageText.match(/\[หน้า (\d+)\]/g).forEach(function (marker) {
+      acc.push(chunk.file + ':' + marker);
+    });
+    return acc;
+  }, []).sort();
+  const expected = [];
+  for (let p = 1; p <= 12; p++) expected.push('annual.pdf:[หน้า ' + p + ']');
+  for (let p = 1; p <= 4; p++) expected.push('profile.pdf:[หน้า ' + p + ']');
+  assert.deepStrictEqual(covered.sort(), expected.sort(), 'ต้องครอบทุกหน้า');
+
+  assert.deepStrictEqual(
+    gas.buildFactChunks_([{ name: 'small.pdf', extractedText: '[หน้า 1] สั้น' }], {}),
+    [],
+    'ข้อความรวมไม่ถึงเพดานต้องไม่แบ่งช่วง'
+  );
+});
+
+test('mergeFactResults_: ไฟล์ที่น่าเชื่อถือกว่าชนะ และบันทึกที่มา/ค่าขัดกัน', function () {
+  const gas = loadGasStaged({});
+  const merged = gas.mergeFactResults_([
+    {
+      facts: { assetLatest: '1,000.00', debtLatest: '500.00' },
+      source: { file: 'fin.pdf', pagesFrom: 1, pagesTo: 10, index: 1 },
+      rank: 5,
+      index: 1
+    },
+    {
+      facts: { assetLatest: '2,000.00', debtLatest: '500', cashLatest: '77.00' },
+      source: { file: 'other.pdf', pagesFrom: 1, pagesTo: 5, index: 2 },
+      rank: 1,
+      index: 2
+    }
+  ]);
+
+  assert.strictEqual(merged.facts.assetLatest, '1,000.00', 'งบการเงินต้องชนะไฟล์อื่น');
+  assert.strictEqual(merged.facts.debtLatest, '500.00', 'ค่าเดียวกัน (500 กับ 500.00) ไม่ถือว่าขัดกัน');
+  assert.strictEqual(merged.facts.cashLatest, '77.00');
+  assert.strictEqual(merged.sources.assetLatest.file, 'fin.pdf');
+  assert.strictEqual(merged.sources.assetLatest.pages, '1–10');
+  assert.strictEqual(merged.conflicts.debtLatest, undefined);
+  assert.strictEqual(merged.conflicts.assetLatest.length, 2);
+  assert.strictEqual(merged.conflicts.assetLatest[1].file, 'other.pdf');
+});
+
+test('analyze: เอกสารใหญ่ถูกแบ่งช่วง อ่านครบ และรวมผลพร้อม provenance', function () {
+  const gas = loadGasStaged({
+    props: {
+      AI_CHUNK_THRESHOLD_CHARS: '5000',
+      AI_CHUNK_TARGET_CHARS: '6000',
+      AI_TARGETED_REPAIR: '0'
+    },
+    responder: function (call) {
+      if (call.stage === 'facts') {
+        if (call.promptText.indexOf('fin.pdf') !== -1) {
+          return { assetLatest: '1,000.00', debtLatest: '500.00' };
+        }
+        return { assetLatest: '2,000.00', debtLatest: '500.00', cashLatest: '77.00' };
+      }
+      if (call.stage === 'narrative') {
+        return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      }
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  const result = gas.analyzeUploadedFilesWithAI(chunkPayload());
+  const factsCalls = gas.calls.filter(function (call) { return call.stage === 'facts'; });
+
+  assert.ok(factsCalls.length >= 2, 'ต้องเรียก facts มากกว่าหนึ่งช่วง');
+  factsCalls.forEach(function (call) {
+    const hasFin = call.promptText.indexOf('fin.pdf') !== -1;
+    const hasOther = call.promptText.indexOf('other.pdf') !== -1;
+    assert.ok(!(hasFin && hasOther), 'แต่ละช่วงต้องมีไฟล์เดียว');
+  });
+
+  assert.strictEqual(result.assetLatest, '1,000.00', 'ค่าจากงบการเงินต้องชนะ');
+  assert.strictEqual(result.debtLatest, '500.00');
+  assert.strictEqual(result.cashLatest, '77.00');
+  assert.ok(result._aiChunks >= 2);
+  assert.strictEqual(result._aiFieldSources.assetLatest.file, 'fin.pdf');
+  assert.strictEqual(result._aiConflicts.assetLatest.length, 2);
+  assert.strictEqual(result._aiWarnings, undefined);
+});
+
+test('analyze: ช่วงที่ล้มเหลวไม่ทำให้งานล้มทั้งก้อน และเตือนผู้ใช้', function () {
+  const gas = loadGasStaged({
+    props: {
+      AI_CHUNK_THRESHOLD_CHARS: '5000',
+      AI_CHUNK_TARGET_CHARS: '6000',
+      AI_TARGETED_REPAIR: '0'
+    },
+    responder: function (call) {
+      if (call.stage === 'facts') {
+        if (call.promptText.indexOf('fin.pdf') !== -1) {
+          return { status: 500, body: 'chunk boom' };
+        }
+        return { assetLatest: '2,000.00' };
+      }
+      if (call.stage === 'narrative') {
+        return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      }
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  const result = gas.analyzeUploadedFilesWithAI(chunkPayload());
+
+  assert.strictEqual(result.assetLatest, '2,000.00', 'ต้องใช้ผลจากช่วงที่สำเร็จ');
+  assert.strictEqual(result.summaryAnalysis, 'S');
+  assert.ok(Array.isArray(result._aiWarnings) && result._aiWarnings.length >= 1);
+  assert.ok(result._aiWarnings.some(function (w) { return w.indexOf('อ่านช่วงหน้า') !== -1; }));
+  assert.strictEqual(result._aiFieldSources.assetLatest.file, 'other.pdf');
 });

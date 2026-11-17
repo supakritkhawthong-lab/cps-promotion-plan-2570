@@ -244,7 +244,7 @@ analysis.uploadMeta.previous = {
 | **Phase 0** ✅ *(ดำเนินการแล้ว)* | safe merge + diff + snapshot, null/0 semantics, per-file scan flag, year/run metadata, เตือนหัวข้อที่รอบใหม่ไม่มี | ข้อมูลเดิมไม่หาย, รู้ว่าอะไรเปลี่ยน | `web/js/cpd-upload.js`, `web/index.html`, `web/js/cpd-ui.js`, `web/js/cpd-state.js` |
 | **Phase 1A** ✅ *(ดำเนินการแล้ว)* | อ่านทุกหน้า (150 หน้า / 45 วินาที), page scoring, budget ต่อไฟล์ 55k + รวม 180k, coverage UI, ไม่ตัดกลางหน้า | PDF ดิจิทัลอ่านครบขึ้นและรู้ว่าขาดหน้าใด | `web/index.html`, `web/js/cpd-upload.js`, `tests/` |
 | **Phase 1B** ✅ *(ดำเนินการแล้ว)* | evidence windows + อ่านซ้ำเฉพาะฟิลด์ที่ขาด | เก็บเลขที่หลุดจากการตัดข้อความได้แม่นขึ้น | `web/index.html`, `gas/Code.gs` |
-| **Phase 1C** | chunked facts ต่อช่วงหน้า + merge + provenance | ไฟล์ 100 หน้าอ่านครบโดยไม่เกินเวลา GAS | `web/index.html`, `gas/Code.gs`, `web/js/cpd-upload.js` |
+| **Phase 1C** ✅ *(ดำเนินการแล้ว)* | chunked facts ต่อช่วงหน้า + merge + provenance | ไฟล์ 100 หน้าอ่านครบโดยไม่เกินเวลา GAS | `web/index.html`, `gas/Code.gs`, `web/js/cpd-upload.js` |
 | **Phase 2** | layout-aware table extraction, ส่งภาพหน้าสำคัญ, OCR confidence, double-pass ฟิลด์วิกฤต, conflict priority | ข้อมูลตารางแม่นขึ้น, ลด hallucination | `web/index.html`, `gas/Code.gs` |
 | **Phase 3** | audit log ต่อรอบ, เก็บ hash/ไฟล์ต้นฉบับ (ถ้าอนุญาต), quality dashboard, prompt/schema versioning | ตรวจสอบย้อนหลังและวัดคุณภาพได้ | `gas/CPD_Database.gs`, docs |
 
@@ -333,11 +333,50 @@ analysis.uploadMeta.previous = {
 | เงื่อนไขเรียก `repair` | มี evidence, ขาด ≥ 3 ฟิลด์วิกฤต, และเหลือเวลา ≥ 120 วินาที (จำกัดรอบละ 45 วินาที) — ปิดได้ด้วย `AI_TARGETED_REPAIR=0` |
 | การ merge | เติมเฉพาะฟิลด์ที่ยังขาด ห้ามทับค่าที่มีอยู่ และไม่รับ `-` |
 
-**เทสต์:** เพิ่ม 8 เทสต์ใน `tests/upload-plan.test.js` (evidence extraction/cap/trim/metadata) และ 7 เทสต์ใน `tests/ai-staged.test.js` (evidence inclusion, caps, repair merge, repair failure, gating) → `npm run verify` ผ่าน **105/105**
+**เทสต์:** เพิ่ม 8 เทสต์ใน `tests/upload-plan.test.js` (evidence extraction/cap/trim/metadata) และ 7 เทสต์ใน `tests/ai-staged.test.js` (evidence inclusion, caps, repair merge, repair failure, gating) → `npm run verify` ผ่าน **105/105** ณ รอบ 1B (หลัง Phase 1C รวมเป็น 112/112)
 
 **ต้อง deploy GAS ใหม่** (`analyzeUploadedFilesWithAI`) ก่อนใช้ Phase 1B บน production
 
 **ยังไม่ทำในรอบนี้:** 1C (chunked facts + merge/provenance), 1D (scan batches + hash cache)
+
+### 7.4 Phase 1C — สิ่งที่ลงโค้ดแล้ว
+
+**หลักคิด:** เมื่อข้อความรวมทุกไฟล์ใหญ่เกินกว่าที่ GAS จะอ่านจบในเวลาที่มี ให้แบ่งเป็น "ช่วงหน้า" ที่ไม่ผสมไฟล์ แล้วสกัด facts ทีละช่วง จากนั้นรวมผลด้วยกติกาที่ตรวจย้อนกลับได้
+
+**`gas/Code.gs` — ฟังก์ชันใหม่ (pure/testable)**
+
+| ฟังก์ชัน | หน้าที่ |
+| --- | --- |
+| `buildFactChunks_(files, options)` | คืน `[]` เมื่อข้อความรวม ≤ `AI_CHUNK_THRESHOLD_CHARS` (90,000) หรือคืนรายการช่วงหน้าเมื่อเกิน โดยเริ่มที่ `AI_CHUNK_TARGET_CHARS` (45,000) แล้วเพิ่มเป้า 1.5 เท่า (สูงสุด 6 รอบ) จนจำนวนช่วง ≤ `max(6, จำนวนไฟล์)` |
+| `splitFileToPageUnits_(text)` | แยกข้อความไฟล์เป็นหน่วยหน้าจาก marker `[หน้า N]` (ถ้าไม่มี marker = 1 หน่วย) |
+| `buildChunksAtTarget_()` | รวมหน่วยหน้าต่อไฟล์จนใกล้เป้าหมาย โดยไม่ผสมไฟล์และไม่ตัดกลางหน้า |
+| `runFactChunks_()` | เรียก `facts` ทีละช่วง แบ่งเวลาให้แต่ละช่วง แนบภาพเฉพาะช่วงแรก และแนบ evidence ของไฟล์ให้ช่วงแรกของไฟล์นั้น |
+| `mergeFactResults_()` | รวม facts ด้วยกติกา **ความน่าเชื่อถือของหมวดไฟล์ > จำนวนช่วงที่ตรงกัน > ช่วงที่พบก่อน** แล้วคืน `{ facts, sources, conflicts }` |
+| `factCategoryRank_()` | งบการเงิน 5, สอบบัญชี/ปิดบัญชี 4, ข้อมูลพื้นฐาน/ประจำปี/โปรไฟล์ 3, ไม่ทราบ 2, ไฟล์อื่น 1 |
+| `normalizeFactValueKey_()` | normalize ตัวเลขก่อนเทียบ (`500` = `500.00`) จึงไม่ถือว่าขัดกัน |
+| `compactFactSource_()` | แปลงช่วงเป็น `{ file, pages, chunk }` สำหรับ provenance |
+
+**`gas/Code.gs` — `analyzeUploadedFilesWithAI()`**
+
+- ถ้ามี > 1 ช่วง → อ่าน facts ต่อช่วงแล้ว merge; ช่วงที่ล้มเหลวไม่ทำให้ทั้งงานล้ม (เตือน `อ่านช่วงหน้า … ไม่สำเร็จ`) แต่ถ้าทุกช่วงล้มจึง throw
+- ผลลัพธ์เพิ่ม metadata: `_aiFieldSources[field] = { file, pages, chunk }`, `_aiConflicts[field] = [{ value, file, pages }]` (สูงสุด 20 ฟิลด์ × 3 ค่า), `_aiChunks` (จำนวนช่วง)
+- ฟิลด์ที่ได้จากการอ่านซ้ำ (repair) มีที่มา `file: 'หลักฐานเสริม (อ่านซ้ำ)'`, `chunk: 'repair'`
+- ปรับได้ด้วย Script Properties: `AI_CHUNK_THRESHOLD_CHARS`, `AI_CHUNK_TARGET_CHARS`, `AI_CHUNK_MAX`
+
+**`web/js/cpd-upload.js`**
+
+- `plan()` อ่าน `_aiFieldSources`/`_aiConflicts` โดยตรง แนบ `source` ให้ record ของฟิลด์ และเพิ่มคำเตือนเมื่อพบค่าขัดกัน
+- `sanitizeFieldSource_()` / `sanitizeConflicts_()` จำกัดขนาดก่อนเก็บลง State
+- `commit()` เก็บ `uploadMeta.conflicts` เฉพาะเมื่อมีค่าขัดกันจริง
+- หน้ารอตรวจแสดงบรรทัด "ที่มา: ไฟล์ • หน้า … • ช่วง n"
+
+**`web/index.html`** — bump cache เป็น `cpd-upload.js?v=20261117b`
+
+**เทสต์:** เพิ่ม 5 เทสต์ใน `tests/ai-staged.test.js` (split units / chunk coverage / merge precedence / chunked analyze / chunk failure) และ 2 เทสต์ใน `tests/upload-plan.test.js` (provenance / conflicts) → `npm run verify` ผ่าน **112/112**
+
+**ต้อง deploy GAS ใหม่** (`analyzeUploadedFilesWithAI`) ก่อน chunking ทำงานบน production
+
+**ยังไม่ทำในรอบนี้:** 1D (scan/vision batches + hash cache), Phase 2–3
 
 ---
 

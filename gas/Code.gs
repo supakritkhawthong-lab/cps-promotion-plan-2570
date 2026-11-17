@@ -603,6 +603,329 @@ function repairMissingFacts_(facts, evidenceParts, options) {
   return mergeRepairFacts_(facts, patch, missing);
 }
 
+// ---------------------------------------------------------------------------
+// Phase 1C: chunked facts + merge + provenance
+//
+// เอกสารใหญ่ (ข้อความรวมเกินเพดาน) ถูกแบ่งเป็นช่วงหน้าละไม่เกิน ~45,000
+// ตัวอักษร และไม่ผสมไฟล์ในรอบเดียว แล้วสกัด facts ต่อช่วง จากนั้นรวมผลด้วย
+// กติกา: ไฟล์ที่เชื่อถือได้สูงกว่า > จำนวนช่วงที่ตรงกัน > ช่วงที่พบก่อน
+// พร้อมเก็บที่มา (ไฟล์/ช่วงหน้า/ช่วงที่) ไว้ตรวจย้อนกลับ
+// ---------------------------------------------------------------------------
+
+const AI_CHUNK_THRESHOLD_CHARS_ = 90000;
+const AI_CHUNK_TARGET_CHARS_ = 45000;
+const AI_CHUNK_MAX_ = 6;
+const AI_CONFLICT_LIMIT_ = 20;
+
+/** ลำดับความน่าเชื่อถือของหมวดไฟล์ (5 = งบการเงินสอบบัญชี, 1 = ไฟล์อื่น ๆ) */
+function factCategoryRank_(category) {
+  const c = String(category || '').toLowerCase();
+  if (c.indexOf('งบการเงิน') !== -1) return 5;
+  if (c.indexOf('สอบบัญชี') !== -1 || c.indexOf('ปิดบัญชี') !== -1) return 4;
+  if (c.indexOf('ประจำปี') !== -1 || c.indexOf('ผลดำเนินงาน') !== -1 ||
+      c.indexOf('พื้นฐาน') !== -1 || c.indexOf('โปรไฟล์') !== -1) return 3;
+  if (c.indexOf('อื่น') !== -1) return 1;
+  return 2;
+}
+
+/** แยกข้อความไฟล์เป็นหน่วยหน้าจาก marker "[หน้า N]" (ถ้าไม่มี marker = 1 หน่วย) */
+function splitFileToPageUnits_(text) {
+  const src = String(text || '');
+  const re = /\[หน้า\s+(\d+)\]/g;
+  const units = [];
+  let match;
+  let bodyStart = -1;
+  let lastPage = 0;
+
+  while ((match = re.exec(src))) {
+    if (bodyStart >= 0) {
+      const body = src.slice(bodyStart, match.index).trim();
+      if (body) units.push({ page: lastPage, text: body });
+    }
+    lastPage = Number(match[1]) || 0;
+    bodyStart = re.lastIndex;
+  }
+  if (bodyStart >= 0) {
+    const body = src.slice(bodyStart).trim();
+    if (body) units.push({ page: lastPage, text: body });
+  } else if (src.trim()) {
+    units.push({ page: 0, text: src.trim() });
+  }
+  return units;
+}
+
+/** สร้างช่วงข้อความที่เป้าหมายตัวอักษรที่กำหนด (แต่ละช่วงอยู่ภายในไฟล์เดียว) */
+function buildChunksAtTarget_(files, targetChars, evidenceByFile) {
+  const chunks = [];
+  (files || []).forEach(function (file) {
+    if (!file || !String(file.extractedText || '').trim()) return;
+    const units = splitFileToPageUnits_(file.extractedText);
+    if (!units.length) return;
+
+    const category = file.category || 'เอกสาร';
+    const rank = factCategoryRank_(category);
+    let buffer = [];
+    let bufferChars = 0;
+
+    function flush() {
+      if (!buffer.length) return;
+      chunks.push({
+        index: chunks.length + 1,
+        file: String(file.name || ''),
+        category: category,
+        rank: rank,
+        pagesFrom: buffer[0].page,
+        pagesTo: buffer[buffer.length - 1].page,
+        chars: bufferChars,
+        pageText: buffer.map(function (unit) {
+          return (unit.page ? '[หน้า ' + unit.page + '] ' : '') + unit.text;
+        }).join('\n')
+      });
+      buffer = [];
+      bufferChars = 0;
+    }
+
+    units.forEach(function (unit) {
+      const len = unit.text.length + 8;
+      if (buffer.length && bufferChars + len > targetChars) flush();
+      buffer.push(unit);
+      bufferChars += len;
+    });
+    flush();
+  });
+
+  // แนบ evidence ของแต่ละไฟล์ให้ช่วงแรกของไฟล์นั้น
+  if (evidenceByFile) {
+    const attached = {};
+    chunks.forEach(function (chunk) {
+      if (attached[chunk.file]) return;
+      if (evidenceByFile[chunk.file]) {
+        chunk.evidence = evidenceByFile[chunk.file];
+        attached[chunk.file] = true;
+      }
+    });
+  }
+  return chunks;
+}
+
+/**
+ * buildFactChunks_(files, options)
+ * คืน [] เมื่อข้อความรวมไม่ถึงเพดาน (ใช้โหมดเดิม) หรือคืนรายการช่วงหน้า
+ * options: thresholdChars / targetChars / maxChunks / evidenceByFile
+ */
+function buildFactChunks_(files, options) {
+  const opts = options || {};
+  const threshold = Number(opts.thresholdChars) > 0
+    ? Number(opts.thresholdChars) : AI_CHUNK_THRESHOLD_CHARS_;
+  const targetBase = Number(opts.targetChars) > 0
+    ? Number(opts.targetChars) : AI_CHUNK_TARGET_CHARS_;
+  const maxBase = Number(opts.maxChunks) > 0 ? Number(opts.maxChunks) : AI_CHUNK_MAX_;
+
+  const textFiles = (files || []).filter(function (f) {
+    return f && String(f.extractedText || '').trim();
+  });
+  const totalChars = textFiles.reduce(function (sum, f) {
+    return sum + String(f.extractedText || '').length;
+  }, 0);
+  if (!textFiles.length || totalChars <= threshold) return [];
+
+  const maxChunks = Math.max(maxBase, textFiles.length);
+  let target = targetBase;
+  let chunks = [];
+  for (let guard = 0; guard < 6; guard++) {
+    chunks = buildChunksAtTarget_(textFiles, target, opts.evidenceByFile);
+    if (chunks.length <= maxChunks) break;
+    target = Math.ceil(target * 1.5);
+  }
+  return chunks;
+}
+
+/** ค่าที่ใช้เทียบความขัดกัน (ตัวเลข normalize, ข้อความเทียบแบบไม่สนช่องว่าง) */
+function normalizeFactValueKey_(value) {
+  if (isMissingFactValue_(value)) return '';
+  if (typeof value === 'number') return isFinite(value) ? value.toFixed(2) : '';
+  const text = String(value).replace(/\s+/g, ' ').trim();
+  const numeric = text.replace(/,/g, '').replace(/\s*(บาท|ล้านบาท)$/g, '');
+  if (/^-?\d+(\.\d+)?$/.test(numeric)) {
+    const n = Number(numeric);
+    if (isFinite(n)) return n.toFixed(2);
+  }
+  return text.toLowerCase();
+}
+
+function compactFactSource_(chunk) {
+  if (!chunk) return null;
+  const from = Number(chunk.pagesFrom) || 0;
+  const to = Number(chunk.pagesTo) || 0;
+  let pages = '';
+  if (from && to && from !== to) pages = from + '–' + to;
+  else if (from || to) pages = String(from || to);
+  return {
+    file: String(chunk.file || '').slice(0, 120),
+    pages: pages,
+    chunk: chunk.index || 1
+  };
+}
+
+function mergeChangeObjects_(candidates) {
+  const out = {};
+  (candidates || []).forEach(function (c) {
+    const changes = c.facts && c.facts.changes;
+    if (!changes || typeof changes !== 'object') return;
+    Object.keys(changes).forEach(function (key) {
+      if (isMissingFactValue_(changes[key])) return;
+      if (out[key] === undefined) out[key] = changes[key];
+    });
+  });
+  return out;
+}
+
+/**
+ * mergeFactResults_(candidates)
+ *   candidates = [{ facts, source: chunk, rank, index }]
+ * คืน { facts, sources, conflicts }
+ */
+function mergeFactResults_(candidates) {
+  const list = (candidates || []).filter(function (c) {
+    return c && c.facts && typeof c.facts === 'object';
+  });
+  const ordered = list.slice().sort(function (a, b) {
+    return (Number(b.rank) || 0) - (Number(a.rank) || 0) ||
+      (Number(a.index) || 0) - (Number(b.index) || 0);
+  });
+
+  const merged = {};
+  const sources = {};
+  const conflicts = {};
+
+  const keys = list.reduce(function (acc, c) {
+    Object.keys(c.facts).forEach(function (key) {
+      if (acc.indexOf(key) === -1) acc.push(key);
+    });
+    return acc;
+  }, []);
+
+  keys.forEach(function (key) {
+    if (key === 'changes') {
+      const changes = mergeChangeObjects_(ordered);
+      if (Object.keys(changes).length) merged.changes = changes;
+      return;
+    }
+
+    const groups = {};
+    list.forEach(function (c) {
+      const value = c.facts[key];
+      if (isMissingFactValue_(value)) return;
+      const norm = normalizeFactValueKey_(value);
+      if (!norm) return;
+      if (!groups[norm]) groups[norm] = { count: 0, best: null };
+      const group = groups[norm];
+      group.count++;
+      const cand = {
+        value: value,
+        source: compactFactSource_(c.source),
+        rank: Number(c.rank) || 0,
+        index: Number(c.index) || 0
+      };
+      if (!group.best || cand.rank > group.best.rank ||
+          (cand.rank === group.best.rank && cand.index < group.best.index)) {
+        group.best = cand;
+      }
+    });
+
+    const grouped = Object.keys(groups).map(function (norm) { return groups[norm]; });
+    if (!grouped.length) return;
+    grouped.sort(function (a, b) {
+      if (b.best.rank !== a.best.rank) return b.best.rank - a.best.rank;
+      if (b.count !== a.count) return b.count - a.count;
+      return a.best.index - b.best.index;
+    });
+
+    const chosen = grouped[0].best;
+    merged[key] = chosen.value;
+    if (chosen.source) sources[key] = chosen.source;
+
+    if (grouped.length > 1 && Object.keys(conflicts).length < AI_CONFLICT_LIMIT_) {
+      conflicts[key] = grouped.slice(0, 3).map(function (group) {
+        return {
+          value: String(group.best.value == null ? '' : group.best.value).slice(0, 80),
+          file: group.best.source ? group.best.source.file : '',
+          pages: group.best.source ? group.best.source.pages : ''
+        };
+      });
+    }
+  });
+
+  return { facts: merged, sources: sources, conflicts: conflicts };
+}
+
+/**
+ * อ่าน facts ต่อช่วงหน้า แล้วรวมผล
+ * คืน { result, warnings } โดย result = { facts, sources, conflicts }
+ */
+function runFactChunks_(promptText, chunks, options) {
+  const opts = options || {};
+  const inlineParts = opts.inlineParts || [];
+  const deadline = opts.deadline || (Date.now() + 180000);
+  const stageStart = opts.stageStart || Date.now();
+  const warnings = [];
+  const candidates = [];
+  let firstError = null;
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (Date.now() >= deadline - 5000) {
+      warnings.push('อ่านข้อมูลไม่ครบทุกช่วง: เหลือ ' + (chunks.length - i) + ' ช่วง');
+      break;
+    }
+
+    const chunk = chunks[i];
+    const parts = [{ text: promptText }];
+    const range = chunk.pagesFrom || chunk.pagesTo
+      ? ' (หน้า ' + (chunk.pagesFrom || '?') + '–' + (chunk.pagesTo || '?') + ')'
+      : '';
+    parts.push({
+      text: '\n--- ข้อมูลจากไฟล์ [' + chunk.category + ']: ' + chunk.file + range + ' ---\n' +
+        chunk.pageText + '\n'
+    });
+    if (i === 0) inlineParts.forEach(function (part) { parts.push(part); });
+    if (chunk.evidence) {
+      parts.push(chunk.evidence);
+      parts.push({ text: AI_EVIDENCE_SUFFIX_ });
+    }
+    parts.push({ text: AI_FACT_STAGE_SUFFIX_ });
+
+    const remaining = Math.max(0, deadline - Date.now());
+    const chunksLeft = chunks.length - i;
+    const chunkDeadline = Date.now() + Math.max(15000, Math.floor(remaining / chunksLeft));
+
+    try {
+      const facts = callGeminiJson_(
+        parts,
+        buildFactResponseSchema_(),
+        'facts',
+        Math.min(chunkDeadline, deadline),
+        stageStart
+      );
+      candidates.push({ facts: facts, source: chunk, rank: chunk.rank, index: i + 1 });
+    } catch (e) {
+      if (!firstError) firstError = e;
+      warnings.push('อ่านช่วงหน้า ' + (chunk.pagesFrom || '?') + '–' + (chunk.pagesTo || '?') +
+        ' ของ ' + chunk.file + ' ไม่สำเร็จ');
+      logAiStage_('facts-chunk-failed', {
+        chunk: i + 1,
+        file: chunk.file,
+        message: e.message
+      });
+    }
+  }
+
+  if (!candidates.length) {
+    throw firstError || new Error('อ่านข้อมูลจากเอกสารไม่สำเร็จ');
+  }
+  return { result: mergeFactResults_(candidates), warnings: warnings };
+}
+
+
 function getAiModels_() {
   return String(getProp_('GEMINI_MODELS') || 'gemini-3.5-flash,gemini-3.8-flash,gemini-2.5-flash')
     .split(',')
@@ -962,6 +1285,7 @@ ${ruleWeaknessesText}
 
   const parts = [{ text: promptText }];
   const evidenceParts = [];
+  const evidenceByFile = {};
   if (payload.files && payload.files.length > 0) {
     payload.files.forEach(f => {
       if (f.extractedText) {
@@ -971,9 +1295,11 @@ ${ruleWeaknessesText}
         });
         // Phase 1B: หลักฐานสั้น ๆ จากหน้าที่ไม่ได้ส่งทั้งหน้า (เฉพาะระยะ facts)
         if (f.evidenceText) {
-          evidenceParts.push({
+          const evidencePart = {
             text: `\n--- หลักฐานเสริม [${f.category || 'เอกสาร'}]: ${f.name} ---\n${f.evidenceText}\n`
-          });
+          };
+          evidenceParts.push(evidencePart);
+          evidenceByFile[String(f.name || '')] = evidencePart;
         }
       } else if (f.base64) {
         // กรณีเป็นไฟล์สแกนหรือรูปภาพ ส่งเป็น inlineData ที่ตัดย่อขนาดแล้ว
@@ -996,25 +1322,57 @@ ${ruleWeaknessesText}
   const stageStart = Date.now();
   const deadlineMs = Number(getProp_('AI_DEADLINE_MS', '300000')) || 300000;
   const overallDeadline = stageStart + deadlineMs;
+  const warnings = [];
 
   // ระยะที่ 1: สกัดตัวเลขและข้อเท็จจริง (ต้องสำเร็จก่อน ถ้าล้มเหลวทั้งงานล้มเหลว)
   const factsDeadline = Math.min(overallDeadline, stageStart + Math.min(deadlineMs, 210000));
-  const factsInput = evidenceBudget.length
-    ? parts.concat(evidenceBudget).concat([{ text: AI_EVIDENCE_SUFFIX_ }])
-    : parts;
-  const facts = callGeminiJson_(
-    factsInput.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
-    buildFactResponseSchema_(),
-    'facts',
-    factsDeadline,
-    stageStart
-  );
+
+  // Phase 1C: เอกสารใหญ่ → แบ่งช่วงหน้าแล้วสกัด facts ต่อช่วง
+  const factChunks = buildFactChunks_(payload.files, {
+    thresholdChars: Number(getProp_('AI_CHUNK_THRESHOLD_CHARS', '90000')) || 90000,
+    targetChars: Number(getProp_('AI_CHUNK_TARGET_CHARS', '45000')) || 45000,
+    maxChunks: Number(getProp_('AI_CHUNK_MAX', '6')) || 6,
+    evidenceByFile: evidenceByFile
+  });
+
+  let facts;
+  let fieldSources = null;
+  let fieldConflicts = null;
+  let chunkCount = 0;
+
+  if (factChunks.length > 1) {
+    const chunkRun = runFactChunks_(promptText, factChunks, {
+      inlineParts: parts.filter(function (part) { return !!part.inlineData; }),
+      deadline: factsDeadline,
+      stageStart: stageStart
+    });
+    chunkRun.warnings.forEach(function (w) { warnings.push(w); });
+    facts = chunkRun.result.facts;
+    fieldSources = chunkRun.result.sources;
+    fieldConflicts = chunkRun.result.conflicts;
+    chunkCount = factChunks.length;
+    logAiStage_('facts-chunked', {
+      chunks: factChunks.length,
+      filled: Object.keys(facts).length,
+      conflicts: Object.keys(fieldConflicts).length
+    });
+  } else {
+    const factsInput = evidenceBudget.length
+      ? parts.concat(evidenceBudget).concat([{ text: AI_EVIDENCE_SUFFIX_ }])
+      : parts;
+    facts = callGeminiJson_(
+      factsInput.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
+      buildFactResponseSchema_(),
+      'facts',
+      factsDeadline,
+      stageStart
+    );
+  }
+
   if (facts.fiscalDateFull) {
     facts.fiscalDateFull = normalizeFiscalDate(facts.fiscalDateFull);
   }
   applyPrevYearFallbacks_(facts);
-
-  const warnings = [];
 
   // ระยะ 1B: อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ยังขาด โดยใช้ evidence windows
   //   เงื่อนไข: มีหลักฐานเสริม + ขาดอย่างน้อย 3 ฟิลด์ + เหลือเวลาพอ
@@ -1035,9 +1393,22 @@ ${ruleWeaknessesText}
           facts.fiscalDateFull = normalizeFiscalDate(facts.fiscalDateFull);
         }
         applyPrevYearFallbacks_(facts);
+        const filledKeys = repaired ? Object.keys(repaired) : [];
+        if (filledKeys.length) {
+          if (!fieldSources) fieldSources = {};
+          filledKeys.forEach(function (key) {
+            if (!fieldSources[key]) {
+              fieldSources[key] = {
+                file: 'หลักฐานเสริม (อ่านซ้ำ)',
+                pages: '',
+                chunk: 'repair'
+              };
+            }
+          });
+        }
         logAiStage_('repair', {
           requested: missingCritical.length,
-          filled: repaired ? Object.keys(repaired).length : 0
+          filled: filledKeys.length
         });
       } catch (e) {
         warnings.push('การอ่านซ้ำเฉพาะฟิลด์ที่ขาดไม่สำเร็จ: ' + e.message);
@@ -1048,6 +1419,10 @@ ${ruleWeaknessesText}
 
   const result = {};
   Object.keys(facts).forEach(function (key) { result[key] = facts[key]; });
+  // Phase 1C: ที่มาและความขัดกันของค่าที่สกัดได้ (metadata เท่านั้น)
+  if (fieldSources && Object.keys(fieldSources).length) result._aiFieldSources = fieldSources;
+  if (fieldConflicts && Object.keys(fieldConflicts).length) result._aiConflicts = fieldConflicts;
+  if (chunkCount) result._aiChunks = chunkCount;
 
   const factsBlock = '\n\n--- ข้อมูลที่สกัดได้จากรอบแรก (ใช้เป็นตัวเลขอ้างอิง) ---\n' +
     JSON.stringify(facts) + '\n--- จบบล็อกข้อมูล ---';
