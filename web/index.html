@@ -1022,41 +1022,74 @@
     try {
       const arrayBuffer = await file.arrayBuffer();
 
-      // ขั้นที่ 1: PDF.js อ่านข้อความ "ทุกหน้า" (ไม่จำกัด 25 หน้าเหมือนเดิม)
-      //   - อ่านสูงสุด 150 หน้า หรือจนครบเวลาอ่าน ~45 วินาที
-      //   - ให้คะแนนหน้า → เลือกเข้าชุดข้อมูลตาม budget → ไม่ตัดกลางหน้า
-      //   - coverage บอกผู้ใช้ว่าอ่านกี่หน้า / ส่งกี่หน้า / ข้ามหน้าใด
+      // ขั้นที่ 1: PDF.js อ่านข้อความ "ทุกหน้า"
+      //   - อ่านพร้อมกัน 4 หน้า (worker pool) เพราะการอ่านทีละหน้าแบบเรียงลำดับ
+      //     ทำให้ไฟล์ใหญ่ใช้เวลา 45 วินาทีหมดไปกับ 4 หน้าแรก
+      //   - เพดานต่อหน้า 20 วินาที (หน้าที่ค้างถูกข้าม ไม่ลากเวลาทั้งไฟล์)
+      //   - เพดานรวม 150 วินาที หรือ 150 หน้า
+      //   - coverage บอกผู้ใช้ว่าอ่านกี่หน้า / ส่งกี่หน้า / ข้ามเพราะอะไร
       if (window.pdfjsLib) {
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
         const numPages = pdf.numPages;
         const maxReadPages = Math.min(numPages, 150);
-        const readDeadline = Date.now() + 45000;
+        const READ_TOTAL_BUDGET_MS = 150000;
+        const READ_PAGE_TIMEOUT_MS = 20000;
+        const READ_CONCURRENCY = 4;
+        const readDeadline = Date.now() + READ_TOTAL_BUDGET_MS;
 
         const pages = [];
         let charsAll = 0;
         let pagesReadCount = 0;
+        let pagesNoText = 0;
+        let pagesFailed = 0;
         let stoppedEarly = false;
 
-        for (let p = 1; p <= maxReadPages; p++) {
-          if (Date.now() > readDeadline) { stoppedEarly = true; break; }
-          try {
-            const page = await pdf.getPage(p);
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items.map(item => item.str).join(' ')
-              .replace(/\s+/g, ' ').trim();
-            pagesReadCount++;
-            charsAll += pageText.length;
-            if (pageText.length > 20) pages.push({ page: p, text: pageText });
-          } catch (pageErr) {
-            console.warn('อ่าน PDF หน้า ' + p + ' ไม่สำเร็จ:', pageErr);
+        // A stuck page must not consume the whole budget.
+        const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('อ่านหน้าเกิน ' + ms + ' มิลลิวินาที')), ms);
+          promise.then(
+            (value) => { clearTimeout(timer); resolve(value); },
+            (err) => { clearTimeout(timer); reject(err); }
+          );
+        });
+
+        const queue = [];
+        for (let p = 1; p <= maxReadPages; p++) queue.push(p);
+        let cursor = 0;
+
+        async function readWorker() {
+          while (cursor < queue.length) {
+            if (Date.now() > readDeadline) { stoppedEarly = true; return; }
+            const pageNo = queue[cursor++];
+            try {
+              const page = await withTimeout(pdf.getPage(pageNo), READ_PAGE_TIMEOUT_MS);
+              const textContent = await withTimeout(page.getTextContent(), READ_PAGE_TIMEOUT_MS);
+              const pageText = textContent.items.map(item => item.str).join(' ')
+                .replace(/\s+/g, ' ').trim();
+              pagesReadCount++;
+              charsAll += pageText.length;
+              // หน้าที่ไม่มีข้อความคือภาพสแกน — PDF.js อ่านข้อความไม่ได้
+              if (pageText.length > 20) pages.push({ page: pageNo, text: pageText });
+              else pagesNoText++;
+            } catch (pageErr) {
+              pagesFailed++;
+              console.warn('อ่าน PDF หน้า ' + pageNo + ' ไม่สำเร็จ:', pageErr);
+            }
+            reportReadProgress(file.name, pagesReadCount, maxReadPages);
           }
         }
+
+        const workers = [];
+        for (let w = 0; w < Math.min(READ_CONCURRENCY, queue.length); w++) workers.push(readWorker());
+        await Promise.all(workers);
+        pages.sort(function (a, b) { return a.page - b.page; });
+        pagesReadCount = pages.length + pagesNoText + pagesFailed;
 
         if (charsAll > 250 && pages.length) {
           const fullText = pages.map(x => `[หน้า ${x.page}] ${x.text}`).join('\n');
           const selection = (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.selectPages === 'function')
             ? window.CPD_UPLOAD.selectPages(pages, {
-                maxChars: 55000,
+                maxChars: 90000,
                 alwaysPages: 3,
                 declaredTotalPages: numPages
               })
@@ -1086,6 +1119,9 @@
             charsTotal: selection.charsTotal,
             charsSent: selection.charsSelected,
             pagesUnread: selection.pagesUnread,
+            pagesNoText: pagesNoText,
+            pagesFailed: pagesFailed,
+            stopReason: stoppedEarly ? 'time' : (numPages > maxReadPages ? 'maxPages' : 'read'),
             readCapHit: numPages > maxReadPages || stoppedEarly,
             complete: selection.complete
           };
@@ -1213,6 +1249,28 @@
   }
 
   /**
+   * ความคืบหน้าระหว่างอ่าน PDF — หลายไฟล์อ่านพร้อมกัน จึงรวมยอดทุกไฟล์เข้าด้วยกัน
+   */
+  var readProgressState = {};
+  function resetReadProgress() {
+    readProgressState = {};
+  }
+  function reportReadProgress(name, read, total) {
+    readProgressState[name] = { read: read || 0, total: total || 0 };
+    var readSum = 0;
+    var totalSum = 0;
+    Object.keys(readProgressState).forEach(function (key) {
+      readSum += readProgressState[key].read;
+      totalSum += readProgressState[key].total;
+    });
+    var box = document.getElementById('uploadCoverage');
+    if (!box) return;
+    box.classList.remove('d-none');
+    box.innerHTML = '<div class="text-muted small">📖 กำลังอ่านไฟล์ PDF... อ่านแล้ว ' +
+      readSum + '/' + totalSum + ' หน้า</div>';
+  }
+
+  /**
    * แสดงการ์ด "อ่านกี่หน้า / ส่งกี่หน้า / ข้ามหน้าใด" หลังอ่านไฟล์ (Phase 1A)
    */
   function renderUploadCoverage(files) {
@@ -1264,8 +1322,14 @@
           ' • ' + Number(cov.evidenceChars).toLocaleString('en-US') + ' ตัวอักษร' +
           (cov.evidenceCapped ? ' (ตัดตามเพดาน)' : '') + '</div>';
       }
+      if (cov.pagesNoText > 0) {
+        html += '<div class="text-warning mt-1">🖼 ' + cov.pagesNoText +
+          ' หน้าไม่มีข้อความ (ภาพสแกน) — PDF.js อ่านไม่ได้ ต้องอัปโหลดเฉพาะหน้าเหล่านั้นเป็นรูปภาพ</div>';
+      }
       if (cov.readCapHit) {
-        html += '<div class="text-warning mt-1">⚠ อ่านถึงขีดจำกัด (150 หน้า / 45 วินาที) — หน้าท้ายไฟล์อาจยังไม่ได้อ่าน</div>';
+        html += '<div class="text-warning mt-1">⚠ อ่านถึงขีดจำกัด (' +
+          (cov.stopReason === 'maxPages' ? '150 หน้า' : '150 วินาที') +
+          ') — หน้าท้ายไฟล์ยังไม่ได้อ่าน ลองแยกไฟล์เป็นส่วน ๆ แล้วอัปโหลดซ้ำ</div>';
       }
       if (!complete && cov.pagesSkippedHighScore && cov.pagesSkippedHighScore.length) {
         var list = cov.pagesSkippedHighScore.slice(0, 10).join(', ');
@@ -1339,6 +1403,7 @@
       for (let f of document.getElementById('fileOther').files) tasks.push(smartProcessFile(f, 'ไฟล์อื่นๆ', 5));
 
       // ประมวลผลทุกไฟล์พร้อมกันแบบขนาน (Parallel Processing)
+      resetReadProgress();
       let filesToUpload = await Promise.all(tasks);
 
       // Phase 1A: จำกัดตัวอักษรรวมทุกไฟล์ และตัดที่ขอบหน้า (ไม่ตัดกลางหน้า)
