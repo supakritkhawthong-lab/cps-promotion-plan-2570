@@ -267,8 +267,27 @@ function getMasterCoopList() {
         const mainOfficer = cleanName(row[2]);
         const coArr = [row[3], row[4], row[5], row[6], row[7]].map(x => cleanName(x).split(' ')[0]).filter(x => x && x !== 'nan' && x !== 'ชื่อ');
 
-        const s68 = map68[col1] || {};
-        const s69 = map69[col1] || {};
+        let s68 = map68[col1] || {};
+        let s69 = map69[col1] || {};
+
+        // กลุ่มเกษตรกรที่ยังไม่มีคะแนนปี 2569 ในชีต: เติมจากชุดข้อมูลสำรองที่มากับระบบ
+        // (ข้อมูลจากชีตจริงต้องชนะเสมอ — ตรวจด้วย hasStrengthScore69_)
+        if (col1.includes('กลุ่มเกษตรกร') && !hasStrengthScore69_(s69)) {
+          const bundledRec = getGroupStrength69Record_(col1);
+          const bundled69 = buildGroupScore69_(bundledRec);
+          if (bundled69) {
+            s69 = bundled69;
+            if (!s68.level) {
+              const bundled68 = buildGroupScore68Meta_(bundledRec);
+              if (bundled68.level) {
+                // เก็บยอดเดิม (ถ้ามี) ไว้ทั้งหมด เติมเฉพาะระดับชั้น/ปีบัญชีที่ยังว่าง
+                s68 = Object.assign({}, s68, { level: bundled68.level });
+                if (!s68.fy) s68.fy = bundled68.fy;
+              }
+            }
+          }
+        }
+
         const coopType = s69.coopType || s68.coopType || (col1.includes('กลุ่มเกษตรกร') ? 'กลุ่มเกษตรกร' : 'สหกรณ์');
         const sim = s69.simResult || evaluateCoopStrengthAndGap(coopType, {}, 'ชั้น 3', 0);
 

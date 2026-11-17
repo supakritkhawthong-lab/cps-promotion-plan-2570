@@ -66,6 +66,24 @@ function readGasSource() {
   return readRepo('gas', 'Code.gs');
 }
 
+/**
+ * โหลดชุดข้อมูลคะแนนกลุ่มเกษตรกร (gas/GroupStrength69.gs) พร้อมฟังก์ชันที่ต้องใช้
+ * (รวม evaluateCoopStrengthAndGap จาก Code.gs เพื่อทดสอบ simResult)
+ */
+function loadGasGroupStrength() {
+  const source = readRepo('gas', 'GroupStrength69.gs') + '\n' + readGasSource();
+  return evaluateGasBlock(source, [
+    'GROUP_STRENGTH_69_DATA',
+    'GROUP_STRENGTH_69_NAME_ALIASES',
+    'normalizeGroupStrengthName_',
+    'getGroupStrength69Record_',
+    'hasStrengthScore69_',
+    'buildGroupScore69_',
+    'buildGroupScore68Meta_',
+    'evaluateCoopStrengthAndGap'
+  ], {});
+}
+
 /** โหลดเฉพาะกลุ่มฟังก์ชันซ่อม/อ่าน JSON (ไม่ต้องใช้ Apps Script runtime) */
 function loadGasParserHelpers() {
   const source = readGasSource();
@@ -287,6 +305,7 @@ module.exports = {
   readGasSource: readGasSource,
   loadGasParserHelpers: loadGasParserHelpers,
   loadGasStaged: loadGasStaged,
+  loadGasGroupStrength: loadGasGroupStrength,
   extractPromptFactKeys: extractPromptFactKeys,
   createWebSandbox: createWebSandbox,
   loadWebScripts: loadWebScripts

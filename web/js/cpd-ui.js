@@ -566,10 +566,59 @@
   }
 
   /**
+   * indicatorsFromScore69(score69)
+   * แปลง subScores ของผลปี 2569 (s1_1 … s4_4) เป็นค่าตัวชี้วัด 18 ตัว (1.1 … 4.4)
+   * คืน null เมื่อไม่มี subScores หรือทุกค่าเป็น 0 เพื่อไม่ไปทับข้อมูลเดิม
+   */
+  function indicatorsFromScore69(score69) {
+    var sub = score69 && score69.subScores;
+    if (!sub) return null;
+    var out = {};
+    var any = false;
+    S.STRENGTH_INDICATORS.forEach(function (ind) {
+      var key = 's' + ind.id.replace('.', '_');
+      if (!Object.prototype.hasOwnProperty.call(sub, key)) return;
+      var v = S.num(sub[key]);
+      out[ind.id] = v;
+      if (v > 0) any = true;
+    });
+    return any ? out : null;
+  }
+
+  /** payload กลางของผลปี 2569 จาก master (รวมค่าตัวชี้วัดจริงถ้ามี) */
+  function strength69Payload(score69) {
+    if (!score69) return null;
+    return {
+      level: score69.level,
+      total: score69.total,
+      d1: score69.d1,
+      d2: score69.d2,
+      d3: score69.d3,
+      d4: score69.d4,
+      indicators: indicatorsFromScore69(score69)
+    };
+  }
+
+  /**
+   * applyStrength69Indicators(indicators)
+   * เติมค่าตัวชี้วัดปี 2569 ที่เป็นค่าจริง (ไม่ใช่การกระจายอัตโนมัติ)
+   */
+  function applyStrength69Indicators(indicators) {
+    if (!indicators) return false;
+    var st = A().strength;
+    Object.keys(indicators).forEach(function (id) {
+      if (!st.indicators[id]) st.indicators[id] = {};
+      st.indicators[id]['2569'] = S.num(indicators[id]);
+      delete st.indicators[id]._autoDistributed;
+    });
+    return true;
+  }
+
+  /**
    * applyStrength69Fallback(src)
    * ข้อมูล preload บางแห่งมีผลประเมินเฉพาะปี 2568 ทำให้การ merge ทับผลปี 2569 จาก master จนหาย
-   * ฟังก์ชันนี้เติมผลปี 2569 จาก master (ระดับ/คะแนนรวม/4 มิติ) เมื่อยังไม่มีข้อมูลปี 2569
-   * src = { level, total, d1, d2, d3, d4 }
+   * ฟังก์ชันนี้เติมผลปี 2569 จาก master (ระดับ/คะแนนรวม/4 มิติ/ตัวชี้วัดจริง) เมื่อยังไม่มีข้อมูลปี 2569
+   * src = { level, total, d1, d2, d3, d4, indicators }
    */
   function applyStrength69Fallback(src) {
     if (!src) return false;
@@ -583,7 +632,23 @@
       var d = st.indicators[ind.id] || {};
       return S.num(d['2569']) > 0 && !d._autoDistributed;
     });
-    if (has69 || hasUser69) return false;
+
+    // เติมค่าตัวชี้วัดจริงได้หรือไม่ (ต้องยังไม่มีค่าจริงที่ผู้ใช้แก้ในปี 2569)
+    var canFillIndicators = !!src.indicators && !S.STRENGTH_INDICATORS.some(function (ind) {
+      if (!Object.prototype.hasOwnProperty.call(src.indicators, ind.id)) return false;
+      var d = st.indicators[ind.id] || {};
+      return S.num(d['2569']) > 0 && !d._autoDistributed;
+    });
+
+    if (has69 || hasUser69) {
+      // State มีคะแนน/มิติปี 2569 แล้ว (เช่น sync จากฟอร์มหน้า 1)
+      // แต่ยังไม่มีค่าตัวชี้วัดจริง -> เติมเฉพาะตัวชี้วัดแล้วคำนวณใหม่
+      if (!canFillIndicators) return false;
+      if (!st.classByYear['2569'] && src.level) st.classByYear['2569'] = src.level;
+      applyStrength69Indicators(src.indicators);
+      if (typeof S.recalcStrength === 'function') S.recalcStrength();
+      return true;
+    }
 
     var level = src.level || '';
     var total = S.num(src.total);
@@ -597,6 +662,9 @@
     st.dim2ByYear['2569'] = d2;
     st.dim3ByYear['2569'] = d3;
     st.dim4ByYear['2569'] = d4;
+
+    // เติมค่าตัวชี้วัดจริง (ถ้ามี) เพื่อให้ผลรวมมิติตรงกับไฟล์ ไม่ใช่การกระจายตามน้ำหนัก
+    applyStrength69Indicators(src.indicators);
 
     var map = {
       c69_lv: level,
@@ -629,10 +697,7 @@
       }
     }
     if (!c || !c.score69) return false;
-    var applied = applyStrength69Fallback({
-      level: c.score69.level, total: c.score69.total,
-      d1: c.score69.d1, d2: c.score69.d2, d3: c.score69.d3, d4: c.score69.d4
-    });
+    var applied = applyStrength69Fallback(strength69Payload(c.score69));
     if (applied) {
       S.applyStateToBaseForm();
       UI.renderAll();
@@ -653,14 +718,7 @@
     S.syncFromBaseFormToAllTabs();
     mergePreloadState(pre, true);
     if (c && c.score69) {
-      applyStrength69Fallback({
-        level: c.score69.level,
-        total: c.score69.total,
-        d1: c.score69.d1,
-        d2: c.score69.d2,
-        d3: c.score69.d3,
-        d4: c.score69.d4
-      });
+      applyStrength69Fallback(strength69Payload(c.score69));
     }
     S.recalcFinancials();
     S.recalcStrength();
@@ -2368,10 +2426,7 @@
         global.__cpdActiveCoopKey = key;
         S.loadStateFromRecord(res.state);
         // บันทึกเดิมอาจไม่มีผลประเมินปี 2569 -> เติมจาก master ไม่ให้ผลปี 69 หาย
-        var fallback69 = c.score69 ? applyStrength69Fallback({
-          level: c.score69.level, total: c.score69.total,
-          d1: c.score69.d1, d2: c.score69.d2, d3: c.score69.d3, d4: c.score69.d4
-        }) : false;
+        var fallback69 = c.score69 ? applyStrength69Fallback(strength69Payload(c.score69)) : false;
         if (fallback69) {
           S.applyStateToBaseForm();
           UI.renderAll();
@@ -2854,9 +2909,10 @@
           (row.coopName && m.name === row.coopName);
       })[0] || null;
     }
-    var src69 = (mc && mc.score69) ? mc.score69 : {
+    var src69 = (mc && mc.score69) ? strength69Payload(mc.score69) : {
       level: row.class69, total: row.strengthScoreLatest,
-      d1: row.dim1, d2: row.dim2, d3: row.dim3, d4: row.dim4
+      d1: row.dim1, d2: row.dim2, d3: row.dim3, d4: row.dim4,
+      indicators: null
     };
     global.google.script.run.withSuccessHandler(function (res) {
       if (res && res.found && res.state) {
@@ -2886,6 +2942,8 @@
         st.strength.dim2ByYear['2569'] = S.num(src69.d2) || S.num(row.dim2);
         st.strength.dim3ByYear['2569'] = S.num(src69.d3) || S.num(row.dim3);
         st.strength.dim4ByYear['2569'] = S.num(src69.d4) || S.num(row.dim4);
+        // เติมค่าตัวชี้วัดจริงก่อนคำนวณ เพื่อไม่ให้กระจายตามน้ำหนักจนคลาดเคลื่อน
+        applyStrength69Indicators(src69.indicators);
         // กระจายคะแนนมิติปี 2569 ลงตัวชี้วัด 18 ตัว เพื่อให้ตาราง Tab 2 แสดงครบ
         S.recalcStrength();
         S.applyAutoDeadlines();
@@ -4739,6 +4797,11 @@
   UI.renderReportRegistry = renderReportRegistry;
   UI.renderReportRows = renderReportRows;
   UI.renderMisReports = renderMisReports;
+  // helpers สำหรับทดสอบ/นำไปใช้ซ้ำ (ผลปี 2569 จาก master)
+  UI.indicatorsFromScore69 = indicatorsFromScore69;
+  UI.strength69Payload = strength69Payload;
+  UI.applyStrength69Indicators = applyStrength69Indicators;
+  UI.applyStrength69Fallback = applyStrength69Fallback;
   global.CPD_UI = UI;
   global.CPD_autoPipeline = autoPipeline4M;
 

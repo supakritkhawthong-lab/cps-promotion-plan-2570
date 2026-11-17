@@ -91,6 +91,9 @@ onload → google.script.run.getMasterCoopList()
   → อ่าน 4 ชีต → คำนวณ simResult → คืน array
 ```
 
+หมายเหตุ: กลุ่มเกษตรกรที่ชีต `ผลปี69` ยังไม่มีคะแนน จะถูกเติมจากชุดข้อมูลสำรอง
+`gas/GroupStrength69.gs` (ข้อมูลจากชีตจริงชนะเสมอ) — ดูรายละเอียดใน `docs/data-model.md`
+
 ### 4.2 วิเคราะห์เอกสาร
 
 ```
