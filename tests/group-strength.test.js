@@ -176,3 +176,58 @@ test('ผลปี 2569 ที่ไม่มี subScores ยังเติม
   assert.equal(st.dim1ByYear['2569'], 20);
   assert.equal(st.dim4ByYear['2569'], 25);
 });
+
+test('บทวิเคราะห์ต้องไม่ประกาศ "ชั้น 1" ขัดกับผลจัดชั้นจริงของกลุ่มเกษตรกร', function () {
+  gas.GROUP_STRENGTH_69_DATA.forEach(function (rec) {
+    const score = gas.buildGroupScore69_(rec);
+    const sim = score.simResult || {};
+    const claimsClass1 = (sim.gapSummaryLines || []).some(function (line) {
+      return line.indexOf('🏆') === 0 || line.indexOf('อยู่ในระดับ "ชั้น 1"') !== -1;
+    });
+    assert.equal(
+      claimsClass1,
+      String(score.level).replace(/\s+/g, '') === 'ชั้น1',
+      rec.name + ' (ผลจริง ' + score.level + ') ต้องไม่ถูกกล่าวว่าอยู่ชั้น 1'
+    );
+  });
+});
+
+test('กลุ่มที่ได้ 80+ แต่ผลจริงชั้น 2 ต้องรายงานชั้น 2 และตั้งเป้าขึ้นชั้น 1', function () {
+  const rec = gas.getGroupStrength69Record_('กลุ่มเกษตรกรทำนาหนองซ้ำซาก');
+  const sim = gas.buildGroupScore69_(rec).simResult;
+
+  assert.equal(sim.currentLevel, 'ชั้น 2');
+  assert.equal(sim.passTier1, false);
+  assert.equal(sim.passTier2, true);
+
+  const text = (sim.gapSummaryLines || []).join('\n');
+  assert.match(text, /ผลการจัดชั้นปี 2569 ของกลุ่มเกษตรกรอยู่ "ชั้น 2"/);
+  assert.match(text, /ยกระดับขึ้น "ชั้น 1"/);
+  assert.doesNotMatch(text, /อยู่ในระดับ "ชั้น 1"/);
+});
+
+test('กลุ่มที่อยู่ชั้น 3 ต้องตั้งเป้าขึ้นชั้น 2 (ไม่ใช่ชั้น 1)', function () {
+  const rec = gas.getGroupStrength69Record_('กลุ่มเกษตรกรทำประมงบางพระ');
+  const sim = gas.buildGroupScore69_(rec).simResult;
+
+  assert.equal(sim.currentLevel, 'ชั้น 3');
+  assert.equal(sim.passTier2, false);
+  const text = (sim.gapSummaryLines || []).join('\n');
+  assert.match(text, /อยู่ "ชั้น 3"/);
+  assert.match(text, /ยกระดับขึ้น "ชั้น 2"/);
+});
+
+test('สหกรณ์ยังใช้เกณฑ์ 80/55 และเงื่อนไข 4.1/4.2 เหมือนเดิม', function () {
+  const passed = gas.evaluateCoopStrengthAndGap(
+    'สหกรณ์การเกษตร', { s4_1: 15, s4_2: 5, s4_3: 5, s4_4: 5 }, 'ชั้น 1', 92
+  );
+  assert.equal(passed.passTier1, true);
+  assert.match(passed.gapSummaryLines.join('\n'), /🏆/);
+
+  const blocked = gas.evaluateCoopStrengthAndGap(
+    'สหกรณ์การเกษตร', { s4_1: 10, s4_2: 5 }, 'ชั้น 2', 85
+  );
+  assert.equal(blocked.passTier1, false);
+  assert.equal(blocked.passTier2, true);
+  assert.match(blocked.gapSummaryLines.join('\n'), /ถึงเกณฑ์ 80 คะแนนของชั้น 1 แล้ว/);
+});

@@ -121,14 +121,43 @@ function evaluateCoopStrengthAndGap(coopType, subScores, level69, total69) {
   // วิเคราะห์เงื่อนไขการผ่านชั้น 1 และชั้น 2 (Gap Analysis)
   const s4_1 = num(s.s4_1);
   const s4_2 = num(s.s4_2);
-  const passTier1 = (tot >= 80 && s4_1 >= max4_1 && s4_2 >= 5);
-  const passTier2 = (tot >= 55 && s4_1 >= 10 && s4_2 >= 3);
+
+  // เกณฑ์จัดชั้นของ "กลุ่มเกษตรกร" ไม่เหมือนสหกรณ์ (ผลปี 2569 มีกลุ่มที่ได้ 80-84.67
+  // คะแนนแต่ยังอยู่ชั้น 2) จึงยึดผลการจัดชั้นจริงที่ระบบส่งมา (level69) เป็นหลัก
+  // ห้ามประกาศว่าอยู่ชั้น 1 จากคะแนนเอง เพราะจะขัดกับผลจัดชั้นของ กสส.
+  const lvCompact = String(lv).replace(/\s+/g, '');
+  const hasOfficialLevel = /^ชั้น[123]$/.test(lvCompact);
+  const officialClass1 = lvCompact === 'ชั้น1';
+  const officialClass2 = lvCompact === 'ชั้น2';
+
+  const passTier1 = isGroup
+    ? (hasOfficialLevel && officialClass1)
+    : (tot >= 80 && s4_1 >= max4_1 && s4_2 >= 5);
+  const passTier2 = isGroup
+    ? (hasOfficialLevel && (officialClass1 || officialClass2))
+    : (tot >= 55 && s4_1 >= 10 && s4_2 >= 3);
 
   const gapToTier2Score = Math.max(0, +(55 - tot).toFixed(2));
   const gapToTier1Score = Math.max(0, +(80 - tot).toFixed(2));
 
   const gapSummaryLines = [];
-  if (!passTier2) {
+  if (isGroup) {
+    // กลุ่มเกษตรกร: รายงานตามผลการจัดชั้นจริง + เป้าหมายชั้นถัดไป (ไม่ใช้เกณฑ์ 55/80 ของสหกรณ์)
+    if (officialClass1) {
+      gapSummaryLines.push(`🏆 ปัจจุบันกลุ่มเกษตรกรอยู่ในระดับ "ชั้น 1" (${tot} คะแนน) เป้าหมายปี 2570 คือการรักษามาตรฐานระดับชั้น 1 อย่างต่อเนื่อง`);
+    } else if (hasOfficialLevel) {
+      const nextClass = officialClass2 ? 'ชั้น 1' : 'ชั้น 2';
+      const noteThreshold = tot >= 80
+        ? ' (คะแนนถึง 80 แล้ว แต่เกณฑ์ของกลุ่มเกษตรกรยังไม่เลื่อนชั้น)'
+        : '';
+      gapSummaryLines.push(`📊 ผลการจัดชั้นปี 2569 ของกลุ่มเกษตรกรอยู่ "${lv}" (${tot} คะแนน) — เกณฑ์การจัดชั้นของกลุ่มเกษตรกรต่างจากสหกรณ์${noteThreshold} เป้าหมายปี 2570 คือยกระดับขึ้น "${nextClass}" ตามเกณฑ์ของกลุ่มเกษตรกร`);
+    } else {
+      gapSummaryLines.push(`⚠️ ยังไม่มีผลการจัดชั้นปี 2569 ของกลุ่มเกษตรกร (${tot} คะแนน) จึงยังสรุปชั้นไม่ได้`);
+    }
+    if (s4_1 < max4_1) {
+      gapSummaryLines.push(`❌ ตัวชี้วัดที่ 4.1 (ข้อบกพร่อง/ทุจริต): ปัจจุบันได้ ${s4_1}/${max4_1} คะแนน ต้องแก้ไขให้เสร็จสมบูรณ์เพื่อเลื่อนชั้น`);
+    }
+  } else if (!passTier2) {
     if (tot >= 55) {
       gapSummaryLines.push(`⚠️ คะแนนรวมปัจจุบัน (${tot} คะแนน) ผ่านเกณฑ์ขั้นต่ำ 55 คะแนนของชั้น 2 แล้ว แต่ที่ตกไปอยู่ "${lv}" เพราะติดเงื่อนไขสำคัญในมิติที่ 4!`);
     } else {
