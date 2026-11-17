@@ -1111,6 +1111,7 @@
           const coverage = {
             totalPages: numPages,
             pagesRead: pagesReadCount,
+            pagesWithText: pages.length,
             pagesIncluded: selection.pagesSelectedCount,
             pagesSelected: selection.pagesSelected,
             pagesSkipped: selection.pagesSkipped,
@@ -1291,7 +1292,8 @@
       };
 
     var html = '<div class="card border-info shadow-sm">' +
-      '<div class="card-header py-1 small fw-bold text-info">📄 ความครบถ้วนของการอ่านไฟล์</div>' +
+      '<div class="card-header py-1 small fw-bold text-info">📄 ความครบถ้วนของการอ่านไฟล์' +
+      ' <span class="text-muted fw-normal">(reader 2026-11-17c)</span></div>' +
       '<ul class="list-group list-group-flush small">';
 
     rows.forEach(function (f) {
@@ -1302,7 +1304,12 @@
       var pct = total ? Math.round(included * 100 / total) : 0;
       var complete = !!cov.complete;
       var badgeClass = complete ? 'bg-success' : (pct >= 80 ? 'bg-warning text-dark' : 'bg-danger');
-      var detail = 'อ่าน ' + readCount + '/' + total + ' หน้า • ส่งเข้า AI ' + included + ' หน้า';
+      var detail = 'อ่าน ' + readCount + '/' + total + ' หน้า';
+      // Pages that were opened but have no text layer are the usual reason the
+      // numbers look wrong, so name them next to the read count.
+      var withText = Number(cov.pagesWithText) || 0;
+      if (withText && withText !== readCount) detail += ' (มีข้อความ ' + withText + ' หน้า)';
+      detail += ' • ส่งเข้า AI ' + included + ' หน้า';
       var skipped = Number(cov.skippedCount) || 0;
       if (!complete && skipped > 0) detail += ' • ข้าม ' + skipped + ' หน้า';
 
@@ -1325,6 +1332,10 @@
       if (cov.pagesNoText > 0) {
         html += '<div class="text-warning mt-1">🖼 ' + cov.pagesNoText +
           ' หน้าไม่มีข้อความ (ภาพสแกน) — PDF.js อ่านไม่ได้ ต้องอัปโหลดเฉพาะหน้าเหล่านั้นเป็นรูปภาพ</div>';
+      }
+      if (cov.pagesFailed > 0) {
+        html += '<div class="text-warning mt-1">⚠ เปิดอ่านไม่สำเร็จ ' + cov.pagesFailed +
+          ' หน้า (ไฟล์อาจซับซ้อนหรือเสีย) — ลองแยกไฟล์เป็นส่วน ๆ แล้วอัปโหลดซ้ำ</div>';
       }
       if (cov.readCapHit) {
         html += '<div class="text-warning mt-1">⚠ อ่านถึงขีดจำกัด (' +
