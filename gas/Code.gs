@@ -599,6 +599,21 @@ function buildFactSubsetSchema_(keys) {
   return { type: 'OBJECT', properties: properties, required: present };
 }
 
+/**
+ * responseSchema ของชุดหน้าที่เป็นภาพสแกน
+ * เพิ่ม scanDigest เพราะไฟล์สแกนไม่มี extractedText ให้ระยะ 2-3 (บทวิเคราะห์)
+ * ใช้ต่อ ต้องให้ระยะ facts สรุปเนื้อหาที่อ่านจากภาพกลับมาด้วย
+ */
+function buildScanFactSchema_() {
+  const schema = buildFactResponseSchema_();
+  schema.properties.scanDigest = {
+    type: 'STRING',
+    description: 'สรุปเนื้อหาสำคัญของหน้าที่แนบมา (ชื่อ กิจกรรม ตัวเลข ผลดำเนินงาน) ' +
+      'เป็นภาษาไทยไม่เกิน 800 ตัวอักษร เพื่อใช้เขียนบทวิเคราะห์ในขั้นถัดไป'
+  };
+  return schema;
+}
+
 function isMissingFactValue_(value) {
   if (value === undefined || value === null) return true;
   if (typeof value === 'number') return !isFinite(value);
@@ -1008,6 +1023,92 @@ function runFactChunks_(promptText, chunks, options) {
     throw firstError || new Error('อ่านข้อมูลจากเอกสารไม่สำเร็จ');
   }
   return { result: mergeFactResults_(candidates), warnings: warnings };
+}
+
+/**
+ * runScanChunks_(promptText, scanChunks, options)
+ * อ่านไฟล์สแกนทีละชุดหน้า (ส่ง PDF เป็น inlineData ให้โมเดลอ่านจากภาพ)
+ * คืน { facts, sources, conflicts, digest, warnings }
+ * digest = ข้อความสรุปจากทุกชุด ใช้ต่อในระยะบทวิเคราะห์ เพราะไฟล์สแกนไม่มี extractedText
+ */
+function runScanChunks_(promptText, scanChunks, options) {
+  const opts = options || {};
+  const deadline = opts.deadline || (Date.now() + 180000);
+  const stageStart = opts.stageStart || Date.now();
+  const warnings = [];
+  const candidates = [];
+  const digests = [];
+  let firstError = null;
+
+  for (let i = 0; i < scanChunks.length; i++) {
+    if (Date.now() >= deadline - 5000) {
+      warnings.push('อ่านไฟล์สแกนไม่ครบทุกชุด: เหลือ ' + (scanChunks.length - i) + ' ชุด');
+      break;
+    }
+
+    const chunk = scanChunks[i];
+    const parts = [
+      { text: promptText },
+      { inlineData: chunk.inlineData },
+      {
+        text: '\n--- เอกสารแนบ: หน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo +
+          ' ของ ' + chunk.file + ' ---\n'
+      },
+      { text: AI_FACT_STAGE_SUFFIX_ }
+    ];
+
+    const remaining = Math.max(0, deadline - Date.now());
+    const chunksLeft = scanChunks.length - i;
+    const chunkDeadline = Date.now() + Math.max(15000, Math.floor(remaining / chunksLeft));
+
+    try {
+      const facts = callGeminiJson_(
+        parts,
+        buildScanFactSchema_(),
+        'facts',
+        Math.min(chunkDeadline, deadline),
+        stageStart
+      );
+      const digest = String(facts.scanDigest || '').trim();
+      delete facts.scanDigest;
+      if (digest) {
+        digests.push('[' + chunk.file + ' หน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo + '] ' +
+          digest.slice(0, 1200));
+      }
+      candidates.push({
+        facts: facts,
+        source: {
+          file: chunk.file,
+          category: chunk.category,
+          pagesFrom: chunk.pagesFrom,
+          pagesTo: chunk.pagesTo
+        },
+        rank: Number(chunk.rank) || 0,
+        index: i + 1
+      });
+    } catch (e) {
+      if (!firstError) firstError = e;
+      warnings.push('อ่านไฟล์สแกนหน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo +
+        ' ของ ' + chunk.file + ' ไม่สำเร็จ');
+      logAiStage_('scan-chunk-failed', {
+        chunk: i + 1,
+        file: chunk.file,
+        message: e.message
+      });
+    }
+  }
+
+  if (!candidates.length) {
+    throw firstError || new Error('อ่านไฟล์สแกนไม่สำเร็จ');
+  }
+  const merged = mergeFactResults_(candidates);
+  return {
+    facts: merged.facts,
+    sources: merged.sources,
+    conflicts: merged.conflicts,
+    digest: digests.join('\n'),
+    warnings: warnings
+  };
 }
 
 
@@ -1497,8 +1598,24 @@ ${ruleWeaknessesText}
   const parts = [{ text: promptText }];
   const evidenceParts = [];
   const evidenceByFile = {};
+  // Scanned PDFs arrive as page batches (inlineData) that must each be read by
+  // the model; they carry no extractedText for the later stages.
+  const scanChunks = [];
   if (payload.files && payload.files.length > 0) {
     payload.files.forEach(f => {
+      if (Array.isArray(f.scanChunks) && f.scanChunks.length) {
+        f.scanChunks.forEach(function (chunk) {
+          if (!chunk || !chunk.base64) return;
+          scanChunks.push({
+            inlineData: { mimeType: f.mimeType || 'application/pdf', data: chunk.base64 },
+            file: f.name,
+            category: f.category,
+            pagesFrom: Number(chunk.pagesFrom) || 1,
+            pagesTo: Number(chunk.pagesTo) || 0
+          });
+        });
+        return;
+      }
       if (f.extractedText) {
         // กรณีสกัดข้อความจาก PDF ได้สำเร็จ ส่งเป็น Text ล้วน (เร็วกว่าส่งไฟล์หลายเท่า)
         parts.push({
@@ -1560,7 +1677,9 @@ ${ruleWeaknessesText}
   AI_STAGE_TRACE_ = [];
 
   // ระยะที่ 1: สกัดตัวเลขและข้อเท็จจริง (ต้องสำเร็จก่อน ถ้าล้มเหลวทั้งงานล้มเหลว)
-  const factsDeadline = Math.min(overallDeadline, stageStart + Math.min(deadlineMs, 210000));
+  // ไฟล์สแกนต้องเรียกโมเดลทีละชุดหน้า จึงให้เวลามากกว่าปกติเล็กน้อย
+  const factsWindowMs = Math.min(deadlineMs, scanChunks.length ? 240000 : 210000);
+  const factsDeadline = Math.min(overallDeadline, stageStart + factsWindowMs);
 
   // Phase 1C: เอกสารใหญ่ → แบ่งช่วงหน้าแล้วสกัด facts ต่อช่วง
   const factChunks = buildFactChunks_(payload.files, {
@@ -1574,39 +1693,92 @@ ${ruleWeaknessesText}
   let fieldSources = null;
   let fieldConflicts = null;
   let chunkCount = 0;
+  let scanDigest = '';
 
   if (job && job.prior && job.prior.facts) {
     facts = job.prior.facts;
     fieldSources = job.prior.fieldSources || null;
     fieldConflicts = job.prior.fieldConflicts || null;
     chunkCount = job.prior.chunkCount || 0;
-  } else if (factChunks.length > 1) {
-    const chunkRun = runFactChunks_(promptText, factChunks, {
-      inlineParts: parts.filter(function (part) { return !!part.inlineData; }),
-      deadline: factsDeadline,
-      stageStart: stageStart
-    });
-    chunkRun.warnings.forEach(function (w) { warnings.push(w); });
-    facts = chunkRun.result.facts;
-    fieldSources = chunkRun.result.sources;
-    fieldConflicts = chunkRun.result.conflicts;
-    chunkCount = factChunks.length;
-    logAiStage_('facts-chunked', {
-      chunks: factChunks.length,
-      filled: Object.keys(facts).length,
-      conflicts: Object.keys(fieldConflicts).length
-    });
   } else {
-    const factsInput = evidenceBudget.length
-      ? parts.concat(evidenceBudget).concat([{ text: AI_EVIDENCE_SUFFIX_ }])
-      : parts;
-    facts = callGeminiJson_(
-      factsInput.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
-      buildFactResponseSchema_(),
-      'facts',
-      factsDeadline,
-      stageStart
-    );
+    // Text files may be split into ranges, scanned files are read as page images.
+    // When both exist the text result wins and scanned pages only fill the gaps.
+    const hasTextContent = parts.length > 1;
+    let base = null;
+
+    if (!hasTextContent && scanChunks.length) {
+      base = { facts: {}, sources: {}, conflicts: {}, chunks: 0 };
+    } else if (factChunks.length > 1) {
+      const chunkRun = runFactChunks_(promptText, factChunks, {
+        inlineParts: parts.filter(function (part) { return !!part.inlineData; }),
+        deadline: factsDeadline,
+        stageStart: stageStart
+      });
+      chunkRun.warnings.forEach(function (w) { warnings.push(w); });
+      base = {
+        facts: chunkRun.result.facts,
+        sources: chunkRun.result.sources,
+        conflicts: chunkRun.result.conflicts,
+        chunks: factChunks.length
+      };
+      logAiStage_('facts-chunked', {
+        chunks: factChunks.length,
+        filled: Object.keys(base.facts).length,
+        conflicts: Object.keys(base.conflicts).length
+      });
+    } else {
+      const factsInput = evidenceBudget.length
+        ? parts.concat(evidenceBudget).concat([{ text: AI_EVIDENCE_SUFFIX_ }])
+        : parts;
+      base = {
+        facts: callGeminiJson_(
+          factsInput.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
+          buildFactResponseSchema_(),
+          'facts',
+          factsDeadline,
+          stageStart
+        ),
+        sources: null,
+        conflicts: null,
+        chunks: 0
+      };
+    }
+
+    facts = base.facts;
+    fieldSources = base.sources;
+    fieldConflicts = base.conflicts;
+    chunkCount = base.chunks;
+
+    if (scanChunks.length) {
+      const scanRun = runScanChunks_(promptText, scanChunks, {
+        deadline: factsDeadline,
+        stageStart: stageStart
+      });
+      scanRun.warnings.forEach(function (w) { warnings.push(w); });
+      scanDigest = scanRun.digest;
+      if (hasTextContent) {
+        // Keep the text-derived answer and let the scanned pages only complete it.
+        Object.keys(scanRun.facts).forEach(function (key) {
+          if (isMissingFactValue_(facts[key]) && !isMissingFactValue_(scanRun.facts[key])) {
+            facts[key] = scanRun.facts[key];
+            if (scanRun.sources[key]) {
+              fieldSources = fieldSources || {};
+              fieldSources[key] = scanRun.sources[key];
+            }
+          }
+        });
+      } else {
+        facts = scanRun.facts;
+        fieldSources = scanRun.sources;
+        fieldConflicts = scanRun.conflicts;
+        chunkCount = scanChunks.length;
+      }
+      logAiStage_('facts-scan', {
+        batches: scanChunks.length,
+        filled: Object.keys(facts).length,
+        digestChars: scanDigest.length
+      });
+    }
   }
 
   if (facts.fiscalDateFull) {
@@ -1614,6 +1786,15 @@ ${ruleWeaknessesText}
   }
   markStage_();
   applyPrevYearFallbacks_(facts);
+
+  // Scanned pages carry no extractedText, so their content reaches the later
+  // stages (narrative/summary) only through this digest.
+  if (scanDigest) {
+    parts.push({
+      text: '\n--- เนื้อหาที่ AI อ่านจากไฟล์สแกน ---\n' + scanDigest +
+        '\n--- จบเนื้อหาจากไฟล์สแกน ---\n'
+    });
+  }
 
   // ระยะ 1B: อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ยังขาด โดยใช้ evidence windows
   //   เงื่อนไข: มีหลักฐานเสริม + ขาดอย่างน้อย 3 ฟิลด์ + เหลือเวลาพอ
@@ -1666,6 +1847,9 @@ ${ruleWeaknessesText}
       fieldSources: fieldSources,
       fieldConflicts: fieldConflicts,
       chunkCount: chunkCount,
+      // Digest of what the model read from scanned page images: AiJob stores it
+      // with the job input so the later stages still have the document content.
+      scanDigest: scanDigest,
       _aiWarnings: warnings.slice(),
       _aiModels: AI_MODELS_USED_.slice(),
       _aiTrace: AI_STAGE_TRACE_.slice()

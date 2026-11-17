@@ -1163,31 +1163,69 @@
         }
       }
 
-      // ขั้นที่ 2 (Fallback สำหรับ PDF สแกนภาพ): ใช้ pdf-lib ตัดเฉพาะหน้าแรกๆ อัตโนมัติ
+      // ขั้นที่ 2 (Fallback สำหรับ PDF สแกนภาพ): PDF.js อ่านข้อความไม่ได้ จึงส่งหน้าเป็น
+      // ไฟล์ PDF ให้ AI อ่านจากภาพแทน (ของเดิมตัดเพียง 4-6 หน้าแรก ทำให้ 42 หน้าเหลือ 4)
+      //   - แบ่งชุดละ SCAN_CHUNK_PAGES หน้า ถ้าชุดใหญ่เกินเพดานจะลดจำนวนหน้าลงครึ่งหนึ่ง
+      //   - รวม base64 ทุกชุดไม่เกิน SCAN_MAX_BASE64_CHARS (เพดาน inline data ของ API ~20MB)
+      //   - coverage บอกจำนวนหน้าที่ AI ได้อ่านจริง แทนที่จะเงียบ
+      const SCAN_CHUNK_PAGES = 12;
+      const SCAN_MAX_BASE64_CHARS = 18 * 1024 * 1024;
       if (window.PDFLib) {
         const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
         const totalPages = srcDoc.getPageCount();
-        const limit = Math.min(totalPages, maxFallbackPages || 5);
-        if (totalPages > limit) {
-          const newDoc = await PDFLib.PDFDocument.create();
-          const indices = Array.from({ length: limit }, (_, i) => i);
-          const copiedPages = await newDoc.copyPages(srcDoc, indices);
-          copiedPages.forEach(page => newDoc.addPage(page));
-          const base64Sliced = await newDoc.saveAsBase64();
+        const slicePdfPages = async function (fromPage, toPage) {
+          const sliceDoc = await PDFLib.PDFDocument.create();
+          const indices = [];
+          for (let p = fromPage - 1; p < toPage; p++) indices.push(p);
+          const copiedPages = await sliceDoc.copyPages(srcDoc, indices);
+          copiedPages.forEach(function (page) { sliceDoc.addPage(page); });
+          return sliceDoc.saveAsBase64();
+        };
+
+        const chunks = [];
+        let usedChars = 0;
+        let pagesSent = 0;
+        let cursor = 0;
+        while (cursor < totalPages) {
+          let size = Math.min(SCAN_CHUNK_PAGES, totalPages - cursor);
+          let chunkBase64 = '';
+          // A single batch that is still too large is halved until it fits.
+          while (size >= 1) {
+            chunkBase64 = await slicePdfPages(cursor + 1, cursor + size);
+            if (usedChars + chunkBase64.length <= SCAN_MAX_BASE64_CHARS) break;
+            chunkBase64 = '';
+            size = Math.floor(size / 2);
+          }
+          if (!chunkBase64) break;
+          chunks.push({ base64: chunkBase64, pagesFrom: cursor + 1, pagesTo: cursor + size });
+          usedChars += chunkBase64.length;
+          pagesSent += size;
+          cursor += size;
+        }
+
+        if (chunks.length) {
+          const sizeLimited = pagesSent < totalPages;
           return {
-            name: file.name, category: category, mimeType: 'application/pdf', base64: base64Sliced,
-            mode: 'scan', lowTextPdf: true, totalPages: totalPages, pagesRead: limit, truncated: totalPages > limit,
+            name: file.name, category: category, mimeType: 'application/pdf',
+            mode: 'scan', lowTextPdf: true,
+            totalPages: totalPages, pagesRead: pagesSent, truncated: sizeLimited,
+            scanChunks: chunks,
             coverage: {
               totalPages: totalPages,
-              pagesRead: limit,
-              pagesIncluded: limit,
+              pagesRead: pagesSent,
+              pagesIncluded: pagesSent,
               pagesSelected: [],
               pagesSkipped: [],
-              skippedCount: Math.max(0, totalPages - limit),
+              skippedCount: Math.max(0, totalPages - pagesSent),
               pagesSkippedHighScore: [],
               charsTotal: null,
               charsSent: null,
-              complete: totalPages <= limit
+              scanPdf: true,
+              pagesNoText: 0,
+              pagesFailed: 0,
+              stopReason: sizeLimited ? 'scanLimit' : 'scan',
+              readCapHit: sizeLimited,
+              complete: !sizeLimited
             }
           };
         }
@@ -1293,7 +1331,7 @@
 
     var html = '<div class="card border-info shadow-sm">' +
       '<div class="card-header py-1 small fw-bold text-info">📄 ความครบถ้วนของการอ่านไฟล์' +
-      ' <span class="text-muted fw-normal">(reader 2026-11-17c)</span></div>' +
+      ' <span class="text-muted fw-normal">(reader 2026-11-17d)</span></div>' +
       '<ul class="list-group list-group-flush small">';
 
     rows.forEach(function (f) {
@@ -1329,6 +1367,10 @@
           ' • ' + Number(cov.evidenceChars).toLocaleString('en-US') + ' ตัวอักษร' +
           (cov.evidenceCapped ? ' (ตัดตามเพดาน)' : '') + '</div>';
       }
+      if (cov.scanPdf) {
+        html += '<div class="text-info mt-1">🖼 PDF นี้ไม่มีข้อความ (ภาพสแกน) — AI อ่านจากภาพ ' +
+          included + '/' + total + ' หน้า</div>';
+      }
       if (cov.pagesNoText > 0) {
         html += '<div class="text-warning mt-1">🖼 ' + cov.pagesNoText +
           ' หน้าไม่มีข้อความ (ภาพสแกน) — PDF.js อ่านไม่ได้ ต้องอัปโหลดเฉพาะหน้าเหล่านั้นเป็นรูปภาพ</div>';
@@ -1337,7 +1379,10 @@
         html += '<div class="text-warning mt-1">⚠ เปิดอ่านไม่สำเร็จ ' + cov.pagesFailed +
           ' หน้า (ไฟล์อาจซับซ้อนหรือเสีย) — ลองแยกไฟล์เป็นส่วน ๆ แล้วอัปโหลดซ้ำ</div>';
       }
-      if (cov.readCapHit) {
+      if (cov.readCapHit && cov.stopReason === 'scanLimit') {
+        html += '<div class="text-warning mt-1">⚠ ไฟล์ใหญ่เกินขนาดที่ส่งได้ — ส่งให้ AI อ่าน ' +
+          included + '/' + total + ' หน้า ลองแยกไฟล์เป็นส่วน ๆ แล้วอัปโหลดซ้ำ</div>';
+      } else if (cov.readCapHit) {
         html += '<div class="text-warning mt-1">⚠ อ่านถึงขีดจำกัด (' +
           (cov.stopReason === 'maxPages' ? '150 หน้า' : '150 วินาที') +
           ') — หน้าท้ายไฟล์ยังไม่ได้อ่าน ลองแยกไฟล์เป็นส่วน ๆ แล้วอัปโหลดซ้ำ</div>';

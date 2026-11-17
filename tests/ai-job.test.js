@@ -306,6 +306,43 @@ test('ระยะที่จบด้วย MAX_TOKENS ต้องมีค�
     'ต้องเตือนว่าตัวเลขบางตัวอาจว่างเพราะ token เต็ม');
 });
 
+test('ระยะ facts ที่อ่านไฟล์สแกนต้องส่งเนื้อหาต่อให้ระยะบทวิเคราะห์', function () {
+  const stages = [];
+  const api = loadAiJob({
+    analyze: function (payload, runOptions) {
+      const digestFile = (payload.files || []).filter(function (f) {
+        return String(f.name || '').indexOf('เนื้อหาที่ AI อ่านจากไฟล์สแกน') !== -1;
+      })[0];
+      stages.push({ stage: runOptions.stage, digest: digestFile ? digestFile.extractedText : '' });
+      if (runOptions.stage === 'facts') {
+        return {
+          facts: { assetLatest: '1.00' },
+          scanDigest: '[scan.pdf หน้า 1–12] ยอดสินทรัพย์ 1.00',
+          _aiWarnings: [],
+          _aiModels: [],
+          _aiTrace: []
+        };
+      }
+      return {
+        sections: { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' },
+        _aiWarnings: [],
+        _aiModels: [],
+        _aiTrace: []
+      };
+    }
+  });
+
+  const started = api.startAiAnalysisJob(samplePayload());
+  api.stepAiAnalysisJob(started.jobId);
+
+  const narrative = stages.filter(function (s) { return s.stage === 'narrative'; })[0];
+  assert.ok(narrative, 'ต้องมีระยะ narrative');
+  assert.ok(narrative.digest.indexOf('ยอดสินทรัพย์ 1.00') !== -1,
+    'ระยะ 2 ต้องเห็นเนื้อหาที่อ่านได้จากไฟล์สแกน');
+  assert.strictEqual(api.loadAiJob_(started.jobId).result.scanDigest, undefined,
+    'ไม่ต้องส่ง digest ดิบกลับหน้าเว็บ');
+});
+
 test('ระยะที่ถูกฆ่าครบ 2 ครั้งต้องถูกข้าม แล้วงานเดินต่อได้', function () {
   const api = loadAiJob({
     analyze: function (payload, runOptions) {

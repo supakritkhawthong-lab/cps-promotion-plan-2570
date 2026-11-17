@@ -211,6 +211,16 @@ function startAiAnalysisJob(payload) {
     attempts: {}
   };
   aiJobCollect_(state, factsRun);
+  // Scanned pages have no extractedText in the cached job input, so the digest
+  // produced by the facts stage is kept there for narrative/summary.
+  const scanDigest = String(factsRun.scanDigest || '').trim();
+  if (scanDigest) {
+    state.input.files = (state.input.files || []).concat([{
+      name: 'เนื้อหาที่ AI อ่านจากไฟล์สแกน',
+      category: 'ข้อความจากภาพ',
+      extractedText: scanDigest.slice(0, 12000)
+    }]);
+  }
   if (factsRun.fieldSources && Object.keys(factsRun.fieldSources).length) {
     state.result._aiFieldSources = factsRun.fieldSources;
   }

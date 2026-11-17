@@ -740,3 +740,74 @@ test('analyze: ช่วงที่ล้มเหลวไม่ทำให�
   assert.ok(result._aiWarnings.some(function (w) { return w.indexOf('อ่านช่วงหน้า') !== -1; }));
   assert.strictEqual(result._aiFieldSources.assetLatest.file, 'other.pdf');
 });
+
+test('schema ของไฟล์สแกนมี scanDigest สำหรับส่งต่อระยะบทวิเคราะห์', function () {
+  const gas = loadGasStaged({});
+  const schema = gas.buildScanFactSchema_();
+
+  assert.ok(schema.properties.scanDigest, 'ต้องมีฟิลด์ scanDigest');
+  assert.ok(String(schema.properties.scanDigest.description || '').length > 0, 'ต้องมีคำอธิบาย');
+  assert.ok((schema.required || []).indexOf('assetLatest') !== -1, 'ยังต้องบังคับฟิลด์วิกฤต');
+});
+
+test('PDF สแกนที่แบ่งหลายชุดต้องถูกส่งให้ AI ครบทุกชุดและรวมผล', function () {
+  const gas = loadGasStaged({
+    responder: function (call, index) {
+      if (index === 1) return { assetLatest: '1.00', scanDigest: 'สรุปชุดที่ 1' };
+      return { debtLatest: '2.00', scanDigest: 'สรุปชุดที่ 2' };
+    }
+  });
+
+  const payload = basePayload();
+  payload.files = [{
+    name: 'สแกน.pdf',
+    category: 'งบการเงิน/รายงานสอบบัญชี',
+    mimeType: 'application/pdf',
+    mode: 'scan',
+    scanChunks: [
+      { base64: 'AAAA', pagesFrom: 1, pagesTo: 12 },
+      { base64: 'BBBB', pagesFrom: 13, pagesTo: 24 }
+    ]
+  }];
+
+  const run = gas.analyzeUploadedFilesWithAI(payload, { stage: 'facts' });
+
+  function inlinePartsOf(call) {
+    return call.body.contents[0].parts.filter(function (part) { return !!part.inlineData; });
+  }
+  const scanCalls = gas.calls.filter(function (call) { return inlinePartsOf(call).length > 0; });
+  assert.strictEqual(scanCalls.length, 2, 'ต้องส่งทั้งสองชุดให้โมเดลอ่าน');
+  assert.strictEqual(inlinePartsOf(scanCalls[0])[0].inlineData.data, 'AAAA');
+  assert.strictEqual(inlinePartsOf(scanCalls[1])[0].inlineData.data, 'BBBB');
+  assert.strictEqual(run.facts.assetLatest, '1.00');
+  assert.strictEqual(run.facts.debtLatest, '2.00');
+  assert.strictEqual(run.facts.scanDigest, undefined, 'ต้องไม่ให้ scanDigest ปนเข้าไปใน facts');
+  assert.ok(run.scanDigest.indexOf('สรุปชุดที่ 1') !== -1);
+  assert.ok(run.scanDigest.indexOf('สรุปชุดที่ 2') !== -1);
+});
+
+test('ถ้ามีทั้งข้อความและไฟล์สแกน ต้องใช้ข้อความก่อนแล้วให้ไฟล์สแกนเติมเฉพาะช่องที่ขาด', function () {
+  const gas = loadGasStaged({
+    responder: function (call) {
+      const hasImage = call.body.contents[0].parts.some(function (part) { return !!part.inlineData; });
+      if (hasImage) return { assetLatest: 'จากภาพ', debtLatest: '2.00' };
+      return { assetLatest: 'จากข้อความ' };
+    }
+  });
+
+  const payload = basePayload();
+  payload.files = [
+    { name: 'งบ.pdf', category: 'งบการเงิน', extractedText: 'สินทรัพย์รวม 1.00' },
+    {
+      name: 'สแกน.pdf',
+      category: 'ไฟล์อื่นๆ',
+      mimeType: 'application/pdf',
+      scanChunks: [{ base64: 'AAAA', pagesFrom: 1, pagesTo: 4 }]
+    }
+  ];
+
+  const run = gas.analyzeUploadedFilesWithAI(payload, { stage: 'facts' });
+  assert.strictEqual(run.facts.assetLatest, 'จากข้อความ', 'ค่าจากข้อความต้องชนะ');
+  assert.strictEqual(run.facts.debtLatest, '2.00', 'ช่องที่ข้อความไม่มีต้องเติมจากภาพ');
+});
+
