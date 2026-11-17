@@ -343,6 +343,35 @@ test('ระยะ facts ที่อ่านไฟล์สแกนต้อ�
     'ไม่ต้องส่ง digest ดิบกลับหน้าเว็บ');
 });
 
+test('scanReadRanges ยังอยู่ในผลสุดท้ายแม้ระยะ summary แทนที่ state.result', function () {
+  const ranges = [{ file: 'สแกน.pdf', from: 1, to: 12 }];
+  const api = loadAiJob({
+    analyze: function (payload, runOptions) {
+      if (runOptions.stage === 'facts') {
+        return {
+          facts: { assetLatest: '1.00' },
+          scanReadRanges: ranges,
+          _aiWarnings: [],
+          _aiModels: [],
+          _aiTrace: []
+        };
+      }
+      if (runOptions.stage === 'narrative') {
+        return { sections: {}, _aiWarnings: [], _aiModels: [], _aiTrace: [] };
+      }
+      return { summaryAnalysis: 'SUM', _aiWarnings: [], _aiModels: [], _aiTrace: [] };
+    }
+  });
+
+  const started = api.startAiAnalysisJob(samplePayload());
+  api.stepAiAnalysisJob(started.jobId);
+  const done = api.stepAiAnalysisJob(started.jobId);
+
+  assert.strictEqual(done.status, 'done');
+  assert.deepStrictEqual(done.result._aiScanReadRanges, ranges,
+    'การ์ด coverage ต้องยังเห็นช่วงหน้าที่ AI อ่านจริง');
+});
+
 test('ระยะที่ถูกฆ่าครบ 2 ครั้งต้องถูกข้าม แล้วงานเดินต่อได้', function () {
   const api = loadAiJob({
     analyze: function (payload, runOptions) {

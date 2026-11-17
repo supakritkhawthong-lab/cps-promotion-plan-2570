@@ -1331,7 +1331,7 @@
 
     var html = '<div class="card border-info shadow-sm">' +
       '<div class="card-header py-1 small fw-bold text-info">📄 ความครบถ้วนของการอ่านไฟล์' +
-      ' <span class="text-muted fw-normal">(reader 2026-11-17d)</span></div>' +
+      ' <span class="text-muted fw-normal">(reader 2026-11-17e)</span></div>' +
       '<ul class="list-group list-group-flush small">';
 
     rows.forEach(function (f) {
@@ -1500,6 +1500,43 @@
         var beforeValues = upload ? upload.captureValues(document) : {};
         var fileMeta = upload ? upload.normalizeFiles(filesToUpload) : [];
         if (!res || typeof res !== 'object') res = {};
+
+        // The server reports which scanned page batches the AI actually read.
+        // Correct the optimistic pre-upload coverage so a timed-out batch no
+        // longer shows up as "42/42 pages read".
+        try {
+          var scanRanges = Array.isArray(res._aiScanReadRanges) ? res._aiScanReadRanges : [];
+          if (scanRanges.length) {
+            var readByFile = {};
+            scanRanges.forEach(function (range) {
+              if (!range) return;
+              var pages = readByFile[String(range.file || '')] ||
+                (readByFile[String(range.file || '')] = {});
+              var from = Number(range.from);
+              var to = Number(range.to);
+              if (isFinite(from) && isFinite(to) && from > 0 && to >= from) {
+                for (var p = from; p <= to; p++) pages[p] = true;
+              }
+            });
+            var coverageChanged = false;
+            filesToUpload.forEach(function (f) {
+              var cov = f && f.coverage;
+              if (!cov || !cov.scanPdf) return;
+              var pages = readByFile[String(f.name || '')];
+              if (!pages) return;
+              var readCount = Object.keys(pages).length;
+              var pageTotal = Number(cov.totalPages) || readCount;
+              cov.pagesRead = Math.min(pageTotal, readCount);
+              cov.pagesIncluded = cov.pagesRead;
+              cov.skippedCount = Math.max(0, pageTotal - cov.pagesRead);
+              cov.complete = cov.pagesRead >= pageTotal;
+              coverageChanged = true;
+            });
+            if (coverageChanged) renderUploadCoverage(filesToUpload);
+          }
+        } catch (e) {
+          console.warn('[scanCoverage]', e);
+        }
 
         // คำนวณ Year N-1 จากข้อความ "เพิ่มขึ้น/ลดลง" ก่อนจัดแผนเติมค่า
         applyClientDeltaFallback(res);

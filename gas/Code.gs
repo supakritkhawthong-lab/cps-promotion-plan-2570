@@ -1038,7 +1038,13 @@ function runScanChunks_(promptText, scanChunks, options) {
   const warnings = [];
   const candidates = [];
   const digests = [];
+  const readRanges = [];
   let firstError = null;
+  // A single batch must never consume the whole facts window: a burst of 429s
+  // used to starve the other batches and push the RPC past the six-minute
+  // ceiling, which severs the browser connection ("Failed to fetch").
+  const maxCallsPerChunk = Math.max(1, Number(getProp_('AI_SCAN_MAX_CALLS', '3')) || 3);
+  const maxChunkMs = Math.max(15000, Number(getProp_('AI_SCAN_CHUNK_MS', '75000')) || 75000);
 
   for (let i = 0; i < scanChunks.length; i++) {
     if (Date.now() >= deadline - 5000) {
@@ -1059,7 +1065,8 @@ function runScanChunks_(promptText, scanChunks, options) {
 
     const remaining = Math.max(0, deadline - Date.now());
     const chunksLeft = scanChunks.length - i;
-    const chunkDeadline = Date.now() + Math.max(15000, Math.floor(remaining / chunksLeft));
+    const sharedMs = Math.max(15000, Math.floor(remaining / chunksLeft));
+    const chunkDeadline = Date.now() + Math.min(maxChunkMs, sharedMs);
 
     try {
       const facts = callGeminiJson_(
@@ -1067,7 +1074,8 @@ function runScanChunks_(promptText, scanChunks, options) {
         buildScanFactSchema_(),
         'facts',
         Math.min(chunkDeadline, deadline),
-        stageStart
+        stageStart,
+        { maxRequests: maxCallsPerChunk }
       );
       const digest = String(facts.scanDigest || '').trim();
       delete facts.scanDigest;
@@ -1085,6 +1093,13 @@ function runScanChunks_(promptText, scanChunks, options) {
         },
         rank: Number(chunk.rank) || 0,
         index: i + 1
+      });
+      // Report the ranges the model actually read so the upload card can show
+      // real coverage instead of counting every page that was assigned to a batch.
+      readRanges.push({
+        file: chunk.file,
+        from: Number(chunk.pagesFrom) || 0,
+        to: Number(chunk.pagesTo) || 0
       });
     } catch (e) {
       if (!firstError) firstError = e;
@@ -1107,7 +1122,8 @@ function runScanChunks_(promptText, scanChunks, options) {
     sources: merged.sources,
     conflicts: merged.conflicts,
     digest: digests.join('\n'),
-    warnings: warnings
+    warnings: warnings,
+    readRanges: readRanges
   };
 }
 
@@ -1213,7 +1229,7 @@ function trackAiModelUsed_(name) {
  * - ถ้าโมเดลไม่รองรับ responseSchema (HTTP 400) จะลองใหม่แบบไม่ใส่ schema
  * - เคารพ deadline เพื่อไม่ให้เกินเวลารันของ Apps Script
  */
-function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
+function callGeminiJson_(parts, schema, stage, deadline, stageStart, opts) {
   let modelsToTry = getAiModels_();
   let triedFallback = false;
   const errorLogs = [];
@@ -1223,6 +1239,11 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
   // finish: AI_MIN_CALL_MS is the minimum window a request may start in.
   const minCallMs = Number(getProp_('AI_MIN_CALL_MS', '15000')) || 15000;
   const stageTokens = stageTokenCap_(stage);
+  // One scan page batch must not burn the whole facts budget on quota retries.
+  // 0 (default) keeps the old behaviour; callers that need a hard cap pass a
+  // positive maxRequests, which bounds the total number of HTTP calls here.
+  const maxRequests = opts && Number(opts.maxRequests) > 0 ? Number(opts.maxRequests) : 0;
+  let requestCount = 0;
   // Flips off when a model rejects thinkingConfig; the same request is retried
   // without it so one unsupported field cannot fail the whole stage.
   let allowThinking = true;
@@ -1234,6 +1255,10 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
   for (let m = 0; m < modelsToTry.length; m++) {
     if (Date.now() >= deadline) {
       errorLogs.push('หมดเวลาก่อนเรียกโมเดล ' + modelsToTry[m]);
+      break;
+    }
+    if (maxRequests && requestCount >= maxRequests) {
+      errorLogs.push('ถึงเพดานจำนวนรอบต่อชุด');
       break;
     }
     const modelName = modelsToTry[m];
@@ -1248,9 +1273,14 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
     let stageUsage = null;
 
     for (let v = 0; v < variants.length && !stageText; v++) {
+      if (maxRequests && requestCount >= maxRequests) break;
       for (let attempt = 1; attempt <= 2; attempt++) {
         if (deadline - Date.now() < minCallMs) {
           errorLogs.push(modelName + '(เวลาไม่พอ)');
+          break;
+        }
+        if (maxRequests && requestCount >= maxRequests) {
+          errorLogs.push(modelName + '(ถึงเพดานรอบต่อชุด)');
           break;
         }
         const requestBody = buildGeminiRequestBody_(
@@ -1263,6 +1293,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           muteHttpExceptions: true
         };
 
+        requestCount++;
         let res;
         try {
           res = UrlFetchApp.fetch(url, options);
@@ -1694,6 +1725,7 @@ ${ruleWeaknessesText}
   let fieldConflicts = null;
   let chunkCount = 0;
   let scanDigest = '';
+  let scanReadRanges = [];
 
   if (job && job.prior && job.prior.facts) {
     facts = job.prior.facts;
@@ -1756,6 +1788,7 @@ ${ruleWeaknessesText}
       });
       scanRun.warnings.forEach(function (w) { warnings.push(w); });
       scanDigest = scanRun.digest;
+      scanReadRanges = scanRun.readRanges || [];
       if (hasTextContent) {
         // Keep the text-derived answer and let the scanned pages only complete it.
         Object.keys(scanRun.facts).forEach(function (key) {
@@ -1850,6 +1883,9 @@ ${ruleWeaknessesText}
       // Digest of what the model read from scanned page images: AiJob stores it
       // with the job input so the later stages still have the document content.
       scanDigest: scanDigest,
+      // Page ranges the AI really read from scanned images, used by the web UI
+      // to show honest coverage when some batches fail or time out.
+      scanReadRanges: scanReadRanges.slice(),
       _aiWarnings: warnings.slice(),
       _aiModels: AI_MODELS_USED_.slice(),
       _aiTrace: AI_STAGE_TRACE_.slice()
@@ -1862,6 +1898,7 @@ ${ruleWeaknessesText}
   if (fieldSources && Object.keys(fieldSources).length) result._aiFieldSources = fieldSources;
   if (fieldConflicts && Object.keys(fieldConflicts).length) result._aiConflicts = fieldConflicts;
   if (chunkCount) result._aiChunks = chunkCount;
+  if (scanReadRanges.length) result._aiScanReadRanges = scanReadRanges.slice();
 
   const factsBlock = '\n\n--- ข้อมูลที่สกัดได้จากรอบแรก (ใช้เป็นตัวเลขอ้างอิง) ---\n' +
     JSON.stringify(facts) + '\n--- จบบล็อกข้อมูล ---';

@@ -195,6 +195,19 @@ test('ถ้าเวลาไม่พอ ต้องไม่เริ่ม�
   assert.strictEqual(gas.calls.length, 0, 'ต้องไม่ยิง request เมื่อเลย deadline');
 });
 
+test('maxRequests จำกัดคำขอต่อชุดสแกน ไม่ให้ 429 กินเวลาทั้งระยะ', function () {
+  const gas = loadGasStaged({
+    props: { GEMINI_MODELS: 'gemini-a,gemini-b' },
+    responder: function () { return { status: 429, body: 'queue full' }; }
+  });
+
+  assert.throws(function () {
+    gas.callGeminiJson_([{ text: 'x' }], null, 'facts', Date.now() + 200000, Date.now(),
+      { maxRequests: 2 });
+  }, /AI ประมวลผลไม่สำเร็จ/);
+  assert.strictEqual(gas.calls.length, 2, 'ต้องยิง request ไม่เกินเพดานที่ส่งมา');
+});
+
 test('เวลาใกล้หมดต้องหยุดไล่โมเดล ไม่ยิงซ้ำจนชนเพดาน 6 นาที', function () {
   const gas = loadGasStaged({
     responder: function () { return { status: 500 }; }
@@ -784,6 +797,39 @@ test('PDF สแกนที่แบ่งหลายชุดต้องถ�
   assert.strictEqual(run.facts.scanDigest, undefined, 'ต้องไม่ให้ scanDigest ปนเข้าไปใน facts');
   assert.ok(run.scanDigest.indexOf('สรุปชุดที่ 1') !== -1);
   assert.ok(run.scanDigest.indexOf('สรุปชุดที่ 2') !== -1);
+});
+
+test('scanReadRanges รายงานเฉพาะชุดที่ AI อ่านสำเร็จ ไม่นับชุดที่ล้มเหลว', function () {
+  let scanIndex = 0;
+  const gas = loadGasStaged({
+    props: { GEMINI_MODELS: 'gemini-a,gemini-b' },
+    responder: function (call) {
+      const hasImage = call.body.contents[0].parts.some(function (part) { return !!part.inlineData; });
+      if (!hasImage) return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      scanIndex += 1;
+      if (scanIndex === 1) return { assetLatest: '1.00', scanDigest: 'สรุปชุดแรก' };
+      return { status: 500, body: 'chunk boom' };
+    }
+  });
+
+  const payload = basePayload();
+  payload.files = [{
+    name: 'สแกน.pdf',
+    category: 'งบการเงิน/รายงานสอบบัญชี',
+    mimeType: 'application/pdf',
+    mode: 'scan',
+    scanChunks: [
+      { base64: 'AAAA', pagesFrom: 1, pagesTo: 12 },
+      { base64: 'BBBB', pagesFrom: 13, pagesTo: 24 }
+    ]
+  }];
+
+  const run = gas.analyzeUploadedFilesWithAI(payload, { stage: 'facts' });
+
+  assert.strictEqual(run.scanReadRanges.length, 1, 'ต้องนับเฉพาะชุดที่อ่านสำเร็จ');
+  assert.deepStrictEqual(run.scanReadRanges[0], { file: 'สแกน.pdf', from: 1, to: 12 });
+  assert.ok(run._aiWarnings.some(function (w) { return w.indexOf('13–24') !== -1; }),
+    'ต้องเตือนว่าชุด 13–24 อ่านไม่สำเร็จ');
 });
 
 test('ถ้ามีทั้งข้อความและไฟล์สแกน ต้องใช้ข้อความก่อนแล้วให้ไฟล์สแกนเติมเฉพาะช่องที่ขาด', function () {

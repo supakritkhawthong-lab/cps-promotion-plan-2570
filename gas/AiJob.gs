@@ -139,6 +139,11 @@ function aiJobFinish_(state) {
   if (state.warnings.length) state.result._aiWarnings = state.warnings.slice();
   state.result._aiModels = state.models.slice();
   state.result._aiTrace = state.trace.slice();
+  // Keep the honest scan coverage attached to the last result even though the
+  // summary stage replaces state.result wholesale.
+  if (state.scanReadRanges && state.scanReadRanges.length) {
+    state.result._aiScanReadRanges = state.scanReadRanges.slice();
+  }
   state.status = 'done';
   state.stage = 'done';
 }
@@ -208,7 +213,8 @@ function startAiAnalysisJob(payload) {
     warnings: [],
     models: [],
     trace: [],
-    attempts: {}
+    attempts: {},
+    scanReadRanges: factsRun.scanReadRanges || []
   };
   aiJobCollect_(state, factsRun);
   // Scanned pages have no extractedText in the cached job input, so the digest
@@ -228,6 +234,7 @@ function startAiAnalysisJob(payload) {
     state.result._aiConflicts = factsRun.fieldConflicts;
   }
   if (factsRun.chunkCount) state.result._aiChunks = factsRun.chunkCount;
+  if (state.scanReadRanges.length) state.result._aiScanReadRanges = state.scanReadRanges.slice();
 
   saveAiJob_(jobId, state);
   logAiStage_('job-started', { jobId: jobId, filled: Object.keys(facts).length });
