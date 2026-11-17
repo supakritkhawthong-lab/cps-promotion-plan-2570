@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "providers": {
+    "google": {
+      "models": {
+        "gemini-4-hydrogen": {
+          "name": "Gemini 4 Hydrogen",
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          }
+        }
+      }
+    }
+  },
+  "model": "google/gemini-4-hydrogen",
+  "permissions": [
+    { "action": "edit", "resource": "*", "effect": "ask" },
+    { "action": "shell", "resource": "*", "effect": "ask" }
+  ]
+}
