@@ -96,6 +96,25 @@ test('เพดาน token ขาออกต่อระยะไม่เก�
   assert.strictEqual(tooHigh.generationConfig.maxOutputTokens, 8192, 'ห้ามเกินเพดานกลาง');
 });
 
+test('ถ้าโมเดลไม่รับ thinkingConfig ต้องลองใหม่โดยไม่ส่งค่านี้ (ไม่ให้ระยะล้ม)', function () {
+  const gas = loadGasStaged({
+    responder: function (call) {
+      const cfg = call.body.generationConfig || {};
+      if (cfg.thinkingConfig) {
+        return { status: 400, body: '{"error":{"message":"thinking_config is not supported for this model"}}' };
+      }
+      return { assetLatest: '1.00' };
+    }
+  });
+
+  const res = gas.callGeminiJson_([{ text: 'x' }], null, 'facts', Date.now() + 200000, Date.now());
+  assert.strictEqual(res.assetLatest, '1.00');
+  const sentThinking = gas.calls.map(function (call) {
+    return !!call.body.generationConfig.thinkingConfig;
+  });
+  assert.deepStrictEqual(sentThinking, [true, false], 'ครั้งแรกส่ง thinking ครั้งที่สองต้องไม่ส่ง');
+});
+
 test('ถ้าเวลาไม่พอ ต้องไม่เริ่มเรียกโมเดลเลย', function () {
   const gas = loadGasStaged({});
   assert.throws(function () {

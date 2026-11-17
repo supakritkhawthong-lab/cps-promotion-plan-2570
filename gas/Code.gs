@@ -1025,7 +1025,7 @@ function stageTokenCap_(stage) {
   return Number(getProp_(spec[0], spec[1])) || 0;
 }
 
-function buildGeminiRequestBody_(parts, schema, modelName, stageTokens) {
+function buildGeminiRequestBody_(parts, schema, modelName, stageTokens, allowThinking) {
   const maxTokens = Number(getProp_('GEMINI_MAX_OUTPUT_TOKENS', '8192')) || 8192;
   const stageCap = Number(stageTokens) > 0 ? Number(stageTokens) : maxTokens;
   const generationConfig = {
@@ -1038,8 +1038,10 @@ function buildGeminiRequestBody_(parts, schema, modelName, stageTokens) {
   // execution budget, which is what pushes the analysis past the limit. Send
   // thinkingBudget 0 by default for every model; set AI_THINKING_BUDGET=-1 to
   // send no thinkingConfig at all, or a positive number to allow that budget.
+  // Some model generations reject thinkingConfig (HTTP 400), so callers may
+  // retry the same request with allowThinking=false.
   const thinkingBudget = Number(getProp_('AI_THINKING_BUDGET', '0'));
-  if (isFinite(thinkingBudget) && thinkingBudget >= 0) {
+  if (allowThinking !== false && isFinite(thinkingBudget) && thinkingBudget >= 0) {
     generationConfig.thinkingConfig = { thinkingBudget: thinkingBudget };
   }
   return { contents: [{ parts: parts }], generationConfig: generationConfig };
@@ -1083,6 +1085,9 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
   // finish: AI_MIN_CALL_MS is the minimum window a request may start in.
   const minCallMs = Number(getProp_('AI_MIN_CALL_MS', '15000')) || 15000;
   const stageTokens = stageTokenCap_(stage);
+  // Flips off when a model rejects thinkingConfig; the same request is retried
+  // without it so one unsupported field cannot fail the whole stage.
+  let allowThinking = true;
 
   for (let m = 0; m < modelsToTry.length; m++) {
     if (Date.now() >= deadline) {
@@ -1100,19 +1105,21 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
     let stageFinishReason = '';
 
     for (let v = 0; v < variants.length && !stageText; v++) {
-      const requestBody = buildGeminiRequestBody_(parts, variants[v].schema, modelName, stageTokens);
-      const options = {
-        method: "post",
-        contentType: "application/json",
-        payload: JSON.stringify(requestBody),
-        muteHttpExceptions: true
-      };
-
       for (let attempt = 1; attempt <= 2; attempt++) {
         if (deadline - Date.now() < minCallMs) {
           errorLogs.push(modelName + '(เวลาไม่พอ)');
           break;
         }
+        const requestBody = buildGeminiRequestBody_(
+          parts, variants[v].schema, modelName, stageTokens, allowThinking
+        );
+        const options = {
+          method: "post",
+          contentType: "application/json",
+          payload: JSON.stringify(requestBody),
+          muteHttpExceptions: true
+        };
+
         let res;
         try {
           res = UrlFetchApp.fetch(url, options);
@@ -1146,9 +1153,21 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           Utilities.sleep(1200);
           continue;
         }
-        if (code === 400 && variants[v].schema) {
-          // โมเดลอาจไม่รองรับ responseSchema -> ลองแบบไม่ใส่ schema ต่อ
-          errorLogs.push(modelName + '(schema 400)');
+        if (code === 400) {
+          const errText = String(bodyText || '');
+          if (allowThinking && /thinking/i.test(errText)) {
+            // Retry this same request without thinkingConfig (a cheap 400) rather
+            // than losing the stage because the model rejects the field.
+            allowThinking = false;
+            errorLogs.push(modelName + '(ไม่รับ thinkingConfig)');
+            continue;
+          }
+          if (variants[v].schema) {
+            // โมเดลอาจไม่รองรับ responseSchema -> ลองแบบไม่ใส่ schema ต่อ
+            errorLogs.push(modelName + '(schema 400)');
+            break;
+          }
+          errorLogs.push(modelName + '(' + code + ')');
           break;
         }
         errorLogs.push(modelName + '(' + code + ')');
