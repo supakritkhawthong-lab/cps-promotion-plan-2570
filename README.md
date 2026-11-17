@@ -134,6 +134,9 @@
    ถ้าระยะไหนจบด้วย `finishReason=MAX_TOKENS` ระบบจะลองซ้ำหนึ่งครั้งโดยไม่ส่ง `thinkingConfig` และใช้เพดาน token เต็ม
    (`GEMINI_MAX_OUTPUT_TOKENS`) หากยังถูกตัดจะคืนผลบางส่วนพร้อมคำเตือนใน `_aiWarnings` และ `trace` จะมี `tokens`
    (`promptTokens`/`outputTokens`/`thoughtTokens`) ไว้ตรวจว่าคำตอบถูกตัดเพราะ thinking หรือไม่
+   `responseSchema` ของระยะ facts ระบุ `required` เป็นฟิลด์วิกฤต 18 ฟิลด์ และมี `description` ของฟิลด์ที่ชื่อคล้ายกัน
+   (เช่น `assetLatest` กับ `wcLatest`) เพราะถ้าไม่บังคับ โมเดลจะตอบเพียงไม่กี่ฟิลด์และอาจใส่ยอดสินทรัพย์ลงช่องอื่น
+   ฟิลด์วิกฤตที่ไม่พบข้อมูลจะได้ค่า `"-"` ไม่ใช่หายไปทั้ง key
    ฟังก์ชันเดิม `analyzeUploadedFilesWithAI(payload)` ยังใช้ได้สำหรับเรียกครั้งเดียวแบบเดิม
 
 5. **Deploy Apps Script**

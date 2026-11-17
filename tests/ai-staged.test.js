@@ -50,6 +50,24 @@ test('responseSchema ของระยะ facts ครอบคลุมทุ�
   assert.strictEqual(new Set(actual).size, actual.length, 'ต้องไม่มีฟิลด์ซ้ำ');
 });
 
+test('responseSchema บังคับฟิลด์วิกฤตและอธิบายฟิลด์ที่สับสนบ่อย', function () {
+  const gas = loadGasStaged({});
+  const schema = gas.buildFactResponseSchema_();
+  const required = schema.required || [];
+
+  gas.AI_CRITICAL_FACT_KEYS_.forEach(function (key) {
+    assert.ok(required.indexOf(key) !== -1, 'ต้องบังคับให้ส่งฟิลด์ ' + key);
+  });
+  assert.ok(String(schema.properties.assetLatest.description || '').indexOf('Total Assets') !== -1,
+    'assetLatest ต้องมีคำอธิบายกันสับสนกับ wcLatest');
+  assert.ok(String(schema.properties.wcLatest.description || '').indexOf('สินทรัพย์') === -1,
+    'wcLatest ต้องไม่อธิบายว่าเป็นยอดสินทรัพย์');
+
+  const subset = gas.buildFactSubsetSchema_(['assetLatest', 'debtLatest', 'unknownField']);
+  assert.deepStrictEqual(subset.required, ['assetLatest', 'debtLatest'],
+    'schema ของรอบอ่านซ้ำต้องบังคับเฉพาะฟิลด์ที่ขอ');
+});
+
 test('responseSchema ใช้ชนิดข้อมูลถูกต้อง', function () {
   const gas = loadGasStaged({});
   const schema = gas.buildFactResponseSchema_();

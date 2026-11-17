@@ -524,9 +524,39 @@ const AI_SUMMARY_SCHEMA_ = {
   required: ['summaryAnalysis']
 };
 
+/**
+ * คำอธิบายฟิลด์ที่โมเดลสับสนบ่อย (ยอดรวมหลายตัวมีชื่อคล้ายกัน)
+ * ใส่ใน responseSchema เพราะตอนบังคับ schema โมเดลเห็นคำอธิบายนี้ชัดกว่าข้อความใน prompt
+ * และใช้เป็น required เพื่อไม่ให้ key ที่จำเป็นหายไปจากคำตอบ
+ */
+const AI_FACT_FIELD_DESCRIPTIONS_ = {
+  yrLatest: 'ปีบัญชีล่าสุดของเอกสาร เช่น ธ.ค. 68',
+  yrPrev: 'ปีบัญชีก่อนของเอกสาร เช่น ธ.ค. 67',
+  memLatest: 'จำนวนสมาชิกปีล่าสุด รูปแบบ รวม/สามัญ/สมทบ',
+  memPrev: 'จำนวนสมาชิกปีก่อน รูปแบบ รวม/สามัญ/สมทบ',
+  assetLatest: 'ยอดรวมสินทรัพย์ (Total Assets) ปีล่าสุด เป็นตัวเลขมีลูกน้ำ เช่น 25,723,883.12',
+  assetPrev: 'ยอดรวมสินทรัพย์ (Total Assets) ปีก่อน เป็นตัวเลขมีลูกน้ำ',
+  debtLatest: 'ยอดรวมหนี้สิน (Total Liabilities) ปีล่าสุด ไม่ใช่ยอดรวมหนี้สินและทุน',
+  debtPrev: 'ยอดรวมหนี้สิน (Total Liabilities) ปีก่อน',
+  shareLatest: 'ทุนเรือนหุ้นที่ชำระแล้วเท่านั้น ห้ามใช้ยอดรวมทุนของสหกรณ์',
+  sharePrev: 'ทุนเรือนหุ้นที่ชำระแล้วของปีก่อน',
+  reserveLatest: 'ทุนสำรองเท่านั้น ไม่รวมทุนสะสมตามข้อบังคับอื่น',
+  reservePrev: 'ทุนสำรองของปีก่อน',
+  profitLatest: 'กำไรสุทธิ (หรือขาดทุนสุทธิในวงเล็บ) ของปีล่าสุด',
+  profitPrev: 'กำไรสุทธิ (หรือขาดทุนสุทธิ) ของปีก่อน',
+  incomeLatest: 'รายได้รวมของปีล่าสุด',
+  incomePrev: 'รายได้รวมของปีก่อน',
+  expenseLatest: 'ต้นทุนและค่าใช้จ่ายรวมของปีล่าสุด',
+  expensePrev: 'ต้นทุนและค่าใช้จ่ายรวมของปีก่อน',
+  fiscalDateFull: 'วันสิ้นปีบัญชี เช่น 31 มีนาคม'
+};
+
 function buildFactResponseSchema_() {
   const properties = {};
-  AI_FACT_STRING_FIELDS_.forEach(function (key) { properties[key] = { type: 'STRING' }; });
+  AI_FACT_STRING_FIELDS_.forEach(function (key) {
+    const description = AI_FACT_FIELD_DESCRIPTIONS_[key];
+    properties[key] = description ? { type: 'STRING', description: description } : { type: 'STRING' };
+  });
   AI_FACT_NUMBER_FIELDS_.forEach(function (key) { properties[key] = { type: 'NUMBER' }; });
   AI_FACT_BOOLEAN_FIELDS_.forEach(function (key) { properties[key] = { type: 'BOOLEAN' }; });
 
@@ -549,17 +579,24 @@ function buildFactResponseSchema_() {
     }
   };
 
-  return { type: 'OBJECT', properties: properties };
+  // A schema without required fields lets the model stop after the first few
+  // keys, which is how assetLatest disappeared while wcLatest got its number.
+  // Required fields must be present (use "-" when the document has no value).
+  return { type: 'OBJECT', properties: properties, required: AI_CRITICAL_FACT_KEYS_.slice() };
 }
 
 /** responseSchema เฉพาะฟิลด์ที่ต้องอ่านซ้ำ (Phase 1B) */
 function buildFactSubsetSchema_(keys) {
   const full = buildFactResponseSchema_();
   const properties = {};
+  const present = [];
   (keys || []).forEach(function (key) {
-    if (full.properties[key]) properties[key] = full.properties[key];
+    if (full.properties[key]) {
+      properties[key] = full.properties[key];
+      present.push(key);
+    }
   });
-  return { type: 'OBJECT', properties: properties };
+  return { type: 'OBJECT', properties: properties, required: present };
 }
 
 function isMissingFactValue_(value) {
@@ -1221,6 +1258,9 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           finishReason: stageFinishReason,
           outputChars: stageText.length,
           tokens: stageUsage,
+          // Which models failed before this one, so a silent fallback from the
+          // preferred model is visible without opening Executions.
+          errors: errorLogs.slice(),
           ms: Date.now() - stageStart
         });
         return parsed;
