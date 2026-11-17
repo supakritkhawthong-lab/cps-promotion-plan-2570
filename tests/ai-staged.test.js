@@ -72,14 +72,46 @@ test('responseSchema ใช้ชนิดข้อมูลถูกต้อ�
   assert.strictEqual(changeKeys.length, 24, 'changes ต้องมี 24 คีย์');
 });
 
-test('Gemini 4 ปิด thinking ส่วนรุ่นอื่นไม่ส่ง thinkingConfig', function () {
+test('ปิด thinking ของทุกโมเดลเป็นค่าเริ่มต้น และย้อนกลับได้ด้วย AI_THINKING_BUDGET=-1', function () {
   const gas = loadGasStaged({});
   const g4 = gas.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-4-hydrogen');
   assert.deepStrictEqual(g4.generationConfig.thinkingConfig, { thinkingBudget: 0 });
   assert.strictEqual(g4.generationConfig.maxOutputTokens, 8192, 'ห้ามเปลี่ยนเพดาน token เดิม');
 
   const g3 = gas.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-3.8-flash');
-  assert.strictEqual(g3.generationConfig.thinkingConfig, undefined, 'รุ่น 3.x ต้องไม่ส่ง thinkingConfig');
+  assert.deepStrictEqual(g3.generationConfig.thinkingConfig, { thinkingBudget: 0 },
+    'รุ่น 3.x ก็ต้องปิด thinking เพราะเป็นเวลาที่ไม่โผล่ในคำตอบ');
+
+  const off = loadGasStaged({ props: { AI_THINKING_BUDGET: '-1' } });
+  const g3off = off.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-3.8-flash');
+  assert.strictEqual(g3off.generationConfig.thinkingConfig, undefined, 'ตั้ง -1 ต้องไม่ส่ง thinkingConfig');
+});
+
+test('เพดาน token ขาออกต่อระยะไม่เกิน GEMINI_MAX_OUTPUT_TOKENS', function () {
+  const gas = loadGasStaged({});
+  const capped = gas.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-3.8-flash', 4096);
+  assert.strictEqual(capped.generationConfig.maxOutputTokens, 4096);
+
+  const tooHigh = gas.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-3.8-flash', 99999);
+  assert.strictEqual(tooHigh.generationConfig.maxOutputTokens, 8192, 'ห้ามเกินเพดานกลาง');
+});
+
+test('ถ้าเวลาไม่พอ ต้องไม่เริ่มเรียกโมเดลเลย', function () {
+  const gas = loadGasStaged({});
+  assert.throws(function () {
+    gas.callGeminiJson_([{ text: 'x' }], null, 'facts', Date.now() - 1, Date.now());
+  }, /หมดเวลา/);
+  assert.strictEqual(gas.calls.length, 0, 'ต้องไม่ยิง request เมื่อเลย deadline');
+});
+
+test('เวลาใกล้หมดต้องหยุดไล่โมเดล ไม่ยิงซ้ำจนชนเพดาน 6 นาที', function () {
+  const gas = loadGasStaged({
+    responder: function () { return { status: 500 }; }
+  });
+  assert.throws(function () {
+    gas.callGeminiJson_([{ text: 'x' }], null, 'narrative', Date.now() + 10000, Date.now());
+  }, /หยุดไล่โมเดลเพราะเวลาใกล้หมด/);
+  assert.strictEqual(gas.calls.length, 0, 'ต้องไม่เริ่ม request ที่ไม่มีเวลาให้จบ');
 });
 
 test('ระยะ facts → narrative → summary ทำงานครบและคืนผลรวม', function () {

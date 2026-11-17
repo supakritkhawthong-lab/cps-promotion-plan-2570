@@ -15,6 +15,9 @@
 var AI_JOB_TTL_SECONDS_ = 21600;      // CacheService maximum (6 hours)
 var AI_JOB_CHUNK_CHARS_ = 25000;      // Thai text is up to 3 bytes per char in UTF-8
 var AI_JOB_SUMMARY_STAGES_ = ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis'];
+// A stage that keeps getting killed at the 6-minute ceiling must not swallow
+// every retry, otherwise the remaining sections are never written.
+var AI_JOB_MAX_ATTEMPTS_ = 2;
 
 function aiJobKey_(jobId, suffix) {
   return 'aijob_' + jobId + '_' + suffix;
@@ -130,12 +133,30 @@ function aiJobFinish_(state) {
   state.stage = 'done';
 }
 
+/** Give up on a stage that keeps exceeding the execution limit, then move on. */
+function aiJobSkipStage_(state, stage) {
+  if (stage === 'narrative') {
+    state.warnings.push('บทวิเคราะห์หัวข้อ 1-3 ใช้เวลาเกินกำหนด ' + AI_JOB_MAX_ATTEMPTS_ +
+      ' ครั้ง จึงข้ามไปทำหัวข้อ 4');
+    state.stage = 'summary';
+    return;
+  }
+  if (stage === 'summary') {
+    state.warnings.push('บทวิเคราะห์หัวข้อ 4 ใช้เวลาเกินกำหนด ' + AI_JOB_MAX_ATTEMPTS_ + ' ครั้ง');
+  }
+  aiJobFinish_(state);
+}
+
 function aiJobSnapshot_(state) {
   const snapshot = {
     jobId: state.jobId,
     status: state.status,
     stage: state.stage,
-    warnings: (state.warnings || []).slice()
+    warnings: (state.warnings || []).slice(),
+    // Attempts and per-stage trace are exposed so the caller can see which stage
+    // is slow and whether a stage was skipped, without opening Executions.
+    attempts: Object.assign({}, state.attempts || {}),
+    trace: (state.trace || []).slice()
   };
   if (state.status === 'done') {
     snapshot.result = state.result || {};
@@ -176,7 +197,8 @@ function startAiAnalysisJob(payload) {
     result: facts,
     warnings: [],
     models: [],
-    trace: []
+    trace: [],
+    attempts: {}
   };
   aiJobCollect_(state, factsRun);
   if (factsRun.fieldSources && Object.keys(factsRun.fieldSources).length) {
@@ -207,7 +229,31 @@ function stepAiAnalysisJob(jobId) {
     }
     if (state.status === 'done') return aiJobSnapshot_(state);
 
-    if (state.stage === 'narrative') {
+    const stage = state.stage;
+    state.attempts = state.attempts || {};
+    const tries = (state.attempts[stage] || 0) + 1;
+    state.attempts[stage] = tries;
+
+    if (tries > AI_JOB_MAX_ATTEMPTS_) {
+      // The previous executions were killed mid-stage: Apps Script aborts at six
+      // minutes and nothing from that run is saved, so the only trace of the
+      // failure is the counter written before the call.
+      aiJobSkipStage_(state, stage);
+      saveAiJob_(jobId, state);
+      logAiStage_('job-stage-skipped', {
+        jobId: jobId,
+        stage: stage,
+        tries: tries,
+        next: state.stage
+      });
+      return aiJobSnapshot_(state);
+    }
+
+    // Write the attempt (and therefore the write-ahead marker) before running the
+    // stage, so a killed execution still counts as an attempt on the next call.
+    saveAiJob_(jobId, state);
+
+    if (stage === 'narrative') {
       try {
         const narrative = analyzeUploadedFilesWithAI(state.input, { stage: 'narrative', prior: state.prior });
         const sections = (narrative && narrative.sections) || {};
@@ -220,7 +266,7 @@ function stepAiAnalysisJob(jobId) {
         state.warnings.push('บทวิเคราะห์หัวข้อ 1-3 ไม่สำเร็จ: ' + e.message);
       }
       state.stage = 'summary';
-    } else if (state.stage === 'summary') {
+    } else if (stage === 'summary') {
       try {
         const summary = analyzeUploadedFilesWithAI(state.input, { stage: 'summary', prior: state.prior });
         if (summary && typeof summary === 'object') state.result = summary;

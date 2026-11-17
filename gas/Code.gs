@@ -1007,18 +1007,40 @@ function capTextParts_(parts, maxTotalChars) {
   return result;
 }
 
-function buildGeminiRequestBody_(parts, schema, modelName) {
+/**
+ * เพดาน token ขาออกต่อระยะ — ยิ่งยาวยิ่งกินเวลา และการเรียกหนึ่งครั้งยกเลิกกลางคันไม่ได้
+ * ค่า GEMINI_MAX_OUTPUT_TOKENS ยังเป็นเพดานกลาง (ค่าเริ่มต้น 8192)
+ * ระยะไหนไม่ระบุจะใช้เพดานกลาง
+ */
+const AI_STAGE_TOKEN_PROPS_ = {
+  facts: ['AI_MAX_TOKENS_FACTS', '6144'],
+  repair: ['AI_MAX_TOKENS_REPAIR', '3072'],
+  narrative: ['AI_MAX_TOKENS_NARRATIVE', '8192'],
+  summary: ['AI_MAX_TOKENS_SUMMARY', '4096']
+};
+
+function stageTokenCap_(stage) {
+  const spec = AI_STAGE_TOKEN_PROPS_[stage];
+  if (!spec) return 0;
+  return Number(getProp_(spec[0], spec[1])) || 0;
+}
+
+function buildGeminiRequestBody_(parts, schema, modelName, stageTokens) {
   const maxTokens = Number(getProp_('GEMINI_MAX_OUTPUT_TOKENS', '8192')) || 8192;
+  const stageCap = Number(stageTokens) > 0 ? Number(stageTokens) : maxTokens;
   const generationConfig = {
     temperature: 0.0,
-    maxOutputTokens: maxTokens,
+    maxOutputTokens: Math.min(maxTokens, stageCap),
     responseMimeType: "application/json"
   };
   if (schema) generationConfig.responseSchema = schema;
-  // Gemini 4 models think by default, which pushes the 3-stage analysis past the
-  // Apps Script execution budget. Turn thinking off for structured extraction.
-  if (/^gemini-4-/.test(String(modelName || ''))) {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  // Thinking is invisible in the answer but can burn minutes of the 6-minute
+  // execution budget, which is what pushes the analysis past the limit. Send
+  // thinkingBudget 0 by default for every model; set AI_THINKING_BUDGET=-1 to
+  // send no thinkingConfig at all, or a positive number to allow that budget.
+  const thinkingBudget = Number(getProp_('AI_THINKING_BUDGET', '0'));
+  if (isFinite(thinkingBudget) && thinkingBudget >= 0) {
+    generationConfig.thinkingConfig = { thinkingBudget: thinkingBudget };
   }
   return { contents: [{ parts: parts }], generationConfig: generationConfig };
 }
@@ -1056,6 +1078,11 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
   let triedFallback = false;
   const errorLogs = [];
   let lastParseError = null;
+  // UrlFetchApp cannot cancel a request that is already running, so the only way
+  // to stay inside the execution limit is to not start one that has no room to
+  // finish: AI_MIN_CALL_MS is the minimum window a request may start in.
+  const minCallMs = Number(getProp_('AI_MIN_CALL_MS', '15000')) || 15000;
+  const stageTokens = stageTokenCap_(stage);
 
   for (let m = 0; m < modelsToTry.length; m++) {
     if (Date.now() >= deadline) {
@@ -1073,7 +1100,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
     let stageFinishReason = '';
 
     for (let v = 0; v < variants.length && !stageText; v++) {
-      const requestBody = buildGeminiRequestBody_(parts, variants[v].schema, modelName);
+      const requestBody = buildGeminiRequestBody_(parts, variants[v].schema, modelName, stageTokens);
       const options = {
         method: "post",
         contentType: "application/json",
@@ -1082,7 +1109,10 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
       };
 
       for (let attempt = 1; attempt <= 2; attempt++) {
-        if (Date.now() >= deadline) break;
+        if (deadline - Date.now() < minCallMs) {
+          errorLogs.push(modelName + '(เวลาไม่พอ)');
+          break;
+        }
         let res;
         try {
           res = UrlFetchApp.fetch(url, options);
@@ -1153,6 +1183,13 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
         lastParseError = e;
         errorLogs.push(modelName + '(JSON ไม่ถูกต้อง)');
       }
+    }
+
+    // No room for another request: stop walking the model list and report what
+    // was tried instead of letting Apps Script kill the execution.
+    if (deadline - Date.now() < minCallMs) {
+      errorLogs.push('หยุดไล่โมเดลเพราะเวลาใกล้หมด (' + modelName + ')');
+      break;
     }
 
     // หากลองครบทุกโมเดลในลิสต์แรกแล้วยังไม่ผ่าน จึงค่อยดึงรายชื่อโมเดลสำรองจาก ListModels

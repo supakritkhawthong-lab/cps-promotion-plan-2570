@@ -241,3 +241,61 @@ test('aiJobInput_ ตัดไฟล์ base64 ออกแต่เก็บข
   assert.strictEqual(input.files[1].evidenceText, 'หน้า 3: สินทรัพย์รวม 1,000,000 บาท');
   assert.strictEqual(input.coopName, 'สหกรณ์ทดสอบ จำกัด');
 });
+
+test('บันทึกจำนวนครั้งที่ลองก่อนรันระยะ และ snapshot แนบ trace/attempts ให้ตรวจได้', function () {
+  const api = loadAiJob({
+    analyze: function (payload, runOptions) {
+      if (runOptions.stage === 'facts') {
+        return {
+          facts: { assetLatest: '1.00' },
+          _aiWarnings: [],
+          _aiModels: ['gemini-3.8-flash'],
+          _aiTrace: [{ stage: 'facts', model: 'gemini-3.8-flash', ms: 1000 }]
+        };
+      }
+      return {
+        sections: { orgAnalysis4M: 'ORG' },
+        _aiWarnings: [],
+        _aiModels: ['gemini-3.8-flash'],
+        _aiTrace: [{ stage: 'narrative', model: 'gemini-3.8-flash', ms: 2000 }]
+      };
+    }
+  });
+
+  const started = api.startAiAnalysisJob(samplePayload());
+  const step1 = api.stepAiAnalysisJob(started.jobId);
+
+  assert.strictEqual(step1.attempts.narrative, 1, 'ต้องบันทึกครั้งที่ลองของระยะที่เพิ่งรัน');
+  assert.strictEqual(step1.trace.length, 2, 'snapshot ต้องมี trace ของทุกระยะที่จบแล้ว');
+  assert.strictEqual(step1.trace[1].stage, 'narrative');
+});
+
+test('ระยะที่ถูกฆ่าครบ 2 ครั้งต้องถูกข้าม แล้วงานเดินต่อได้', function () {
+  const api = loadAiJob({
+    analyze: function (payload, runOptions) {
+      if (runOptions.stage === 'facts') {
+        return { facts: { assetLatest: '1.00' }, _aiWarnings: [], _aiModels: [], _aiTrace: [] };
+      }
+      if (runOptions.stage === 'narrative') {
+        return { sections: { orgAnalysis4M: 'ORG' }, _aiWarnings: [], _aiModels: [], _aiTrace: [] };
+      }
+      return { summaryAnalysis: 'SUM', _aiWarnings: [], _aiModels: [], _aiTrace: [] };
+    }
+  });
+
+  const started = api.startAiAnalysisJob(samplePayload());
+  api.stepAiAnalysisJob(started.jobId);
+
+  // Two executions were killed in the summary stage: only the write-ahead
+  // counter survives, the state is otherwise unchanged.
+  const state = api.loadAiJob_(started.jobId);
+  state.attempts.summary = 2;
+  state.stage = 'summary';
+  api.saveAiJob_(started.jobId, state);
+
+  const skipped = api.stepAiAnalysisJob(started.jobId);
+  assert.strictEqual(skipped.status, 'done');
+  assert.ok(String(skipped.warnings.join(' ')).indexOf('หัวข้อ 4 ใช้เวลาเกินกำหนด') !== -1,
+    'ต้องเตือนว่าข้ามหัวข้อ 4');
+  assert.strictEqual(api.calls.length, 2, 'ต้องไม่เรียก AI ในระยะที่ถูกข้าม');
+});
