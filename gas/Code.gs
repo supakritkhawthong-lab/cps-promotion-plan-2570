@@ -1007,7 +1007,7 @@ function capTextParts_(parts, maxTotalChars) {
   return result;
 }
 
-function buildGeminiRequestBody_(parts, schema) {
+function buildGeminiRequestBody_(parts, schema, modelName) {
   const maxTokens = Number(getProp_('GEMINI_MAX_OUTPUT_TOKENS', '8192')) || 8192;
   const generationConfig = {
     temperature: 0.0,
@@ -1015,6 +1015,11 @@ function buildGeminiRequestBody_(parts, schema) {
     responseMimeType: "application/json"
   };
   if (schema) generationConfig.responseSchema = schema;
+  // Gemini 4 models think by default, which pushes the 3-stage analysis past the
+  // Apps Script execution budget. Turn thinking off for structured extraction.
+  if (/^gemini-4-/.test(String(modelName || ''))) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
   return { contents: [{ parts: parts }], generationConfig: generationConfig };
 }
 
@@ -1068,7 +1073,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
     let stageFinishReason = '';
 
     for (let v = 0; v < variants.length && !stageText; v++) {
-      const requestBody = buildGeminiRequestBody_(parts, variants[v].schema);
+      const requestBody = buildGeminiRequestBody_(parts, variants[v].schema, modelName);
       const options = {
         method: "post",
         contentType: "application/json",

@@ -72,6 +72,16 @@ test('responseSchema ใช้ชนิดข้อมูลถูกต้อ�
   assert.strictEqual(changeKeys.length, 24, 'changes ต้องมี 24 คีย์');
 });
 
+test('Gemini 4 ปิด thinking ส่วนรุ่นอื่นไม่ส่ง thinkingConfig', function () {
+  const gas = loadGasStaged({});
+  const g4 = gas.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-4-hydrogen');
+  assert.deepStrictEqual(g4.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  assert.strictEqual(g4.generationConfig.maxOutputTokens, 8192, 'ห้ามเปลี่ยนเพดาน token เดิม');
+
+  const g3 = gas.buildGeminiRequestBody_([{ text: 'x' }], null, 'gemini-3.8-flash');
+  assert.strictEqual(g3.generationConfig.thinkingConfig, undefined, 'รุ่น 3.x ต้องไม่ส่ง thinkingConfig');
+});
+
 test('ระยะ facts → narrative → summary ทำงานครบและคืนผลรวม', function () {
   const gas = loadGasStaged({
     responder: function (call) {
