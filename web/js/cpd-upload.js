@@ -309,7 +309,25 @@
             ? cov.pagesSkippedHighScore.slice(0, 30) : [],
           charsTotal: Number(cov.charsTotal) || null,
           charsSent: Number(cov.charsSent) || null,
+          evidenceChars: Number(cov.evidenceChars) || null,
+          evidencePages: Array.isArray(cov.evidencePages) ? cov.evidencePages.slice(0, 30) : [],
+          evidenceWindows: Number(cov.evidenceWindows) || null,
+          evidenceCapped: !!cov.evidenceCapped,
           complete: !!cov.complete
+        };
+      }
+      var evidenceMeta = null;
+      if (f.evidence && typeof f.evidence === 'object') {
+        evidenceMeta = {
+          pages: Array.isArray(f.evidence.pages) ? f.evidence.pages.slice(0, 30) : [],
+          chars: Number(f.evidence.chars) || null,
+          windows: Number(f.evidence.windows) || null
+        };
+      } else if (f.evidenceText) {
+        evidenceMeta = {
+          pages: evidencePageNumbers(f.evidenceText).slice(0, 30),
+          chars: String(f.evidenceText).length,
+          windows: countEvidenceWindows(f.evidenceText)
         };
       }
       return {
@@ -321,6 +339,7 @@
         pagesRead: typeof f.pagesRead === 'number' ? f.pagesRead : null,
         chars: typeof f.chars === 'number' ? f.chars : (f.extractedText ? String(f.extractedText).length : null),
         truncated: !!f.truncated,
+        evidence: evidenceMeta,
         coverage: coverage
       };
     }).filter(Boolean);
@@ -478,10 +497,225 @@
     return out;
   }
 
+  // ---------------------------------------------------------------------------
+  // Evidence windows (Phase 1B)
+  //
+  // หน้าที่ถูกข้ามเพราะ budget ไม่ได้หายไปเฉย ๆ: เราตัดข้อความสั้น ๆ
+  // รอบคำสำคัญ/ตัวเลขจากหน้านั้นแนบไปกับ payload เพื่อให้ระยะ facts
+  // ใช้ยืนยันตัวเลขที่อาจหลุดจากการอ่านทั้งหน้า
+  // ---------------------------------------------------------------------------
+
+  var EVIDENCE_TERMS = [
+    'งบฐานะการเงิน', 'งบดุล', 'งบกำไรขาดทุน', 'งบกระแสเงินสด',
+    'สินทรัพย์รวม', 'รวมสินทรัพย์', 'หนี้สินรวม', 'รวมหนี้สิน',
+    'ทุนเรือนหุ้น', 'ทุนสำรอง', 'ทุนของสหกรณ์', 'ทุนดำเนินงาน',
+    'กำไรสุทธิ', 'ขาดทุนสะสม', 'รายได้รวม', 'ค่าใช้จ่ายรวม',
+    'ต้นทุนและค่าใช้จ่าย', 'เงินให้กู้', 'เงินรับฝาก', 'ลูกหนี้',
+    'เจ้าหนี้', 'เงินกู้ยืม', 'สินค้าคงเหลือ', 'ที่ดิน อาคาร',
+    'ปริมาณธุรกิจ', 'จำนวนสมาชิก', 'ผู้สอบบัญชี', 'ผู้ตรวจสอบกิจการ',
+    'ข้อสังเกต', 'ข้อบกพร่อง', 'สวัสดิการ', 'สาธารณประโยชน์', 'จดทะเบียน',
+    'total assets', 'total liabilities', 'net profit', 'share capital', 'reserve'
+  ];
+
+  var EVIDENCE_MAX_PER_FILE = 6000;
+  var EVIDENCE_MAX_TOTAL = 18000;
+
+  /** ตัดข้อความหลักฐานที่ขอบรายการ "[หลักฐานจากหน้า N]" เท่านั้น */
+  function sliceEvidenceText(text, maxChars) {
+    var t = String(text || '').trim();
+    var max = Math.max(0, Number(maxChars) || 0);
+    if (t.length <= max) return t;
+    if (max <= 0) return '';
+    var cut = t.lastIndexOf('\n[หลักฐานจากหน้า', max);
+    if (cut <= 0) cut = t.lastIndexOf('\n', max);
+    if (cut < Math.floor(max * 0.5)) cut = max;
+    return t.slice(0, cut).trim();
+  }
+
+  function evidencePageNumbers(text) {
+    var out = [];
+    var re = /\[หลักฐานจากหน้า (\d+)\]/g;
+    var m;
+    while ((m = re.exec(String(text || '')))) {
+      var page = Number(m[1]);
+      if (out.indexOf(page) === -1) out.push(page);
+    }
+    return out;
+  }
+
+  function countEvidenceWindows(text) {
+    var m = String(text || '').match(/\[หลักฐานจากหน้า \d+\]/g);
+    return m ? m.length : 0;
+  }
+
+  /**
+   * extractEvidence(pages, options) → { text, windows, pagesCovered, chars, capped }
+   *   pages = [{ page, text }] ของเฉพาะหน้าที่ไม่ได้ส่งทั้งหน้า
+   *   - ตัดข้อความรอบคำสำคัญ (ก่อน/หลังคำ) แล้ว snap ที่ขอบคำ
+   *   - จำกัดจำนวน window ต่อหน้าและจำนวนตัวอักษรรวม
+   */
+  function extractEvidence(pages, options) {
+    var opts = options || {};
+    var maxChars = Number(opts.maxChars) > 0 ? Number(opts.maxChars) : EVIDENCE_MAX_PER_FILE;
+    var maxPerPage = Number(opts.maxPerPage) > 0 ? Number(opts.maxPerPage) : 2;
+    var maxWindows = Number(opts.maxWindows) > 0 ? Number(opts.maxWindows) : 40;
+    var before = Number(opts.before) >= 0 ? Number(opts.before) : 60;
+    var after = Number(opts.after) > 0 ? Number(opts.after) : 220;
+    var minPageChars = Number(opts.minPageChars) > 0 ? Number(opts.minPageChars) : 20;
+
+    var lines = [];
+    var windows = [];
+    var pagesCovered = [];
+    var used = 0;
+    var dropped = 0;
+
+    var sorted = (pages || []).slice().sort(function (a, b) {
+      return (Number(a && a.page) || 0) - (Number(b && b.page) || 0);
+    });
+
+    sorted.forEach(function (p) {
+      if (!p) return;
+      var page = Number(p.page) || 0;
+      var text = normText(p.text);
+      if (text.length < minPageChars) return;
+
+      var hits = [];
+      EVIDENCE_TERMS.forEach(function (term) {
+        var idx = text.indexOf(term);
+        var guard = 0;
+        while (idx !== -1 && guard++ < 3) {
+          hits.push({ index: idx, term: term });
+          idx = text.indexOf(term, idx + term.length);
+        }
+      });
+      hits.sort(function (a, b) {
+        return a.index - b.index || b.term.length - a.term.length;
+      });
+
+      var accepted = 0;
+      var lastEnd = -1;
+      for (var i = 0; i < hits.length && accepted < maxPerPage; i++) {
+        var hit = hits[i];
+        if (hit.index <= lastEnd) continue;
+        var start = Math.max(0, hit.index - before);
+        var end = Math.min(text.length, hit.index + hit.term.length + after);
+        var spaceBefore = text.lastIndexOf(' ', hit.index);
+        if (spaceBefore >= start && hit.index - spaceBefore <= 30) start = spaceBefore + 1;
+        var spaceAfter = text.indexOf(' ', end);
+        if (spaceAfter !== -1 && spaceAfter - end <= 30) end = spaceAfter;
+        var snippet = text.slice(start, end).trim();
+        if (!snippet) continue;
+
+        var line = '[หลักฐานจากหน้า ' + page + '] (' + hit.term + ') ' + snippet;
+        if (windows.length >= maxWindows || used + line.length + 1 > maxChars) {
+          dropped++;
+          continue;
+        }
+        lines.push(line);
+        windows.push({ page: page, term: hit.term, chars: line.length });
+        used += line.length + 1;
+        accepted++;
+        lastEnd = end;
+        if (pagesCovered.indexOf(page) === -1) pagesCovered.push(page);
+      }
+    });
+
+    var text = lines.join('\n');
+    return {
+      text: text,
+      windows: windows,
+      pagesCovered: pagesCovered.sort(function (a, b) { return a - b; }),
+      chars: text.length,
+      capped: dropped > 0
+    };
+  }
+
+  /** อัปเดต metadata/coverage ให้ตรงกับ evidenceText ปัจจุบัน */
+  function syncEvidenceMeta(file) {
+    if (!file) return;
+    var text = String(file.evidenceText || '').trim();
+    if (text) {
+      file.evidenceText = text;
+      file.evidence = {
+        pages: evidencePageNumbers(text).slice(0, 30),
+        chars: text.length,
+        windows: countEvidenceWindows(text)
+      };
+    } else {
+      if (file.evidenceText !== undefined) delete file.evidenceText;
+      file.evidence = null;
+    }
+    if (file.coverage) {
+      file.coverage.evidenceChars = text ? text.length : 0;
+      file.coverage.evidencePages = evidencePageNumbers(text).slice(0, 30);
+      file.coverage.evidenceWindows = countEvidenceWindows(text);
+    }
+  }
+
+  /**
+   * attachFileEvidence(file, pages, options)
+   * ต่อหลักฐานจากหน้าใหม่เข้ากับ evidenceText เดิม (ถ้ามี) แล้วจำกัดขนาดต่อไฟล์
+   */
+  function attachFileEvidence(file, pages, options) {
+    if (!file) return false;
+    var opts = options || {};
+    var maxChars = Number(opts.maxChars) > 0 ? Number(opts.maxChars) : EVIDENCE_MAX_PER_FILE;
+    var extracted = extractEvidence(pages, opts);
+    if (!extracted.text) return false;
+
+    var existing = String(file.evidenceText || '').trim();
+    var combined = existing ? existing + '\n' + extracted.text : extracted.text;
+    var capped = combined.length > maxChars;
+    var wasCapped = !!(file.coverage && file.coverage.evidenceCapped);
+    file.evidenceText = sliceEvidenceText(combined, maxChars);
+    syncEvidenceMeta(file);
+    if (file.coverage) {
+      // ธงนี้ต้องติดค้างไว้ ไม่ถูกล้างเมื่อต่อหลักฐานรอบใหม่
+      file.coverage.evidenceCapped = wasCapped || !!extracted.capped || capped;
+    }
+    return true;
+  }
+
+  /** จำกัดหลักฐานรวมทุกไฟล์ โดยตัดหลักฐานของไฟล์ที่ยาวที่สุดก่อน */
+  function capEvidenceBudget(files, maxTotalChars) {
+    var max = Number(maxTotalChars) > 0 ? Number(maxTotalChars) : EVIDENCE_MAX_TOTAL;
+    var list = (files || []).filter(function (f) {
+      return f && String(f.evidenceText || '').trim();
+    });
+
+    function totalChars() {
+      return list.reduce(function (sum, f) {
+        return sum + String(f.evidenceText || '').length;
+      }, 0);
+    }
+
+    var total = totalChars();
+    var guard = 0;
+    while (total > max && guard++ < 100) {
+      list.sort(function (a, b) {
+        return String(b.evidenceText || '').length - String(a.evidenceText || '').length;
+      });
+      var f = list[0];
+      var current = String(f.evidenceText || '').length;
+      var next = sliceEvidenceText(f.evidenceText, Math.max(0, current - (total - max)));
+      if (next.length >= current) {
+        next = sliceEvidenceText(f.evidenceText, Math.max(0, Math.floor(current / 2)));
+      }
+      if (next.length >= current) break;
+      f.evidenceText = next;
+      if (f.coverage) f.coverage.evidenceCapped = true;
+      syncEvidenceMeta(f);
+      if (!next) list.shift();
+      total = totalChars();
+    }
+    return total;
+  }
+
   /**
    * trimFileToChars(file, targetChars)
    * ตัดข้อความของไฟล์ที่ระดับ "หน้า" (ไม่ตัดกลางหน้า) และอัปเดต coverage
    * เลือกตัด "หน้าที่คะแนนต่ำสุด" ก่อน เพื่อไม่ให้หน้าสำคัญท้ายไฟล์หายก่อน
+   * หน้าที่ถูกตัดจะถูกเก็บเป็น evidence window เพื่อไม่ให้ตัวเลขสำคัญหายเงียบ
    */
   function trimFileToChars(file, targetChars) {
     if (!file || !file.extractedText) return false;
@@ -492,6 +726,7 @@
     var parts = pagePartsFromText(current);
     var nextText;
     var removedParts = {};
+    var removedItems = [];
     if (parts) {
       var items = parts.map(function (part) {
         var m = part.match(/^\[หน้า (\d+)\]/);
@@ -506,7 +741,13 @@
         pool.sort(function (a, b) { return a.score - b.score || b.page - a.page; });
         var victim = pool[0];
         used -= (victim.chars + 1);
-        if (victim.page) removedParts[victim.page] = victim.text;
+        if (victim.page) {
+          removedParts[victim.page] = victim.text;
+          removedItems.push({
+            page: victim.page,
+            text: victim.text.replace(/^\[หน้า \d+\]\s*/, '')
+          });
+        }
         items = items.filter(function (it) { return it !== victim; });
       }
       items.sort(function (a, b) { return a.page - b.page; });
@@ -555,6 +796,10 @@
       high.sort(function (a, b) { return a - b; });
       cov.pagesSkippedHighScore = high;
     }
+    // Phase 1B: เก็บหลักฐานจากหน้าที่เพิ่งถูกตัดออก ไม่ให้ตัวเลขหายเงียบ
+    if (removedItems.length) {
+      attachFileEvidence(file, removedItems, { maxChars: EVIDENCE_MAX_PER_FILE });
+    }
     return true;
   }
 
@@ -601,6 +846,10 @@
       if (!changed) break;
       total = totalChars();
     }
+    // Phase 1B: หลักฐานเสริมมีเพดานแยกจากข้อความหลัก (ไม่กิน budget 180k)
+    capEvidenceBudget(list, Number(opts.maxEvidenceChars) > 0
+      ? Number(opts.maxEvidenceChars)
+      : EVIDENCE_MAX_TOTAL);
     return list;
   }
 
@@ -1255,6 +1504,15 @@
     selectPages: selectPages,
     pagePartsFromText: pagePartsFromText,
     pageNumbersFromText: pageNumbersFromText,
+    EVIDENCE_TERMS: EVIDENCE_TERMS,
+    EVIDENCE_MAX_PER_FILE: EVIDENCE_MAX_PER_FILE,
+    EVIDENCE_MAX_TOTAL: EVIDENCE_MAX_TOTAL,
+    extractEvidence: extractEvidence,
+    sliceEvidenceText: sliceEvidenceText,
+    evidencePageNumbers: evidencePageNumbers,
+    attachFileEvidence: attachFileEvidence,
+    syncEvidenceMeta: syncEvidenceMeta,
+    capEvidenceBudget: capEvidenceBudget,
     trimFileToChars: trimFileToChars,
     applyTotalBudget: applyTotalBudget,
     plan: plan,

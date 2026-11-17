@@ -70,6 +70,7 @@
 ### 3.2 ไม่ตัดข้อความแบบเงียบ ๆ
 
 - ✅ Phase 1A: ทุกไฟล์ถูกตัดที่ **ขอบหน้า** ตาม budget 55,000 ตัวอักษร/ไฟล์ และ 180,000 ตัวอักษรรวม พร้อมแสดง coverage ให้ผู้ใช้เห็น
+- ✅ Phase 1B: หน้าที่ถูกข้าม/ถูกตัดจะถูกเก็บเป็น **evidence window** (ข้อความสั้นรอบคำสำคัญ/ตัวเลข) แนบไปกับระยะ `facts` เพื่อไม่ให้ตัวเลขสำคัญหายเงียบ
 - ยังเหลือ Phase 1C: แบ่งข้อความเป็นช่วงหน้า (8–10 หน้าต่อช่วง) แล้วสกัด facts ต่อช่วง
 - รวมผลด้วยกติกา: ค่าที่มีหลักฐานชัดกว่า/ไฟล์ที่มีลำดับความน่าเชื่อถือสูงกว่าชนะ
 - ✅ แสดง "อ่าน 48/48 หน้า • ส่งเข้า AI 41 หน้า • ข้าม 7 หน้า" และเตือนถ้ายังมีหน้าสำคัญที่ไม่ได้อ่าน
@@ -242,7 +243,7 @@ analysis.uploadMeta.previous = {
 | --- | --- | --- | --- |
 | **Phase 0** ✅ *(ดำเนินการแล้ว)* | safe merge + diff + snapshot, null/0 semantics, per-file scan flag, year/run metadata, เตือนหัวข้อที่รอบใหม่ไม่มี | ข้อมูลเดิมไม่หาย, รู้ว่าอะไรเปลี่ยน | `web/js/cpd-upload.js`, `web/index.html`, `web/js/cpd-ui.js`, `web/js/cpd-state.js` |
 | **Phase 1A** ✅ *(ดำเนินการแล้ว)* | อ่านทุกหน้า (150 หน้า / 45 วินาที), page scoring, budget ต่อไฟล์ 55k + รวม 180k, coverage UI, ไม่ตัดกลางหน้า | PDF ดิจิทัลอ่านครบขึ้นและรู้ว่าขาดหน้าใด | `web/index.html`, `web/js/cpd-upload.js`, `tests/` |
-| **Phase 1B** | evidence windows + อ่านซ้ำเฉพาะฟิลด์ที่ขาด | เก็บเลขที่หลุดจากการตัดข้อความได้แม่นขึ้น | `web/index.html`, `gas/Code.gs` |
+| **Phase 1B** ✅ *(ดำเนินการแล้ว)* | evidence windows + อ่านซ้ำเฉพาะฟิลด์ที่ขาด | เก็บเลขที่หลุดจากการตัดข้อความได้แม่นขึ้น | `web/index.html`, `gas/Code.gs` |
 | **Phase 1C** | chunked facts ต่อช่วงหน้า + merge + provenance | ไฟล์ 100 หน้าอ่านครบโดยไม่เกินเวลา GAS | `web/index.html`, `gas/Code.gs`, `web/js/cpd-upload.js` |
 | **Phase 2** | layout-aware table extraction, ส่งภาพหน้าสำคัญ, OCR confidence, double-pass ฟิลด์วิกฤต, conflict priority | ข้อมูลตารางแม่นขึ้น, ลด hallucination | `web/index.html`, `gas/Code.gs` |
 | **Phase 3** | audit log ต่อรอบ, เก็บ hash/ไฟล์ต้นฉบับ (ถ้าอนุญาต), quality dashboard, prompt/schema versioning | ตรวจสอบย้อนหลังและวัดคุณภาพได้ | `gas/CPD_Database.gs`, docs |
@@ -299,7 +300,44 @@ analysis.uploadMeta.previous = {
 - `plan()` สร้างคำเตือนจาก `coverage`: อ่านกี่หน้า / ส่งเข้า AI กี่หน้า / ข้ามกี่หน้า / หน้าที่มีแนวโน้มสำคัญแต่ยังไม่ได้ส่ง
 - bump cache เป็น `cpd-upload.js?v=20261116c`
 
-**ยังไม่ทำในรอบนี้:** 1B (evidence windows), 1C (chunked facts + merge/provenance), 1D (scan batches + hash cache) — ต้องแตะ `gas/Code.gs` และ deploy GAS
+### 7.3 Phase 1B — สิ่งที่ลงโค้ดแล้ว
+
+**หลักคิด:** หน้าที่ถูกข้ามเพราะ budget ไม่ควรหายไปทั้งหน้า ให้เก็บเฉพาะ "ช่วงข้อความสั้น ๆ" รอบคำสำคัญ/ตัวเลขแนบไปกับระยะ `facts` และถ้าฟิลด์วิกฤตยังขาด ให้อ่านซ้ำเฉพาะฟิลด์นั้นจากหลักฐานที่มี
+
+**`web/js/cpd-upload.js` — ฟังก์ชันใหม่ (pure/testable)**
+
+| ฟังก์ชัน | หน้าที่ |
+| --- | --- |
+| `extractEvidence(pages, opts)` | ตัดข้อความ ±รอบคำสำคัญ (สินทรัพย์/หนี้สิน/ทุน/กำไร/สมาชิก/ผู้สอบบัญชี/ข้อสังเกต ฯลฯ) จากหน้าที่ถูกข้าม แล้ว snap ที่ขอบคำ จำกัด `maxPerPage` (2) และ `maxChars` (6,000/ไฟล์) |
+| `attachFileEvidence(file, pages, opts)` | รวมหลักฐานใหม่กับของเดิม และตัดที่ขอบรายการ `[หลักฐานจากหน้า N]` |
+| `capEvidenceBudget(files, maxTotal)` | จำกัดหลักฐานรวมทุกไฟล์ (18,000 ตัวอักษร) โดยตัดของไฟล์ที่ยาวที่สุดก่อน |
+| `sliceEvidenceText()` / `evidencePageNumbers()` | ตัด/อ่านเลขหน้าหลักฐานโดยไม่ตัดกลางรายการ |
+| `syncEvidenceMeta(file)` | อัปเดต `file.evidence` + `coverage.evidenceChars/evidencePages/evidenceWindows/evidenceCapped` |
+| `trimFileToChars()` | เพิ่มพฤติกรรม: หน้าที่ถูกตัดจะถูกแปลงเป็น evidence อัตโนมัติ |
+
+**`web/index.html`**
+
+- `smartProcessFile()` สร้าง `evidenceText` จาก `pages` ที่ไม่อยู่ใน `selection.pagesSelected` (ก่อน `applyTotalBudget()`)
+- `runAIAnalysis()` ส่ง `evidenceText` ไปกับ `payload.files` (เฉพาะไฟล์ข้อความ)
+- `renderUploadCoverage()` แสดง "🔎 หลักฐานเสริมจากหน้า … • n ช่วง • n ตัวอักษร" และเตือนเมื่อถูกตัดตามเพดาน
+- bump cache เป็น `cpd-upload.js?v=20261117a`
+
+**`gas/Code.gs`**
+
+| ส่วน | การเปลี่ยนแปลง |
+| --- | --- |
+| `capEvidenceParts_()` | จำกัดหลักฐานต่อไฟล์ 6,000 และรวม 24,000 ตัวอักษร (ปรับได้ด้วย `AI_EVIDENCE_PER_FILE_CHARS` / `AI_EVIDENCE_MAX_CHARS`) |
+| ระยะ `facts` | ส่ง `evidenceText` ต่อท้ายข้อความหลัก พร้อม `AI_EVIDENCE_SUFFIX_` (เฉพาะระยะ facts) |
+| `findMissingCriticalFacts_()` | ตรวจ 19 ฟิลด์วิกฤต โดยถือ `-`, ว่าง, `ไม่พบ` ว่าขาด แต่ `0` คือค่าจริง |
+| `repairMissingFacts_()` | ระยะ `repair` อ่านซ้ำเฉพาะฟิลด์ที่ขาด โดยใช้ข้อความหลัก (สูงสุด 90k) + evidence + schema เฉพาะฟิลด์ |
+| เงื่อนไขเรียก `repair` | มี evidence, ขาด ≥ 3 ฟิลด์วิกฤต, และเหลือเวลา ≥ 120 วินาที (จำกัดรอบละ 45 วินาที) — ปิดได้ด้วย `AI_TARGETED_REPAIR=0` |
+| การ merge | เติมเฉพาะฟิลด์ที่ยังขาด ห้ามทับค่าที่มีอยู่ และไม่รับ `-` |
+
+**เทสต์:** เพิ่ม 8 เทสต์ใน `tests/upload-plan.test.js` (evidence extraction/cap/trim/metadata) และ 7 เทสต์ใน `tests/ai-staged.test.js` (evidence inclusion, caps, repair merge, repair failure, gating) → `npm run verify` ผ่าน **105/105**
+
+**ต้อง deploy GAS ใหม่** (`analyzeUploadedFilesWithAI`) ก่อนใช้ Phase 1B บน production
+
+**ยังไม่ทำในรอบนี้:** 1C (chunked facts + merge/provenance), 1D (scan batches + hash cache)
 
 ---
 

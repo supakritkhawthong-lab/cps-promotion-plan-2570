@@ -1090,6 +1090,21 @@
             complete: selection.complete
           };
 
+          // Phase 1B: เก็บ "หลักฐานสั้น ๆ" จากหน้าที่ไม่ได้ส่งทั้งหน้า
+          //   เพื่อให้ระยะ facts ยังเห็นตัวเลขสำคัญที่หลุดจาก budget
+          var evidenceText = '';
+          var evidenceMeta = null;
+          var skippedPageTexts = pages.filter(function (x) {
+            return selection.pagesSelected.indexOf(x.page) === -1;
+          });
+          if (skippedPageTexts.length && window.CPD_UPLOAD &&
+              typeof window.CPD_UPLOAD.attachFileEvidence === 'function') {
+            var evidenceFile = { coverage: coverage };
+            window.CPD_UPLOAD.attachFileEvidence(evidenceFile, skippedPageTexts, { maxChars: 6000 });
+            evidenceText = evidenceFile.evidenceText || '';
+            evidenceMeta = evidenceFile.evidence || null;
+          }
+
           // ใบโปรไฟล์ Smart Coop: ใช้ข้อความจากทุกหน้าที่อ่านได้ (ไม่ใช่แค่ 5 หน้าแรก)
           const profileTrimmed = trimTextAtLineBoundary(fullText, 120000);
 
@@ -1102,6 +1117,8 @@
             chars: selection.charsSelected,
             truncated: (pages.length - selection.pagesSelectedCount) > 0 || selection.pagesUnread > 0,
             extractedText: selection.text,
+            evidenceText: evidenceText,
+            evidence: evidenceMeta,
             coverage: coverage,
             profileExtract: (window.CPD_PRELOAD && typeof window.CPD_PRELOAD.parseSmartCoopProfile === 'function')
               ? window.CPD_PRELOAD.parseSmartCoopProfile(profileTrimmed.text) : null
@@ -1238,6 +1255,15 @@
         (complete ? 'ครบทุกหน้า' : included + '/' + total + ' หน้า') + '</span>';
       html += '</div>';
       html += '<div class="text-muted mt-1">' + detail + '</div>';
+      if (cov.evidenceChars) {
+        var evPages = Array.isArray(cov.evidencePages) ? cov.evidencePages : [];
+        var evList = evPages.slice(0, 8).join(', ');
+        if (evPages.length > 8) evList += ' …';
+        html += '<div class="text-info mt-1">🔎 หลักฐานเสริมจากหน้า ' + esc(evList || '—') +
+          ' • ' + (Number(cov.evidenceWindows) || 0) + ' ช่วง' +
+          ' • ' + Number(cov.evidenceChars).toLocaleString('en-US') + ' ตัวอักษร' +
+          (cov.evidenceCapped ? ' (ตัดตามเพดาน)' : '') + '</div>';
+      }
       if (cov.readCapHit) {
         html += '<div class="text-warning mt-1">⚠ อ่านถึงขีดจำกัด (150 หน้า / 45 วินาที) — หน้าท้ายไฟล์อาจยังไม่ได้อ่าน</div>';
       }
@@ -1584,7 +1610,7 @@
 <script src="js/cpd-mis-reports.js?v=20260214a"></script>
 <script src="js/cpd-4m-engine.js?v=20260214b"></script>
 <script src="js/cpd-business-analysis.js?v=20260214f"></script>
-<script src="js/cpd-upload.js?v=20261116c"></script>
+<script src="js/cpd-upload.js?v=20261117a"></script>
 <script src="js/cpd-ui.js?v=20261112a"></script>
 </body>
 </html>

@@ -19,13 +19,16 @@ flowchart TD
     C -->|"PDF สแกน / รูปภาพ"| E["base64<br/>ตัดหน้าแรกตาม maxFallbackPages"]
     C -->|"DOC / DOCX / XLSX"| F["สกัดข้อความ<br/>ถ้าไม่ได้ส่งไฟล์ดิบ"]
     D --> G["profileExtract<br/>parseSmartCoopProfile()"]
+    D --> D2["Phase 1B: evidence windows<br/>ข้อความสั้นรอบคำสำคัญจากหน้าที่ไม่ได้ส่ง<br/>≤ 6,000 ตัวอักษร/ไฟล์, ≤ 18,000 รวม"]
     D --> H["payload.files"]
+    D2 --> H
     E --> H
     F --> H
     H --> I["GAS: analyzeUploadedFilesWithAI()"]
-    I --> J["ระยะ 1: facts<br/>ตัวเลข/ข้อเท็จจริง ~106 ฟิลด์"]
-    J --> K["ระยะ 2: narrative<br/>บทวิเคราะห์ข้อ 1-3"]
-    J --> L["ระยะ 3: summary<br/>บทวิเคราะห์ข้อ 4"]
+    I --> J["ระยะ 1: facts<br/>ตัวเลข/ข้อเท็จจริง ~106 ฟิลด์<br/>(ข้อความหลัก + evidence)"]
+    J --> J2["ระยะ 1B: repair<br/>อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ขาด<br/>(ถ้ามี evidence + ขาด ≥ 3 ฟิลด์)"]
+    J2 --> K["ระยะ 2: narrative<br/>บทวิเคราะห์ข้อ 1-3"]
+    J2 --> L["ระยะ 3: summary<br/>บทวิเคราะห์ข้อ 4"]
     K --> L
     J --> M["result"]
     K --> M
@@ -80,7 +83,12 @@ flowchart TD
 - `CPD_UPLOAD.selectPages()` เลือกหน้าคะแนนสูงจนเต็ม budget ต่อไฟล์ 55,000 ตัวอักษร แล้วเรียงกลับตามเลขหน้า
 - **ไม่ตัดกลางหน้า** — ข้อความที่ส่งเข้า AI ถูกตัดที่ขอบหน้าเสมอ และแต่ละหน้าถูกทำเครื่องหมาย `[หน้า N]`
 - จำกัดตัวอักษรรวมทุกไฟล์ 180,000 ตัวอักษร (`CPD_UPLOAD.applyTotalBudget()`, ขั้นต่ำ 12,000 ตัวอักษร/ไฟล์) โดยตัดไฟล์ที่ใหญ่ที่สุดก่อน
+- **Phase 1B — evidence windows:** หน้าที่ไม่ได้ถูกส่งทั้งหน้า (ถูกข้ามตอนเลือก หรือถูกตัดเพราะ budget) จะถูกเก็บข้อความสั้น ๆ รอบคำสำคัญ เช่น `รวมสินทรัพย์`, `ทุนสำรอง`, `กำไรสุทธิ`, `ผู้สอบบัญชี`, `ข้อสังเกต`
+  - `CPD_UPLOAD.extractEvidence()` เก็บไม่เกิน 2 ช่วง/หน้า, 6,000 ตัวอักษร/ไฟล์
+  - `CPD_UPLOAD.applyTotalBudget()` จำกัด evidence รวมทุกไฟล์ไม่เกิน 18,000 ตัวอักษร
+  - หลักฐานถูกส่งเฉพาะระยะ `facts` (ไม่ส่งซ้ำในระยะ `narrative`/`summary`)
 - แสดงการ์ด `#uploadCoverage` บอกว่าอ่านกี่หน้า / ส่งเข้า AI กี่หน้า / ข้ามหน้าใด พร้อมเตือนหน้าที่มีแนวโน้มสำคัญแต่ยังไม่ได้ส่ง
+- แสดงบรรทัด "🔎 หลักฐานเสริมจากหน้า … • n ช่วง • n ตัวอักษร" เมื่อมี evidence
 - ถ้าข้อความรวมมากกว่า 250 ตัวอักษร → ใช้ `extractedText` (ไม่ส่งไฟล์ PDF ทั้งก้อน)
 - พร้อมกันนั้นเรียก `parseSmartCoopProfile()` กับข้อความจากทุกหน้าที่อ่านได้ (สูงสุด 120,000 ตัวอักษร) เพื่อดึงข้อมูลใบโปรไฟล์ด้วย regex
 
@@ -101,7 +109,8 @@ flowchart TD
 | `chars` | จำนวนตัวอักษรที่ส่งเข้า AI |
 | `truncated` | ข้อความถูกตัดเพราะเกิน budget (ตัดที่ขอบหน้า) |
 | `lowTextPdf` | ไฟล์นี้เป็นสแกน/ภาพ (ใช้ตัดสิน `zero` vs `zeroReview`) |
-| `coverage` | `{ totalPages, pagesRead, pagesIncluded, pagesSkipped, skippedCount, pagesSkippedHighScore, charsTotal, charsSent, complete }` |
+| `evidence` | `{ pages, chars, windows }` หลักฐานเสริมจากหน้าที่ไม่ได้ส่งทั้งหน้า (metadata เท่านั้น ไม่เก็บข้อความลง State) |
+| `coverage` | `{ totalPages, pagesRead, pagesIncluded, pagesSkipped, skippedCount, pagesSkippedHighScore, charsTotal, charsSent, evidenceChars, evidencePages, evidenceWindows, evidenceCapped, complete }` |
 
 `coverage` ถูกจำกัดขนาดก่อนเก็บ (หน้า skipped สูงสุด 100 รายการ, หน้าคะแนนสูงสุด 30 รายการ) และเก็บใน `analysis.uploadMeta.files` เพื่อให้ตรวจย้อนหลังได้ว่ารอบนั้นอ่านไฟล์ครบหรือไม่
 
@@ -111,13 +120,17 @@ flowchart TD
 
 ---
 
-## 3. AI 3 ระยะ
+## 3. AI 3–4 ระยะ
 
 | ระยะ | อินพุต | เอาต์พุต | ถ้าล้มเหลว |
 | --- | --- | --- | --- |
-| 1. `facts` | ข้อความทุกไฟล์ + ภาพ/PDF สแกน | ตัวเลข/ข้อเท็จจริง ~106 ฟิลด์ | งานล้มทั้งก้อน |
-| 2. `narrative` | ข้อความไฟล์ (ไม่รวมภาพ) + facts | `orgAnalysis4M`, `businessAnalysis`, `welfareAnalysis` | ยังได้ facts กลับ พร้อม `_aiWarnings` |
+| 1. `facts` | ข้อความทุกไฟล์ + **evidence windows** + ภาพ/PDF สแกน | ตัวเลข/ข้อเท็จจริง ~106 ฟิลด์ | งานล้มทั้งก้อน |
+| 1B. `repair` *(เงื่อนไข)* | ข้อความหลัก (≤ 90k) + evidence + รายชื่อฟิลด์ที่ขาด | เฉพาะ 19 ฟิลด์วิกฤตที่ยังขาด | ยังใช้ผล `facts` เดิม + `_aiWarnings` |
+| 2. `narrative` | ข้อความไฟล์ (ไม่รวมภาพ/evidence) + facts | `orgAnalysis4M`, `businessAnalysis`, `welfareAnalysis` | ยังได้ facts กลับ พร้อม `_aiWarnings` |
 | 3. `summary` | facts + บทวิเคราะห์ข้อ 1-3 | `summaryAnalysis` | ยังได้ facts + ข้อ 1-3 กลับ พร้อม `_aiWarnings` |
+
+`repair` ทำงานเมื่อ **มี evidence**, ฟิลด์วิกฤตขาดอย่างน้อย 3 ฟิลด์ และเหลือเวลา ≥ 120 วินาที (รอบละไม่เกิน 45 วินาที)
+ปิดได้ด้วย Script Property `AI_TARGETED_REPAIR=0` และ merge เฉพาะฟิลด์ที่ขาดเท่านั้น (ไม่ทับค่าที่มีอยู่ ไม่รับ `-`)
 
 ---
 

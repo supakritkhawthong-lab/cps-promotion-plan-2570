@@ -407,6 +407,47 @@ const AI_FACT_STAGE_SUFFIX_ = '\n\n--- ขอบเขตคำตอบรอ�
   'ระบบกำหนดโครงสร้างคำตอบของรอบนี้เป็นฟิลด์ข้อมูล/ตัวเลขเท่านั้น ไม่มีฟิลด์บทวิเคราะห์ ' +
   'ห้ามเขียนบทวิเคราะห์ข้อ 19-22 ในรอบนี้';
 
+const AI_EVIDENCE_SUFFIX_ = '\n\n--- หลักฐานเสริมจากหน้าที่ไม่ได้ส่งทั้งหน้า ---\n' +
+  'ข้อความก่อนหน้านี้เป็นข้อความสั้น ๆ ที่ตัดมาเฉพาะบริเวณคำสำคัญจากหน้าที่ไม่ได้ส่งทั้งหน้า ' +
+  'ใช้เพื่อยืนยันหรือเติมตัวเลข/ข้อเท็จจริงที่ขาดจากข้อความหลักเท่านั้น ' +
+  'หากหลักฐานขัดกับข้อความหลัก ให้ยึดข้อความหลักและระบุ "-" เมื่อยังไม่แน่ใจ';
+
+const AI_REPAIR_STAGE_SUFFIX_ = '\n\n--- ซ่อมข้อมูลที่ยังขาด ---\n' +
+  'รอบนี้เป็นรอบอ่านซ้ำเฉพาะฟิลด์ที่ยังไม่พบจากเอกสารเดียวกัน ' +
+  'ตอบเฉพาะฟิลด์ที่ระบุไว้ด้านบนในรูปแบบ JSON ห้ามตอบฟิลด์อื่น ' +
+  'ถ้ายังไม่พบข้อมูลให้ใส่ "-" ห้ามเดา และห้ามใช้ 0 แทนการไม่พบ';
+
+/** ฟิลด์วิกฤตที่ต้องพยายามอ่านซ้ำเมื่อยังขาด (Phase 1B) */
+const AI_CRITICAL_FACT_KEYS_ = [
+  'assetLatest', 'assetPrev', 'debtLatest', 'debtPrev',
+  'shareLatest', 'sharePrev', 'reserveLatest', 'reservePrev',
+  'profitLatest', 'profitPrev', 'incomeLatest', 'incomePrev',
+  'expenseLatest', 'expensePrev', 'memLatest', 'memPrev',
+  'yrLatest', 'yrPrev', 'fiscalDateFull'
+];
+
+const AI_CRITICAL_FACT_LABELS_ = {
+  assetLatest: 'ยอดรวมสินทรัพย์ปีล่าสุด',
+  assetPrev: 'ยอดรวมสินทรัพย์ปีก่อน',
+  debtLatest: 'ยอดรวมหนี้สินปีล่าสุด',
+  debtPrev: 'ยอดรวมหนี้สินปีก่อน',
+  shareLatest: 'ทุนเรือนหุ้นปีล่าสุด (ไม่ใช่ทุนของสหกรณ์)',
+  sharePrev: 'ทุนเรือนหุ้นปีก่อน (ไม่ใช่ทุนของสหกรณ์)',
+  reserveLatest: 'ทุนสำรองปีล่าสุด',
+  reservePrev: 'ทุนสำรองปีก่อน',
+  profitLatest: 'กำไร/ขาดทุนสุทธิปีล่าสุด',
+  profitPrev: 'กำไร/ขาดทุนสุทธิปีก่อน',
+  incomeLatest: 'รายได้รวมปีล่าสุด',
+  incomePrev: 'รายได้รวมปีก่อน',
+  expenseLatest: 'ต้นทุนและค่าใช้จ่ายรวมปีล่าสุด',
+  expensePrev: 'ต้นทุนและค่าใช้จ่ายรวมปีก่อน',
+  memLatest: 'จำนวนสมาชิกปีล่าสุด (รวม/สามัญ/สมทบ)',
+  memPrev: 'จำนวนสมาชิกปีก่อน (รวม/สามัญ/สมทบ)',
+  yrLatest: 'ปีบัญชีล่าสุด',
+  yrPrev: 'ปีบัญชีก่อนหน้า',
+  fiscalDateFull: 'วันสิ้นปีบัญชี'
+};
+
 const AI_NARRATIVE_STAGE_SUFFIX_ = '\n\n--- ขอบเขตคำตอบรอบนี้ ---\n' +
   'ใช้ข้อเท็จจริงและตัวเลขจาก "ข้อมูลที่สกัดได้จากรอบแรก" เป็นหลัก ' +
   'ระบบกำหนดโครงสร้างคำตอบของรอบนี้เพียง 3 ฟิลด์: orgAnalysis4M, businessAnalysis, welfareAnalysis ' +
@@ -461,6 +502,105 @@ function buildFactResponseSchema_() {
   };
 
   return { type: 'OBJECT', properties: properties };
+}
+
+/** responseSchema เฉพาะฟิลด์ที่ต้องอ่านซ้ำ (Phase 1B) */
+function buildFactSubsetSchema_(keys) {
+  const full = buildFactResponseSchema_();
+  const properties = {};
+  (keys || []).forEach(function (key) {
+    if (full.properties[key]) properties[key] = full.properties[key];
+  });
+  return { type: 'OBJECT', properties: properties };
+}
+
+function isMissingFactValue_(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'number') return !isFinite(value);
+  if (typeof value === 'boolean') return false;
+  const text = String(value).replace(/\s+/g, ' ').trim();
+  if (!text) return true;
+  return /^(-|–|—|n\/a|na|none|null|ไม่พบ|ไม่พบข้อมูล|ไม่มี|ไม่มีข้อมูล|ไม่ระบุ)$/i.test(text);
+}
+
+function findMissingCriticalFacts_(facts) {
+  const data = facts || {};
+  return AI_CRITICAL_FACT_KEYS_.filter(function (key) {
+    return isMissingFactValue_(data[key]);
+  });
+}
+
+/** รวมผลอ่านซ้ำเฉพาะฟิลด์ที่ยังขาด และห้ามทับค่าที่มีอยู่ */
+function mergeRepairFacts_(facts, patch, keys) {
+  const target = facts || {};
+  const merged = {};
+  (keys || AI_CRITICAL_FACT_KEYS_).forEach(function (key) {
+    if (!patch || isMissingFactValue_(patch[key])) return;
+    if (!isMissingFactValue_(target[key])) return;
+    target[key] = patch[key];
+    merged[key] = patch[key];
+  });
+  return merged;
+}
+
+/**
+ * จำกัดขนาด "หลักฐานเสริม" ที่ส่งเข้า GAS
+ * - เพดานต่อไฟล์ และเพดานรวม (default 6,000 / 24,000 ตัวอักษร)
+ */
+function capEvidenceParts_(parts, maxTotalChars, perFileChars) {
+  const maxTotal = Number(maxTotalChars) > 0 ? Number(maxTotalChars) : 24000;
+  const perFile = Number(perFileChars) > 0 ? Number(perFileChars) : 6000;
+  const result = [];
+  let total = 0;
+
+  (parts || []).forEach(function (part) {
+    if (!part || typeof part.text !== 'string' || !part.text.trim()) return;
+    let text = part.text;
+    if (text.length > perFile) {
+      text = text.slice(0, perFile) + '\n...[ตัดหลักฐานเพื่อจำกัดขนาด]...\n';
+    }
+    if (total + text.length > maxTotal) {
+      const remain = Math.max(0, maxTotal - total);
+      if (remain < 200) return;
+      text = text.slice(0, remain) + '\n...[ตัดหลักฐานเพื่อจำกัดขนาด]...\n';
+    }
+    total += text.length;
+    result.push({ text: text });
+  });
+  return result;
+}
+
+/**
+ * อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ยังขาด โดยใช้ข้อความหลัก (จำกัด 90k) + evidence windows
+ * คืน object ของฟิลด์ที่เติมสำเร็จ หรือ null เมื่อไม่มีอะไรต้องซ่อม
+ */
+function repairMissingFacts_(facts, evidenceParts, options) {
+  const opts = options || {};
+  const missing = opts.missingKeys || findMissingCriticalFacts_(facts);
+  if (!missing.length) return null;
+
+  const labels = missing.map(function (key) {
+    return '- ' + key + ' = ' + (AI_CRITICAL_FACT_LABELS_[key] || key);
+  }).join('\n');
+
+  const textParts = (opts.textParts || []).filter(function (part) {
+    return part && typeof part.text === 'string';
+  });
+  const repairText = capTextParts_(textParts, Number(opts.maxTextChars) || 90000);
+  const parts = repairText
+    .concat(evidenceParts || [])
+    .concat([{
+      text: '\n\n--- ฟิลด์ที่ยังขาด ---\n' + labels + AI_REPAIR_STAGE_SUFFIX_
+    }]);
+
+  const patch = callGeminiJson_(
+    parts,
+    buildFactSubsetSchema_(missing),
+    'repair',
+    opts.deadline,
+    opts.stageStart
+  );
+  return mergeRepairFacts_(facts, patch, missing);
 }
 
 function getAiModels_() {
@@ -821,6 +961,7 @@ ${ruleWeaknessesText}
 }`;
 
   const parts = [{ text: promptText }];
+  const evidenceParts = [];
   if (payload.files && payload.files.length > 0) {
     payload.files.forEach(f => {
       if (f.extractedText) {
@@ -828,6 +969,12 @@ ${ruleWeaknessesText}
         parts.push({
           text: `\n--- ข้อมูลจากไฟล์ [${f.category || 'เอกสาร'}]: ${f.name} ---\n${f.extractedText}\n`
         });
+        // Phase 1B: หลักฐานสั้น ๆ จากหน้าที่ไม่ได้ส่งทั้งหน้า (เฉพาะระยะ facts)
+        if (f.evidenceText) {
+          evidenceParts.push({
+            text: `\n--- หลักฐานเสริม [${f.category || 'เอกสาร'}]: ${f.name} ---\n${f.evidenceText}\n`
+          });
+        }
       } else if (f.base64) {
         // กรณีเป็นไฟล์สแกนหรือรูปภาพ ส่งเป็น inlineData ที่ตัดย่อขนาดแล้ว
         parts.push({
@@ -840,14 +987,23 @@ ${ruleWeaknessesText}
     });
   }
 
+  const evidenceBudget = capEvidenceParts_(
+    evidenceParts,
+    Number(getProp_('AI_EVIDENCE_MAX_CHARS', '24000')) || 24000,
+    Number(getProp_('AI_EVIDENCE_PER_FILE_CHARS', '6000')) || 6000
+  );
+
   const stageStart = Date.now();
   const deadlineMs = Number(getProp_('AI_DEADLINE_MS', '300000')) || 300000;
   const overallDeadline = stageStart + deadlineMs;
 
   // ระยะที่ 1: สกัดตัวเลขและข้อเท็จจริง (ต้องสำเร็จก่อน ถ้าล้มเหลวทั้งงานล้มเหลว)
   const factsDeadline = Math.min(overallDeadline, stageStart + Math.min(deadlineMs, 210000));
+  const factsInput = evidenceBudget.length
+    ? parts.concat(evidenceBudget).concat([{ text: AI_EVIDENCE_SUFFIX_ }])
+    : parts;
   const facts = callGeminiJson_(
-    parts.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
+    factsInput.concat([{ text: AI_FACT_STAGE_SUFFIX_ }]),
     buildFactResponseSchema_(),
     'facts',
     factsDeadline,
@@ -858,10 +1014,41 @@ ${ruleWeaknessesText}
   }
   applyPrevYearFallbacks_(facts);
 
+  const warnings = [];
+
+  // ระยะ 1B: อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ยังขาด โดยใช้ evidence windows
+  //   เงื่อนไข: มีหลักฐานเสริม + ขาดอย่างน้อย 3 ฟิลด์ + เหลือเวลาพอ
+  const repairEnabled = String(getProp_('AI_TARGETED_REPAIR', '1')) !== '0';
+  const missingCritical = findMissingCriticalFacts_(facts);
+  if (repairEnabled && evidenceBudget.length && missingCritical.length >= 3 &&
+      overallDeadline - Date.now() >= 120000) {
+    const repairDeadline = Math.min(Date.now() + 45000, overallDeadline - 60000);
+    if (repairDeadline - Date.now() >= 5000) {
+      try {
+        const repaired = repairMissingFacts_(facts, evidenceBudget, {
+          missingKeys: missingCritical,
+          textParts: parts.filter(function (part) { return !part.inlineData; }),
+          deadline: repairDeadline,
+          stageStart: stageStart
+        });
+        if (facts.fiscalDateFull) {
+          facts.fiscalDateFull = normalizeFiscalDate(facts.fiscalDateFull);
+        }
+        applyPrevYearFallbacks_(facts);
+        logAiStage_('repair', {
+          requested: missingCritical.length,
+          filled: repaired ? Object.keys(repaired).length : 0
+        });
+      } catch (e) {
+        warnings.push('การอ่านซ้ำเฉพาะฟิลด์ที่ขาดไม่สำเร็จ: ' + e.message);
+        logAiStage_('repair-failed', { message: e.message });
+      }
+    }
+  }
+
   const result = {};
   Object.keys(facts).forEach(function (key) { result[key] = facts[key]; });
 
-  const warnings = [];
   const factsBlock = '\n\n--- ข้อมูลที่สกัดได้จากรอบแรก (ใช้เป็นตัวเลขอ้างอิง) ---\n' +
     JSON.stringify(facts) + '\n--- จบบล็อกข้อมูล ---';
 

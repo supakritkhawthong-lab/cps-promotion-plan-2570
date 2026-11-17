@@ -215,3 +215,165 @@ test('capTextParts_ จำกัดขนาดข้อความรวมแ
     assert.ok(part.text.indexOf('ตัดข้อความเพื่อจำกัดขนาด') !== -1, 'ไฟล์ที่ถูกตัดต้องมีข้อความแจ้ง');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1B: evidence windows + targeted repair
+// ---------------------------------------------------------------------------
+
+function payloadWithEvidence() {
+  const payload = basePayload();
+  payload.files[0].evidenceText =
+    '[หลักฐานจากหน้า 45] (ทุนสำรอง) ทุนสำรอง 1,234.56 EVIDENCE_MARKER';
+  return payload;
+}
+
+test('ระยะ facts ได้รับ evidenceText แต่ narrative ต้องไม่ได้รับ', function () {
+  const gas = loadGasStaged({
+    props: { AI_TARGETED_REPAIR: '0' },
+    responder: function (call) {
+      if (call.stage === 'facts') return { assetLatest: '1.00' };
+      if (call.stage === 'narrative') return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  gas.analyzeUploadedFilesWithAI(payloadWithEvidence());
+
+  const facts = gas.calls.filter(function (call) { return call.stage === 'facts'; })[0];
+  const narrative = gas.calls.filter(function (call) { return call.stage === 'narrative'; })[0];
+
+  assert.ok(facts.promptText.indexOf('EVIDENCE_MARKER') !== -1, 'ระยะ facts ต้องเห็นหลักฐานเสริม');
+  assert.ok(facts.promptText.indexOf('หลักฐานเสริมจากหน้าที่ไม่ได้ส่งทั้งหน้า') !== -1);
+  assert.ok(narrative.promptText.indexOf('EVIDENCE_MARKER') === -1, 'ระยะ narrative ไม่ต้องส่งหลักฐานซ้ำ');
+});
+
+test('capEvidenceParts_: จำกัดหลักฐานต่อไฟล์และรวมทุกไฟล์', function () {
+  const gas = loadGasStaged({
+    props: {
+      AI_TARGETED_REPAIR: '0',
+      AI_EVIDENCE_PER_FILE_CHARS: '300',
+      AI_EVIDENCE_MAX_CHARS: '500'
+    },
+    responder: function (call) {
+      if (call.stage === 'facts') return { assetLatest: '1.00' };
+      if (call.stage === 'narrative') return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  const payload = payloadWithEvidence();
+  payload.files[0].evidenceText = 'START' + new Array(2001).join('ก') + 'END';
+  gas.analyzeUploadedFilesWithAI(payload);
+
+  const facts = gas.calls.filter(function (call) { return call.stage === 'facts'; })[0];
+  assert.ok(facts.promptText.indexOf('START') !== -1);
+  assert.ok(facts.promptText.indexOf('END') === -1, 'หลักฐานท้ายไฟล์ต้องถูกตัด');
+  assert.ok(facts.promptText.indexOf('ตัดหลักฐานเพื่อจำกัดขนาด') !== -1);
+});
+
+test('repair: อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ขาด และไม่ทับค่าที่มีอยู่', function () {
+  const gas = loadGasStaged({
+    responder: function (call) {
+      if (call.stage === 'facts') {
+        return { assetLatest: '1,000.00', fiscalDateFull: '31 มี.ค. 68' };
+      }
+      if (call.stage === 'repair') {
+        return {
+          assetLatest: '9,999.00',
+          debtLatest: '400.00',
+          shareLatest: '500.00',
+          reserveLatest: '100.00',
+          yrLatest: 'ธ.ค. 68'
+        };
+      }
+      if (call.stage === 'narrative') return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  const result = gas.analyzeUploadedFilesWithAI(payloadWithEvidence());
+
+  assert.deepStrictEqual(
+    gas.calls.map(function (call) { return call.stage; }),
+    ['facts', 'repair', 'narrative', 'summary'],
+    'ต้องมีรอบ repair หลัง facts'
+  );
+  const repair = gas.calls.filter(function (call) { return call.stage === 'repair'; })[0];
+  assert.ok(repair.promptText.indexOf('EVIDENCE_MARKER') !== -1, 'repair ต้องใช้หลักฐานเสริม');
+  assert.ok(repair.promptText.indexOf('debtLatest = ยอดรวมหนี้สินปีล่าสุด') !== -1);
+  assert.ok(repair.promptText.indexOf('ซ่อมข้อมูลที่ยังขาด') !== -1);
+  assert.ok(repair.hasSchema, 'repair ต้องมี responseSchema เฉพาะฟิลด์');
+  assert.strictEqual(repair.body.generationConfig.responseSchema.properties.changes, undefined);
+
+  assert.strictEqual(result.assetLatest, '1,000.00', 'ห้ามทับค่าที่มีอยู่แล้ว');
+  assert.strictEqual(result.debtLatest, '400.00');
+  assert.strictEqual(result.shareLatest, '500.00');
+  assert.strictEqual(result.reserveLatest, '100.00');
+  assert.strictEqual(result.yrLatest, 'ธ.ค. 68');
+  assert.strictEqual(result.fiscalDateFull, '31 มีนาคม');
+  assert.strictEqual(result._aiWarnings, undefined);
+});
+
+test('repair: ถ้าอ่านซ้ำล้มเหลว งานยังสำเร็จพร้อม _aiWarnings', function () {
+  const gas = loadGasStaged({
+    responder: function (call) {
+      if (call.stage === 'facts') return { assetLatest: '2,000.00' };
+      if (call.stage === 'repair') return { status: 500, body: 'repair boom' };
+      if (call.stage === 'narrative') return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  const result = gas.analyzeUploadedFilesWithAI(payloadWithEvidence());
+
+  assert.strictEqual(result.assetLatest, '2,000.00');
+  assert.strictEqual(result.summaryAnalysis, 'S');
+  assert.ok(Array.isArray(result._aiWarnings) && result._aiWarnings.length === 1);
+  assert.ok(result._aiWarnings[0].indexOf('อ่านซ้ำเฉพาะฟิลด์ที่ขาด') !== -1);
+});
+
+test('repair: ไม่มี evidenceText → ไม่เรียกซ้ำ', function () {
+  const gas = loadGasStaged({
+    responder: function (call) {
+      if (call.stage === 'facts') return { assetLatest: '3,000.00' };
+      if (call.stage === 'narrative') return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  gas.analyzeUploadedFilesWithAI(basePayload());
+  assert.ok(!gas.calls.some(function (call) { return call.stage === 'repair'; }));
+});
+
+test('mergeRepairFacts_: เติมเฉพาะฟิลด์ที่ขาด และไม่รับ "-"', function () {
+  const gas = loadGasStaged({});
+  const facts = { assetLatest: '1,000.00', debtLatest: '-' };
+  const merged = gas.mergeRepairFacts_(facts, {
+    assetLatest: '9,999.00',
+    debtLatest: '400.00',
+    shareLatest: '-'
+  }, ['assetLatest', 'debtLatest', 'shareLatest']);
+
+  assert.strictEqual(facts.assetLatest, '1,000.00', 'ค่าที่มีอยู่ต้องไม่ถูกทับ');
+  assert.strictEqual(facts.debtLatest, '400.00');
+  assert.strictEqual(facts.shareLatest, undefined, 'ค่า "-" ต้องไม่ถูกเติม');
+  assert.ok(merged.debtLatest);
+  assert.strictEqual(merged.assetLatest, undefined);
+});
+
+test('findMissingCriticalFacts_: แยกค่าว่าง/ขีด/ศูนย์ และตรวจฟิลด์วิกฤต', function () {
+  const gas = loadGasStaged({});
+  const missing = gas.findMissingCriticalFacts_({
+    assetLatest: '0.00',
+    assetPrev: '-',
+    debtLatest: '',
+    shareLatest: 'ไม่พบข้อมูล',
+    reserveLatest: '500.00'
+  });
+  assert.ok(missing.indexOf('assetPrev') !== -1);
+  assert.ok(missing.indexOf('debtLatest') !== -1);
+  assert.ok(missing.indexOf('shareLatest') !== -1);
+  assert.ok(missing.indexOf('assetLatest') === -1, 'ศูนย์จริงต้องไม่ถือว่าขาด');
+  assert.ok(missing.indexOf('reserveLatest') === -1);
+  assert.strictEqual(gas.AI_CRITICAL_FACT_KEYS_.length, 19);
+});

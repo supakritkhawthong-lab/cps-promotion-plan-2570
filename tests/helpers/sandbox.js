@@ -86,6 +86,7 @@ function loadGasParserHelpers() {
  * ตรวจระยะ (facts/narrative/summary) จากส่วนท้ายของ prompt + responseSchema
  */
 function detectAiStage_(text, schema) {
+  if (text.indexOf('--- ซ่อมข้อมูลที่ยังขาด ---') !== -1) return 'repair';
   if (text.indexOf('ไม่มีฟิลด์บทวิเคราะห์') !== -1) return 'facts';
   if (text.indexOf('เพียง 1 ฟิลด์: summaryAnalysis') !== -1) return 'summary';
   if (text.indexOf('เพียง 3 ฟิลด์: orgAnalysis4M') !== -1) return 'narrative';
@@ -173,8 +174,14 @@ function loadGasStaged(options) {
       'analyzeUploadedFilesWithAI',
       'callGeminiJson_',
       'buildFactResponseSchema_',
+      'buildFactSubsetSchema_',
       'buildGeminiRequestBody_',
       'capTextParts_',
+      'capEvidenceParts_',
+      'findMissingCriticalFacts_',
+      'mergeRepairFacts_',
+      'isMissingFactValue_',
+      'AI_CRITICAL_FACT_KEYS_',
       'AI_NARRATIVE_SCHEMA_',
       'AI_SUMMARY_SCHEMA_',
       'AI_FACT_STRING_FIELDS_',

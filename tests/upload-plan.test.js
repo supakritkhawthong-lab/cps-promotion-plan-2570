@@ -533,3 +533,168 @@ test('plan: เตือน coverage — อ่าน/ส่ง/ข้าม แ
   assert.ok(text.indexOf('ข้าม 21 หน้า') !== -1);
   assert.ok(text.indexOf('หน้า 8, 12') !== -1);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1B: evidence windows + targeted repair
+// ---------------------------------------------------------------------------
+
+function evidencePages() {
+  return [
+    {
+      page: 40,
+      text: 'รายละเอียดทั่วไป '.repeat(20) +
+        ' งบฐานะการเงิน ณ วันที่ 31 มีนาคม 2569 รวมสินทรัพย์ 12,345,678.90 รวมหนี้สิน 5,000,000.00'
+    },
+    {
+      page: 41,
+      text: 'ผู้สอบบัญชีเห็นว่าการควบคุมภายในมีข้อบกพร่อง ควรแก้ไขโดยเร็ว และมีข้อสังเกตเรื่องสินค้าคงเหลือ'
+    }
+  ];
+}
+
+test('extractEvidence: ดึงข้อความรอบคำสำคัญจากหน้าที่ถูกข้าม พร้อมจำกัดขนาด', function () {
+  const web = setup();
+  const ev = web.CPD_UPLOAD.extractEvidence(evidencePages(), {
+    maxChars: 1200,
+    maxPerPage: 2
+  });
+
+  assert.ok(ev.text.indexOf('[หลักฐานจากหน้า 40]') !== -1, 'ต้องมีหลักฐานจากหน้า 40');
+  assert.ok(ev.text.indexOf('[หลักฐานจากหน้า 41]') !== -1, 'ต้องมีหลักฐานจากหน้า 41');
+  assert.ok(ev.text.indexOf('รวมสินทรัพย์') !== -1, 'ต้องเก็บตัวเลขสำคัญ');
+  assert.ok(ev.text.indexOf('(งบฐานะการเงิน)') !== -1, 'ต้องระบุคำสำคัญที่พบ');
+  assert.strictEqual(ev.pagesCovered.join(','), '40,41');
+  assert.ok(ev.chars <= 1200);
+  assert.strictEqual(ev.capped, false);
+  assert.strictEqual(ev.windows.length, 2, 'หน้าละ 1 ช่วง (คำสำคัญที่อยู่ใกล้กันถูกรวมเป็นช่วงเดียว)');
+});
+
+test('extractEvidence: เพดานเล็กเกินไปต้องไม่เกิน budget และติดธง capped', function () {
+  const web = setup();
+  const ev = web.CPD_UPLOAD.extractEvidence(evidencePages(), { maxChars: 80 });
+  assert.ok(ev.chars <= 80);
+  assert.strictEqual(ev.capped, true);
+});
+
+test('extractEvidence: หน้าที่ข้อความสั้นเกินไปและคำซ้ำในหน้าเดียวกันถูกจำกัด', function () {
+  const web = setup();
+  const pages = [
+    { page: 1, text: 'สั้น' },
+    { page: 2, text: 'สินทรัพย์รวม 1,000.00 ' + 'ก'.repeat(400) + ' สินทรัพย์รวม 2,000.00 ' + 'ข'.repeat(400) }
+  ];
+  const ev = web.CPD_UPLOAD.extractEvidence(pages, { maxChars: 5000, maxPerPage: 1 });
+  assert.strictEqual(ev.pagesCovered.join(','), '2', 'หน้าที่สั้นเกินไปต้องถูกข้าม');
+  assert.strictEqual(ev.windows.length, 1, 'ต้องจำกัด 1 ช่วงต่อหน้า');
+});
+
+test('sliceEvidenceText: ตัดที่ขอบรายการหลักฐานเท่านั้น', function () {
+  const web = setup();
+  const text = [
+    '[หลักฐานจากหน้า 1] ' + 'ก'.repeat(300),
+    '[หลักฐานจากหน้า 2] ' + 'ข'.repeat(300),
+    '[หลักฐานจากหน้า 3] ' + 'ค'.repeat(300)
+  ].join('\n');
+  const sliced = web.CPD_UPLOAD.sliceEvidenceText(text, text.length - 50);
+
+  assert.ok(sliced.length <= text.length - 50);
+  assert.ok(sliced.indexOf('[หลักฐานจากหน้า 3]') === -1, 'ต้องตัดทั้งรายการ ไม่ตัดกลางข้อความ');
+  sliced.split('\n').forEach(function (line) {
+    assert.ok(/^\[หลักฐานจากหน้า \d+\]/.test(line), 'ทุกรายการต้องขึ้นต้นด้วยหัวข้อหลักฐาน');
+  });
+});
+
+test('trimFileToChars: หน้าที่ถูกตัดต้องถูกเก็บเป็น evidence และอัปเดต coverage', function () {
+  const web = setup();
+  const pages = [];
+  for (let i = 1; i <= 10; i++) {
+    if (i === 10) {
+      pages.push('งบฐานะการเงิน รวมสินทรัพย์ 123,456.00 ทุนเรือนหุ้น 50,000.00 ENDOF10');
+    } else if (i === 5) {
+      pages.push('เงินให้กู้ 9,999.00 และลูกหนี้ 8,888.00 ' + 'z'.repeat(1800));
+    } else {
+      pages.push('z'.repeat(1900));
+    }
+  }
+  const file = makeFile('fin.pdf', pages);
+  const extra = makeFile('extra.pdf', ['y'.repeat(6000)]);
+
+  web.CPD_UPLOAD.applyTotalBudget([file, extra], {
+    maxTotalChars: 13000,
+    minPerFile: 6000
+  });
+
+  assert.ok(file.evidenceText, 'ต้องมีหลักฐานจากหน้าที่ถูกตัด');
+  assert.ok(file.evidenceText.indexOf('[หลักฐานจากหน้า 5]') !== -1, 'ต้องเก็บหลักฐานของหน้า 5');
+  assert.ok(file.coverage.evidenceChars > 0);
+  assert.ok(file.coverage.evidencePages.indexOf(5) !== -1);
+  assert.ok(file.coverage.evidenceWindows >= 1);
+  assert.ok(file.evidence.chars > 0);
+});
+
+test('attachFileEvidence: รวมหลักฐานเดิมและตัดที่เพดานต่อไฟล์', function () {
+  const web = setup();
+  const file = {
+    name: 'a.pdf',
+    evidenceText: '[หลักฐานจากหน้า 1] ' + 'ก'.repeat(80),
+    coverage: {}
+  };
+  const added = web.CPD_UPLOAD.attachFileEvidence(file, [
+    { page: 9, text: 'ทุนสำรอง 5,000.00 และกำไรสุทธิ 7,000.00' }
+  ], { maxChars: 120 });
+
+  assert.strictEqual(added, true);
+  assert.ok(file.evidenceText.length <= 120);
+  assert.strictEqual(file.coverage.evidenceCapped, true);
+  assert.ok(file.coverage.evidencePages.indexOf(1) !== -1);
+});
+
+test('capEvidenceBudget: จำกัดหลักฐานรวมทุกไฟล์ และตัดที่ขอบรายการ', function () {
+  const web = setup();
+  function makeEvidenceFile(name) {
+    const text = Array.from({ length: 8 }, function (_, i) {
+      return '[หลักฐานจากหน้า ' + (i + 1) + '] ' + 'ก'.repeat(400);
+    }).join('\n');
+    return { name: name, evidenceText: text, coverage: {} };
+  }
+  const files = [makeEvidenceFile('a.pdf'), makeEvidenceFile('b.pdf')];
+  const total = web.CPD_UPLOAD.capEvidenceBudget(files, 2500);
+
+  assert.ok(total <= 2500, 'หลักฐานรวมต้องไม่เกินเพดาน');
+  assert.ok(total > 0, 'ต้องเหลือหลักฐานไว้ใช้');
+  files.forEach(function (f) {
+    if (!f.evidenceText) return;
+    f.evidenceText.split('\n').forEach(function (line) {
+      assert.ok(/^\[หลักฐานจากหน้า \d+\]/.test(line), 'ต้องตัดที่ขอบรายการ');
+    });
+  });
+});
+
+test('normalizeFiles: เก็บ evidence metadata แบบจำกัดขนาด', function () {
+  const web = setup();
+  const pages = Array.from({ length: 40 }, function (_, i) { return i + 1; });
+  const files = web.CPD_UPLOAD.normalizeFiles([{
+    name: 'annual.pdf',
+    mode: 'text',
+    evidenceText: '[หลักฐานจากหน้า 40] สินทรัพย์รวม 1,000.00',
+    evidence: { pages: pages, chars: 999, windows: 12 },
+    coverage: {
+      totalPages: 62,
+      pagesRead: 62,
+      pagesIncluded: 41,
+      pagesSkipped: [],
+      skippedCount: 21,
+      evidenceChars: 999,
+      evidencePages: pages,
+      evidenceWindows: 12,
+      evidenceCapped: true,
+      complete: false
+    }
+  }]);
+
+  assert.strictEqual(files[0].evidence.pages.length, 30, 'ต้องจำกัดหน้า evidence ใน metadata');
+  assert.strictEqual(files[0].evidence.chars, 999);
+  assert.strictEqual(files[0].coverage.evidencePages.length, 30);
+  assert.strictEqual(files[0].coverage.evidenceChars, 999);
+  assert.strictEqual(files[0].coverage.evidenceWindows, 12);
+  assert.strictEqual(files[0].coverage.evidenceCapped, true);
+});
