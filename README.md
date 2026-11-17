@@ -26,6 +26,7 @@
 │  ├─ Code.gs                   # โค้ดธุรกิจเดิม: master list, AI, ร่าง, Word
 │  ├─ CPD_Database.gs           # บันทึก/โหลด state และ Dashboard ทั้ง 5 แท็บ
 │  ├─ Api.gs                    # doPost + RPC router + allowlist
+│  ├─ AiJob.gs                  # แบ่งงานวิเคราะห์เป็นระยะ (facts → 1-3 → 4) เก็บสถานะใน CacheService
 │  ├─ config.gs                 # อ่านค่าจาก Script Properties
 │  ├─ Setup.gs                  # ตัวช่วยตั้งค่า/ตรวจสอบ (ไม่ถูกเรียกจากเว็บ)
 │  ├─ รหัส.gs                    # placeholder ทับไฟล์เดิมที่ชื่อ "รหัส" (ห้ามใส่โค้ด)
@@ -117,6 +118,11 @@
    | `DRIVE_ROOT_FOLDER_ID` | ถ้าใช้ Drive | `1XyZ...` | โฟลเดอร์แม่ของไฟล์ทั้งหมด (บัญชีที่ deploy ต้องมีสิทธิ์ Editor) |
    | `API_TOKEN` | แนะนำ | สุ่มยาว ๆ | ถ้าไม่ตั้ง = เปิดให้ใครก็เรียกได้ |
    | `DEBUG` | ไม่ | `1` | ให้ส่ง stack trace กลับมา |
+
+   **การประมวลผล AI แบบหลายระยะ (job)** — หน้าเว็บเรียก `startAiAnalysisJob(payload)` แล้ววน `stepAiAnalysisJob(jobId)`
+   ทีละระยะ (facts → หัวข้อ 1-3 → หัวข้อ 4) แต่ละระยะได้เพดาน 6 นาทีของตัวเอง จึงไม่ทำให้หัวข้อ 4 หาย
+   สถานะงานเก็บใน `CacheService` (แบ่งก้อนละ 25,000 ตัวอักษร, อายุ 6 ชั่วโมง) และไม่เก็บไฟล์ base64 ไว้หลังระยะแรก
+   ฟังก์ชันเดิม `analyzeUploadedFilesWithAI(payload)` ยังใช้ได้สำหรับเรียกครั้งเดียวแบบเดิม
 
 5. **Deploy Apps Script**
    ```bash

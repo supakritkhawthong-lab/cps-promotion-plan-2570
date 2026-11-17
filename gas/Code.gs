@@ -1171,7 +1171,10 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
   throw new Error(message);
 }
 
-function analyzeUploadedFilesWithAI(payload) {
+function analyzeUploadedFilesWithAI(payload, options) {
+  // Async job mode (see AiJob.gs): run a single stage per execution and reuse
+  // the results of the previous stages passed in `options.prior`.
+  const job = (options && options.stage) ? options : null;
   // เรียกโมเดลความเร็วสูงทันทีโดยไม่ต้องเสียเวลาเรียก ListModels ก่อน
   // ดูลำดับรุ่นได้จาก Script Property GEMINI_MODELS (คั่นด้วยจุลภาค)
   // ค่าเริ่มต้น: gemini-3.8-flash → gemini-3.5-flash → gemini-2.5-flash → gemini-4-hydrogen
@@ -1450,7 +1453,12 @@ ${ruleWeaknessesText}
   let fieldConflicts = null;
   let chunkCount = 0;
 
-  if (factChunks.length > 1) {
+  if (job && job.prior && job.prior.facts) {
+    facts = job.prior.facts;
+    fieldSources = job.prior.fieldSources || null;
+    fieldConflicts = job.prior.fieldConflicts || null;
+    chunkCount = job.prior.chunkCount || 0;
+  } else if (factChunks.length > 1) {
     const chunkRun = runFactChunks_(promptText, factChunks, {
       inlineParts: parts.filter(function (part) { return !!part.inlineData; }),
       deadline: factsDeadline,
@@ -1528,6 +1536,20 @@ ${ruleWeaknessesText}
     }
   }
 
+  // Async job: the facts stage is complete, hand the result back to AiJob.gs.
+  if (job && job.stage === 'facts') {
+    return {
+      _aiStage: 'facts',
+      facts: facts,
+      fieldSources: fieldSources,
+      fieldConflicts: fieldConflicts,
+      chunkCount: chunkCount,
+      _aiWarnings: warnings.slice(),
+      _aiModels: AI_MODELS_USED_.slice(),
+      _aiTrace: AI_STAGE_TRACE_.slice()
+    };
+  }
+
   const result = {};
   Object.keys(facts).forEach(function (key) { result[key] = facts[key]; });
   // Phase 1C: ที่มาและความขัดกันของค่าที่สกัดได้ (metadata เท่านั้น)
@@ -1553,17 +1575,36 @@ ${ruleWeaknessesText}
           { text: factsBlock + '\n(ไฟล์สแกนที่ไม่มีข้อความถูกวิเคราะห์ในรอบแรกแล้ว ใช้ข้อมูลจากบล็อกด้านบน)' },
           { text: AI_NARRATIVE_STAGE_SUFFIX_ }
         ]);
-      const sections = callGeminiJson_(
-        narrativeParts,
-        AI_NARRATIVE_SCHEMA_,
-        'narrative',
-        overallDeadline,
-        stageStart
-      );
+      let sections;
+      if (job && job.prior && job.prior.sections) {
+        sections = job.prior.sections;
+      } else {
+        sections = callGeminiJson_(
+          narrativeParts,
+          AI_NARRATIVE_SCHEMA_,
+          'narrative',
+          overallDeadline,
+          stageStart
+        );
+      }
       ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis'].forEach(function (key) {
         if (typeof sections[key] === 'string' && sections[key].trim()) result[key] = sections[key];
       });
       markStage_();
+      // Async job: the narrative stage is complete, hand the sections back.
+      if (job && job.stage === 'narrative') {
+        return {
+          _aiStage: 'narrative',
+          sections: {
+            orgAnalysis4M: result.orgAnalysis4M || '',
+            businessAnalysis: result.businessAnalysis || '',
+            welfareAnalysis: result.welfareAnalysis || ''
+          },
+          _aiWarnings: warnings.slice(),
+          _aiModels: AI_MODELS_USED_.slice(),
+          _aiTrace: AI_STAGE_TRACE_.slice()
+        };
+      }
     } catch (e) {
       warnings.push('บทวิเคราะห์หัวข้อ 1-3 ไม่สำเร็จ: ' + e.message);
       logAiStage_('narrative-failed', { message: e.message });

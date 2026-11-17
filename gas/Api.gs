@@ -19,6 +19,8 @@ var RPC_ALLOWLIST = [
   'getMasterCoopList',
   'saveDraftToSheet',
   'analyzeUploadedFilesWithAI',
+  'startAiAnalysisJob',
+  'stepAiAnalysisJob',
   'generatePlanDocument',
   'saveCompleteCoopRecord',
   'getCompleteCoopRecord',
@@ -27,6 +29,13 @@ var RPC_ALLOWLIST = [
 
 /** จำกัดขนาด body (~34 MB ไบนารีหลัง base64) กัน memory quota */
 var MAX_BODY_CHARS = 45 * 1024 * 1024;
+
+/** ฟังก์ชันที่ต้องมี GEMINI_API_KEY ก่อนเรียก */
+var AI_RPC_FUNCTIONS = [
+  'analyzeUploadedFilesWithAI',
+  'startAiAnalysisJob',
+  'stepAiAnalysisJob'
+];
 
 function doPost(e) {
   var started = Date.now();
@@ -65,7 +74,7 @@ function doPost(e) {
     if (RPC_ALLOWLIST.indexOf(body.fn) === -1) {
       throw apiError_('FORBIDDEN', 'ไม่อนุญาตให้เรียกฟังก์ชัน: ' + body.fn);
     }
-    if (body.fn === 'analyzeUploadedFilesWithAI' && !getGeminiKey_()) {
+    if (AI_RPC_FUNCTIONS.indexOf(body.fn) !== -1 && !getGeminiKey_()) {
       throw apiError_('CONFIG', 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY ใน Script Properties');
     }
 
@@ -131,6 +140,8 @@ function resolveRpc_(name) {
     getMasterCoopList: getMasterCoopList,
     saveDraftToSheet: saveDraftToSheet,
     analyzeUploadedFilesWithAI: analyzeUploadedFilesWithAI,
+    startAiAnalysisJob: startAiAnalysisJob,
+    stepAiAnalysisJob: stepAiAnalysisJob,
     generatePlanDocument: generatePlanDocument,
     saveCompleteCoopRecord: saveCompleteCoopRecord,
     getCompleteCoopRecord: getCompleteCoopRecord,
