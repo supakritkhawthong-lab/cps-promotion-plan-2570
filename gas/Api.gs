@@ -87,11 +87,24 @@ function doPost(e) {
       ok: false,
       error: {
         code: err.code || 'INTERNAL',
-        message: err.message || String(err),
-        stack: isDebug_() ? String(err.stack || '') : undefined
+        message: redactSecrets_(err.message || String(err)),
+        stack: isDebug_() ? redactSecrets_(err.stack || '') : undefined
       }
     });
   }
+}
+
+/**
+ * Strip credentials from text before it leaves the server.
+ * UrlFetchApp exceptions embed the request URL, which carries "?key=...".
+ */
+function redactSecrets_(text) {
+  var s = (text === null || text === undefined) ? '' : String(text);
+  if (!s) return s;
+  return s
+    .replace(/([?&]key=)[^&\s"']+/gi, '$1[REDACTED]')
+    .replace(/\bAQ\.[A-Za-z0-9_.\-]+/g, '[REDACTED]')
+    .replace(/\bAIza[0-9A-Za-z_\-]{10,}/g, '[REDACTED]');
 }
 
 function apiError_(code, message) {

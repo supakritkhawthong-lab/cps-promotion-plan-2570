@@ -1083,7 +1083,15 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
 
       for (let attempt = 1; attempt <= 2; attempt++) {
         if (Date.now() >= deadline) break;
-        const res = UrlFetchApp.fetch(url, options);
+        let res;
+        try {
+          res = UrlFetchApp.fetch(url, options);
+        } catch (fetchErr) {
+          // Never propagate the raw fetch error: its message embeds the request
+          // URL, which contains the Gemini API key.
+          errorLogs.push(modelName + '(ตัดการเชื่อมต่อ)');
+          break;
+        }
         const code = res.getResponseCode();
         const bodyText = res.getContentText();
 
