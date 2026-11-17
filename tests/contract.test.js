@@ -126,6 +126,13 @@ test('ค่าเริ่มต้น GEMINI_MODELS ใช้ gemini-4-hydroge
   assert.ok(models.indexOf('gemini-3.8-flash') !== -1, 'ต้องมี gemini-3.8-flash เป็นรุ่นสำรอง');
 });
 
+test('ผลลัพธ์ AI รายงานโมเดลที่ใช้จริง (_aiModels) เพื่อตรวจสอบ fallback', function () {
+  const code = readRepo('gas', 'Code.gs');
+  assert.ok(code.indexOf('function trackAiModelUsed_(') !== -1, 'ต้องมีตัวเก็บชื่อโมเดลที่ใช้จริง');
+  assert.ok(code.indexOf('trackAiModelUsed_(modelName)') !== -1, 'ต้องบันทึกโมเดลเมื่อได้คำตอบที่ใช้ได้');
+  assert.ok(code.indexOf('result._aiModels') !== -1, 'ต้องส่ง _aiModels กลับไปกับผลลัพธ์');
+});
+
 test('gas/appsscript.json เปิด web app ให้ anonymous และรันในนามผู้ deploy', function () {
   const manifest = JSON.parse(readRepo('gas', 'appsscript.json'));
   assert.strictEqual(manifest.webapp.access, 'ANYONE_ANONYMOUS');

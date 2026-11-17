@@ -1026,6 +1026,20 @@ function logAiStage_(stage, data) {
 }
 
 /**
+ * Collect model names that actually produced a usable answer in this execution.
+ * Reset per analyzeUploadedFilesWithAI() run so the caller can report which
+ * model served the request (falls back to another model when one fails).
+ */
+var AI_MODELS_USED_ = [];
+
+function trackAiModelUsed_(name) {
+  try {
+    if (!name) return;
+    if (AI_MODELS_USED_.indexOf(name) === -1) AI_MODELS_USED_.push(name);
+  } catch (e) {}
+}
+
+/**
  * เรียก Gemini แล้วแปลงคำตอบเป็น JSON
  * - ลองโมเดลตาม GEMINI_MODELS ก่อน แล้วค่อยดึงรายชื่อสำรอง
  * - ถ้าโมเดลไม่รองรับ responseSchema (HTTP 400) จะลองใหม่แบบไม่ใส่ schema
@@ -1111,6 +1125,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           ms: Date.now() - stageStart,
           outputChars: stageText.length
         });
+        trackAiModelUsed_(modelName);
         return parsed;
       } catch (e) {
         lastParseError = e;
@@ -1371,6 +1386,7 @@ ${ruleWeaknessesText}
   const deadlineMs = Number(getProp_('AI_DEADLINE_MS', '300000')) || 300000;
   const overallDeadline = stageStart + deadlineMs;
   const warnings = [];
+  AI_MODELS_USED_ = [];
 
   // ระยะที่ 1: สกัดตัวเลขและข้อเท็จจริง (ต้องสำเร็จก่อน ถ้าล้มเหลวทั้งงานล้มเหลว)
   const factsDeadline = Math.min(overallDeadline, stageStart + Math.min(deadlineMs, 210000));
@@ -1523,6 +1539,8 @@ ${ruleWeaknessesText}
   if (warnings.length) {
     result._aiWarnings = warnings;
   }
+  // Report which model(s) actually served this request (survives fallback).
+  result._aiModels = AI_MODELS_USED_.slice();
   logAiStage_('done', {
     ms: Date.now() - stageStart,
     warnings: warnings.length,
