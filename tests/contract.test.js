@@ -115,6 +115,17 @@ test('AI staged flow เปิดใช้ responseSchema และมี Script
     'ต้องมีครบ 3 ระยะ');
 });
 
+test('ค่าเริ่มต้น GEMINI_MODELS ใช้ gemini-4-hydrogen ก่อน และมีรุ่นสำรอง', function () {
+  const code = readRepo('gas', 'Code.gs');
+  const match = code.match(/getProp_\('GEMINI_MODELS'\)\s*\|\|\s*'([^']+)'/);
+  assert.ok(match, 'ต้องมีค่าเริ่มต้นของ GEMINI_MODELS ใน getAiModels_()');
+
+  const models = match[1].split(',').map(function (name) { return name.trim(); });
+  assert.strictEqual(models[0], 'gemini-4-hydrogen', 'โมเดลแรกต้องเป็น gemini-4-hydrogen');
+  assert.ok(models.length >= 2, 'ต้องมีโมเดลสำรองอย่างน้อย 1 รุ่น');
+  assert.ok(models.indexOf('gemini-3.8-flash') !== -1, 'ต้องมี gemini-3.8-flash เป็นรุ่นสำรอง');
+});
+
 test('gas/appsscript.json เปิด web app ให้ anonymous และรันในนามผู้ deploy', function () {
   const manifest = JSON.parse(readRepo('gas', 'appsscript.json'));
   assert.strictEqual(manifest.webapp.access, 'ANYONE_ANONYMOUS');

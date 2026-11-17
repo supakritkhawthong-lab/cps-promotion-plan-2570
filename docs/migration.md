@@ -106,7 +106,7 @@ GEMINI_API_KEY        = <คีย์>
 DRIVE_ROOT_FOLDER_ID  = <id โฟลเดอร์ Drive>   (ถ้าใช้)
 API_TOKEN             = <สตริงสุ่มยาว ๆ>       (แนะนำ)
 DEBUG                 = 1                      (เฉพาะตอนแก้บั๊ก)
-GEMINI_MODELS         = gemini-3.5-flash,gemini-3.8-flash,gemini-2.5-flash   (ไม่บังคับ)
+GEMINI_MODELS         = gemini-4-hydrogen,gemini-3.8-flash,gemini-2.5-flash   (ไม่บังคับ)
 ```
 
 > ค่าที่ตั้งจริงในโปรเจกต์นี้: `GEMINI_API_KEY`, `DRIVE_ROOT_FOLDER_ID`, `API_TOKEN`, `DEBUG`

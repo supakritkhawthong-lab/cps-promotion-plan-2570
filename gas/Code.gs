@@ -975,7 +975,7 @@ function runFactChunks_(promptText, chunks, options) {
 
 
 function getAiModels_() {
-  return String(getProp_('GEMINI_MODELS') || 'gemini-3.5-flash,gemini-3.8-flash,gemini-2.5-flash')
+  return String(getProp_('GEMINI_MODELS') || 'gemini-4-hydrogen,gemini-3.8-flash,gemini-2.5-flash')
     .split(',')
     .map(function (name) { return name.trim(); })
     .filter(Boolean);
@@ -1137,7 +1137,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
 function analyzeUploadedFilesWithAI(payload) {
   // เรียกโมเดลความเร็วสูงทันทีโดยไม่ต้องเสียเวลาเรียก ListModels ก่อน
   // ดูลำดับรุ่นได้จาก Script Property GEMINI_MODELS (คั่นด้วยจุลภาค)
-  // ค่าเริ่มต้น: gemini-3.5-flash → gemini-3.8-flash → gemini-2.5-flash
+  // ค่าเริ่มต้น: gemini-4-hydrogen → gemini-3.8-flash → gemini-2.5-flash
   // (gemini-2.0-flash เลิกให้บริการแล้ว จึงต้องไม่อยู่ในลิสต์)
   const ruleWeaknessesText = (payload.weaknesses && payload.weaknesses.length > 0)
     ? payload.weaknesses.map((w, i) => `${i + 1}) ${w}`).join("\n")

@@ -108,7 +108,7 @@
    |---|---|---|---|
    | `SPREADSHEET_ID` | แนะนำ | `1AbC...` | ถ้าเว้นว่างจะใช้ bound spreadsheet |
    | `GEMINI_API_KEY` | ใช่ | `AIza...` หรือ `AQ...` | ย้ายออกจากโค้ด |
-   | `GEMINI_MODELS` | ไม่ | `gemini-3.5-flash,gemini-3.8-flash` | ลำดับรุ่นที่ลองก่อน–หลัง (ค่าเริ่มต้นในโค้ดใช้ได้) |
+   | `GEMINI_MODELS` | ไม่ | `gemini-4-hydrogen,gemini-3.8-flash,gemini-2.5-flash` | ลำดับรุ่นที่ลองก่อน–หลัง (ค่าเริ่มต้นในโค้ดใช้ได้) |
    | `GEMINI_MAX_OUTPUT_TOKENS` | ไม่ | `8192` | เพดาน token ของคำตอบ AI ต่อรอบ (ค่าเริ่มต้น 8192) |
    | `AI_DEADLINE_MS` | ไม่ | `300000` | เวลารวมสูงสุดของการเรียก AI ต่อคำขอ (มิลลิวินาที) ก่อนคืนผลบางส่วน |
    | `DRIVE_ROOT_FOLDER_ID` | ถ้าใช้ Drive | `1XyZ...` | โฟลเดอร์แม่ของไฟล์ทั้งหมด (บัญชีที่ deploy ต้องมีสิทธิ์ Editor) |
