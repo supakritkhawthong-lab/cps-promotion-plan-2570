@@ -112,7 +112,7 @@
    | `GEMINI_MODELS` | ไม่ | `gemini-3.8-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-4-hydrogen` | ลำดับรุ่นที่ลองก่อน–หลัง (ค่าเริ่มต้นในโค้ดใช้ได้) |
    | `GEMINI_MAX_OUTPUT_TOKENS` | ไม่ | `8192` | เพดานกลางของ token คำตอบ AI ต่อรอบ (ค่าเริ่มต้น 8192) |
    | `AI_THINKING_BUDGET` | ไม่ | `0` | งบ thinking ของโมเดล (0 = ปิด, ค่าเริ่มต้น; `-1` = ไม่ส่งค่า ให้โมเดลใช้ค่าเอง) ปิดแล้วลดเวลาต่อการเรียกได้มาก |
-   | `AI_MAX_TOKENS_FACTS` | ไม่ | `6144` | เพดาน token ของระยะสกัดตัวเลข (ไม่เกิน `GEMINI_MAX_OUTPUT_TOKENS`) |
+   | `AI_MAX_TOKENS_FACTS` | ไม่ | `8192` | เพดาน token ของระยะสกัดตัวเลข (ไม่เกิน `GEMINI_MAX_OUTPUT_TOKENS`) |
    | `AI_MAX_TOKENS_NARRATIVE` | ไม่ | `8192` | เพดาน token ของระยะบทวิเคราะห์หัวข้อ 1-3 |
    | `AI_MAX_TOKENS_SUMMARY` | ไม่ | `4096` | เพดาน token ของระยะบทวิเคราะห์หัวข้อ 4 |
    | `AI_MAX_TOKENS_REPAIR` | ไม่ | `3072` | เพดาน token ของรอบอ่านซ้ำเฉพาะฟิลด์ที่ขาด |
@@ -131,6 +131,9 @@
    ก่อนเริ่มแต่ละระยะ ระบบบันทึก "จำนวนครั้งที่ลอง" ลงสถานะก่อน (write-ahead) ถ้า execution ถูกฆ่าที่เพดาน 6 นาที
    ครั้งถัดไปจะเห็นว่าลองแล้ว และเมื่อครบ 2 ครั้งจะข้ามระยะนั้นพร้อมคำเตือนเพื่อไปทำหัวข้ออื่นต่อ
    (snapshot ที่คืนให้หน้าเว็บมี `attempts` และ `trace` ของแต่ละระยะ จึงตรวจได้โดยไม่ต้องเปิด Executions)
+   ถ้าระยะไหนจบด้วย `finishReason=MAX_TOKENS` ระบบจะลองซ้ำหนึ่งครั้งโดยไม่ส่ง `thinkingConfig` และใช้เพดาน token เต็ม
+   (`GEMINI_MAX_OUTPUT_TOKENS`) หากยังถูกตัดจะคืนผลบางส่วนพร้อมคำเตือนใน `_aiWarnings` และ `trace` จะมี `tokens`
+   (`promptTokens`/`outputTokens`/`thoughtTokens`) ไว้ตรวจว่าคำตอบถูกตัดเพราะ thinking หรือไม่
    ฟังก์ชันเดิม `analyzeUploadedFilesWithAI(payload)` ยังใช้ได้สำหรับเรียกครั้งเดียวแบบเดิม
 
 5. **Deploy Apps Script**

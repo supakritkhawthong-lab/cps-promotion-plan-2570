@@ -182,6 +182,14 @@ function loadGasStaged(options) {
       if (result && typeof result.status === 'number') {
         return geminiError_(result.status, result.body);
       }
+      // __raw lets a test control the whole Gemini response (thinking parts,
+      // finishReason, usageMetadata) instead of only the JSON payload.
+      if (result && result.__raw) {
+        return {
+          getResponseCode: function () { return 200; },
+          getContentText: function () { return JSON.stringify(result.__raw); }
+        };
+      }
       return geminiOk_(JSON.stringify(result));
     }
   };

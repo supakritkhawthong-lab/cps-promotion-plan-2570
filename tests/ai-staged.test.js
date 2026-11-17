@@ -115,6 +115,60 @@ test('ถ้าโมเดลไม่รับ thinkingConfig ต้องล�
   assert.deepStrictEqual(sentThinking, [true, false], 'ครั้งแรกส่ง thinking ครั้งที่สองต้องไม่ส่ง');
 });
 
+test('ต้องไม่นำ part ที่เป็น thinking (thought=true) มารวมเป็นคำตอบ', function () {
+  const gas = loadGasStaged({
+    responder: function () {
+      return {
+        __raw: {
+          candidates: [{
+            content: {
+              parts: [
+                { text: '{"assetLatest":"WRONG"}', thought: true },
+                { text: '{"assetLatest":"1.00"}' }
+              ]
+            },
+            finishReason: 'STOP'
+          }],
+          usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 12, thoughtsTokenCount: 640 }
+        }
+      };
+    }
+  });
+
+  const res = gas.callGeminiJson_([{ text: 'x' }], null, 'facts', Date.now() + 200000, Date.now());
+  assert.strictEqual(res.assetLatest, '1.00', 'ต้องได้คำตอบจริง ไม่ใช่ข้อความจากการคิด');
+});
+
+test('คำตอบถูกตัดเพราะ token เต็ม ต้องลองใหม่ด้วยเพดานเต็มและไม่ส่ง thinking', function () {
+  let first = true;
+  const gas = loadGasStaged({
+    props: { AI_MAX_TOKENS_FACTS: '4096' },
+    responder: function () {
+      if (first) {
+        first = false;
+        return {
+          __raw: {
+            candidates: [{
+              content: { parts: [{ text: '{"assetLatest":"1.' }] },
+              finishReason: 'MAX_TOKENS'
+            }],
+            usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 4096 }
+          }
+        };
+      }
+      return { assetLatest: '1.00' };
+    }
+  });
+
+  const res = gas.callGeminiJson_([{ text: 'x' }], null, 'facts', Date.now() + 200000, Date.now());
+  assert.strictEqual(res.assetLatest, '1.00');
+  assert.strictEqual(gas.calls.length, 2, 'ต้องลองซ้ำหนึ่งครั้ง');
+  assert.strictEqual(gas.calls[1].body.generationConfig.maxOutputTokens, 8192,
+    'รอบลองใหม่ต้องใช้เพดานกลางเต็ม');
+  assert.strictEqual(gas.calls[1].body.generationConfig.thinkingConfig, undefined,
+    'รอบลองใหม่ต้องไม่ส่ง thinkingConfig');
+});
+
 test('ถ้าเวลาไม่พอ ต้องไม่เริ่มเรียกโมเดลเลย', function () {
   const gas = loadGasStaged({});
   assert.throws(function () {

@@ -1013,7 +1013,7 @@ function capTextParts_(parts, maxTotalChars) {
  * ระยะไหนไม่ระบุจะใช้เพดานกลาง
  */
 const AI_STAGE_TOKEN_PROPS_ = {
-  facts: ['AI_MAX_TOKENS_FACTS', '6144'],
+  facts: ['AI_MAX_TOKENS_FACTS', '8192'],
   repair: ['AI_MAX_TOKENS_REPAIR', '3072'],
   narrative: ['AI_MAX_TOKENS_NARRATIVE', '8192'],
   summary: ['AI_MAX_TOKENS_SUMMARY', '4096']
@@ -1088,6 +1088,10 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
   // Flips off when a model rejects thinkingConfig; the same request is retried
   // without it so one unsupported field cannot fail the whole stage.
   let allowThinking = true;
+  // Set when a model reports finishReason=MAX_TOKENS: the next request drops
+  // thinking and uses the full output cap, because thinking that is not honoured
+  // silently eats the answer budget and leaves the JSON cut in half.
+  let tokenBoost = false;
 
   for (let m = 0; m < modelsToTry.length; m++) {
     if (Date.now() >= deadline) {
@@ -1103,6 +1107,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
     let stageText = null;
     let usedSchema = false;
     let stageFinishReason = '';
+    let stageUsage = null;
 
     for (let v = 0; v < variants.length && !stageText; v++) {
       for (let attempt = 1; attempt <= 2; attempt++) {
@@ -1111,7 +1116,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           break;
         }
         const requestBody = buildGeminiRequestBody_(
-          parts, variants[v].schema, modelName, stageTokens, allowThinking
+          parts, variants[v].schema, modelName, tokenBoost ? 0 : stageTokens, allowThinking
         );
         const options = {
           method: "post",
@@ -1137,13 +1142,32 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
             const jsonRes = JSON.parse(bodyText);
             const candidate = jsonRes.candidates && jsonRes.candidates[0];
             const responseParts = candidate && candidate.content && candidate.content.parts;
+            // Thinking models return their reasoning as extra parts. Joining them
+            // into the answer both wastes tokens and breaks JSON parsing, so only
+            // the real answer parts are kept.
             const text = Array.isArray(responseParts)
               ? responseParts.map(function (part) {
-                  return part && typeof part.text === 'string' ? part.text : '';
+                  if (!part || part.thought === true) return '';
+                  return typeof part.text === 'string' ? part.text : '';
                 }).join('')
               : '';
             stageFinishReason = candidate && candidate.finishReason ? String(candidate.finishReason) : '';
+            const usage = jsonRes.usageMetadata || {};
+            stageUsage = {
+              promptTokens: Number(usage.promptTokenCount) || 0,
+              outputTokens: Number(usage.candidatesTokenCount) || 0,
+              thoughtTokens: Number(usage.thoughtsTokenCount) || 0
+            };
             if (text) { stageText = text; usedSchema = !!variants[v].schema; }
+            if (stageFinishReason === 'MAX_TOKENS' && !tokenBoost) {
+              // The answer was cut at the token cap. Retry once without thinking
+              // and with the full cap before accepting a partial result.
+              tokenBoost = true;
+              allowThinking = false;
+              stageText = null;
+              errorLogs.push(modelName + '(MAX_TOKENS)');
+              continue;
+            }
           } catch (e) {}
           if (!stageText) errorLogs.push(modelName + '(' + variants[v].label + ': ไม่มีคำตอบ)');
           break;
@@ -1186,7 +1210,8 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           schema: usedSchema,
           finishReason: stageFinishReason,
           ms: Date.now() - stageStart,
-          outputChars: stageText.length
+          outputChars: stageText.length,
+          tokens: stageUsage
         });
         trackAiModelUsed_(modelName);
         AI_STAGE_TRACE_.push({
@@ -1195,6 +1220,7 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           schema: usedSchema,
           finishReason: stageFinishReason,
           outputChars: stageText.length,
+          tokens: stageUsage,
           ms: Date.now() - stageStart
         });
         return parsed;

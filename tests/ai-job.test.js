@@ -270,6 +270,42 @@ test('บันทึกจำนวนครั้งที่ลองก่�
   assert.strictEqual(step1.trace[1].stage, 'narrative');
 });
 
+test('ระยะที่จบด้วย MAX_TOKENS ต้องมีคำเตือนว่าข้อมูลถูกตัด', function () {
+  const api = loadAiJob({
+    analyze: function (payload, runOptions) {
+      if (runOptions.stage === 'facts') {
+        return {
+          facts: { assetLatest: '1.00' },
+          _aiWarnings: [],
+          _aiModels: ['gemini-3.8-flash'],
+          _aiTrace: [{
+            stage: 'facts',
+            model: 'gemini-3.8-flash',
+            finishReason: 'MAX_TOKENS',
+            outputChars: 18587
+          }]
+        };
+      }
+      return {
+        sections: { orgAnalysis4M: 'O' },
+        _aiWarnings: [],
+        _aiModels: ['gemini-3.8-flash'],
+        _aiTrace: []
+      };
+    }
+  });
+
+  const started = api.startAiAnalysisJob(samplePayload());
+  api.stepAiAnalysisJob(started.jobId);
+  api.stepAiAnalysisJob(started.jobId);
+  const done = api.stepAiAnalysisJob(started.jobId);
+
+  assert.strictEqual(done.status, 'done');
+  const warnings = done.result._aiWarnings || [];
+  assert.ok(String(warnings.join(' ')).indexOf('ถูกตัดเพราะ token เต็ม') !== -1,
+    'ต้องเตือนว่าตัวเลขบางตัวอาจว่างเพราะ token เต็ม');
+});
+
 test('ระยะที่ถูกฆ่าครบ 2 ครั้งต้องถูกข้าม แล้วงานเดินต่อได้', function () {
   const api = loadAiJob({
     analyze: function (payload, runOptions) {

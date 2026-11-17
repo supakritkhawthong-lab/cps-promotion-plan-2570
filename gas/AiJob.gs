@@ -126,6 +126,16 @@ function aiJobCollect_(state, run) {
 /** Attach the metadata the UI already understands and mark the job finished. */
 function aiJobFinish_(state) {
   state.result = state.result || {};
+  // A stage that stopped at the token cap returns a partial JSON object, so the
+  // missing numbers must be explained instead of silently showing as "-".
+  (state.trace || []).forEach(function (entry) {
+    if (!entry || entry.finishReason !== 'MAX_TOKENS') return;
+    const label = entry.stage === 'summary' ? 'หัวข้อ 4'
+      : (entry.stage === 'narrative' ? 'หัวข้อ 1-3' : 'การสกัดตัวเลข');
+    const message = 'ข้อมูล' + label + 'ถูกตัดเพราะ token เต็ม (' +
+      (entry.outputChars || 0) + ' ตัวอักษร) — ตัวเลขบางตัวอาจว่าง';
+    if (state.warnings.indexOf(message) === -1) state.warnings.push(message);
+  });
   if (state.warnings.length) state.result._aiWarnings = state.warnings.slice();
   state.result._aiModels = state.models.slice();
   state.result._aiTrace = state.trace.slice();
