@@ -131,6 +131,7 @@ test('ผลลัพธ์ AI รายงานโมเดลที่ใช�
   assert.ok(code.indexOf('function trackAiModelUsed_(') !== -1, 'ต้องมีตัวเก็บชื่อโมเดลที่ใช้จริง');
   assert.ok(code.indexOf('trackAiModelUsed_(modelName)') !== -1, 'ต้องบันทึกโมเดลเมื่อได้คำตอบที่ใช้ได้');
   assert.ok(code.indexOf('result._aiModels') !== -1, 'ต้องส่ง _aiModels กลับไปกับผลลัพธ์');
+  assert.ok(code.indexOf('result._aiTrace') !== -1, 'ต้องส่ง _aiTrace (model/schema/ms ต่อระยะ) กลับไปด้วย');
 });
 
 test('gas/appsscript.json เปิด web app ให้ anonymous และรันในนามผู้ deploy', function () {

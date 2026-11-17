@@ -1031,6 +1031,7 @@ function logAiStage_(stage, data) {
  * model served the request (falls back to another model when one fails).
  */
 var AI_MODELS_USED_ = [];
+var AI_STAGE_TRACE_ = [];
 
 function trackAiModelUsed_(name) {
   try {
@@ -1126,6 +1127,12 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           outputChars: stageText.length
         });
         trackAiModelUsed_(modelName);
+        AI_STAGE_TRACE_.push({
+          stage: stage,
+          model: modelName,
+          schema: usedSchema,
+          ms: Date.now() - stageStart
+        });
         return parsed;
       } catch (e) {
         lastParseError = e;
@@ -1387,6 +1394,7 @@ ${ruleWeaknessesText}
   const overallDeadline = stageStart + deadlineMs;
   const warnings = [];
   AI_MODELS_USED_ = [];
+  AI_STAGE_TRACE_ = [];
 
   // ระยะที่ 1: สกัดตัวเลขและข้อเท็จจริง (ต้องสำเร็จก่อน ถ้าล้มเหลวทั้งงานล้มเหลว)
   const factsDeadline = Math.min(overallDeadline, stageStart + Math.min(deadlineMs, 210000));
@@ -1541,6 +1549,8 @@ ${ruleWeaknessesText}
   }
   // Report which model(s) actually served this request (survives fallback).
   result._aiModels = AI_MODELS_USED_.slice();
+  // Per-stage trace (model, schema support, elapsed ms) for operations checks.
+  result._aiTrace = AI_STAGE_TRACE_.slice();
   logAiStage_('done', {
     ms: Date.now() - stageStart,
     warnings: warnings.length,
