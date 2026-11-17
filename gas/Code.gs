@@ -1144,6 +1144,8 @@ function callGeminiJson_(parts, schema, stage, deadline, stageStart) {
           stage: stage,
           model: modelName,
           schema: usedSchema,
+          finishReason: stageFinishReason,
+          outputChars: stageText.length,
           ms: Date.now() - stageStart
         });
         return parsed;
@@ -1406,6 +1408,28 @@ ${ruleWeaknessesText}
   const stageStart = Date.now();
   const deadlineMs = Number(getProp_('AI_DEADLINE_MS', '300000')) || 300000;
   const overallDeadline = stageStart + deadlineMs;
+  // Apps Script kills the execution at 6 minutes and returns an HTML error page,
+  // which throws away every finished stage. Keep a safety margin and only start
+  // a stage when its estimated duration still fits inside that margin.
+  const hardLimit = stageStart + (Number(getProp_('AI_HARD_LIMIT_MS', '330000')) || 330000);
+  const narrativeFactor = Number(getProp_('AI_ESTIMATE_NARRATIVE_FACTOR', '1.8')) || 1.8;
+  const summaryFactor = Number(getProp_('AI_ESTIMATE_SUMMARY_FACTOR', '0.8')) || 0.8;
+  let lastStageMs = 0;
+  let stageMark = stageStart;
+
+  function stageFits_(estimateMs) {
+    return Date.now() + (estimateMs || 0) <= hardLimit;
+  }
+  // Remember how long the stage that just finished actually took; the next
+  // stage is estimated from it instead of from the accumulated runtime.
+  function markStage_() {
+    const now = Date.now();
+    lastStageMs = now - stageMark;
+    stageMark = now;
+  }
+  function estimateStageMs_(factor) {
+    return lastStageMs > 0 ? Math.round(lastStageMs * factor) : 90000;
+  }
   const warnings = [];
   AI_MODELS_USED_ = [];
   AI_STAGE_TRACE_ = [];
@@ -1458,6 +1482,7 @@ ${ruleWeaknessesText}
   if (facts.fiscalDateFull) {
     facts.fiscalDateFull = normalizeFiscalDate(facts.fiscalDateFull);
   }
+  markStage_();
   applyPrevYearFallbacks_(facts);
 
   // ระยะ 1B: อ่านซ้ำเฉพาะฟิลด์วิกฤตที่ยังขาด โดยใช้ evidence windows
@@ -1465,7 +1490,7 @@ ${ruleWeaknessesText}
   const repairEnabled = String(getProp_('AI_TARGETED_REPAIR', '1')) !== '0';
   const missingCritical = findMissingCriticalFacts_(facts);
   if (repairEnabled && evidenceBudget.length && missingCritical.length >= 3 &&
-      overallDeadline - Date.now() >= 120000) {
+      overallDeadline - Date.now() >= 120000 && stageFits_(60000)) {
     const repairDeadline = Math.min(Date.now() + 45000, overallDeadline - 60000);
     if (repairDeadline - Date.now() >= 5000) {
       try {
@@ -1514,48 +1539,64 @@ ${ruleWeaknessesText}
     JSON.stringify(facts) + '\n--- จบบล็อกข้อมูล ---';
 
   // ระยะที่ 2: บทวิเคราะห์หัวข้อ 1-3 (ตัด inlineData ออกเพื่อลดต้นทุน/เวลา)
-  try {
-    const narrativeParts = capTextParts_(
-      parts.filter(function (part) { return !part.inlineData; }),
-      90000
-    ).concat([
-        { text: factsBlock + '\n(ไฟล์สแกนที่ไม่มีข้อความถูกวิเคราะห์ในรอบแรกแล้ว ใช้ข้อมูลจากบล็อกด้านบน)' },
-        { text: AI_NARRATIVE_STAGE_SUFFIX_ }
-      ]);
-    const sections = callGeminiJson_(
-      narrativeParts,
-      AI_NARRATIVE_SCHEMA_,
-      'narrative',
-      overallDeadline,
-      stageStart
-    );
-    ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis'].forEach(function (key) {
-      if (typeof sections[key] === 'string' && sections[key].trim()) result[key] = sections[key];
-    });
-  } catch (e) {
-    warnings.push('บทวิเคราะห์หัวข้อ 1-3 ไม่สำเร็จ: ' + e.message);
-    logAiStage_('narrative-failed', { message: e.message });
+  const narrativeEstimate = estimateStageMs_(narrativeFactor);
+  if (!stageFits_(narrativeEstimate)) {
+    warnings.push('ข้ามบทวิเคราะห์หัวข้อ 1-3: เวลาที่เหลือไม่พอ (ประมาณ ' +
+      Math.ceil(narrativeEstimate / 1000) + ' วินาที)');
+    logAiStage_('narrative-skipped', { estimateMs: narrativeEstimate });
+  } else {
+    try {
+      const narrativeParts = capTextParts_(
+        parts.filter(function (part) { return !part.inlineData; }),
+        90000
+      ).concat([
+          { text: factsBlock + '\n(ไฟล์สแกนที่ไม่มีข้อความถูกวิเคราะห์ในรอบแรกแล้ว ใช้ข้อมูลจากบล็อกด้านบน)' },
+          { text: AI_NARRATIVE_STAGE_SUFFIX_ }
+        ]);
+      const sections = callGeminiJson_(
+        narrativeParts,
+        AI_NARRATIVE_SCHEMA_,
+        'narrative',
+        overallDeadline,
+        stageStart
+      );
+      ['orgAnalysis4M', 'businessAnalysis', 'welfareAnalysis'].forEach(function (key) {
+        if (typeof sections[key] === 'string' && sections[key].trim()) result[key] = sections[key];
+      });
+      markStage_();
+    } catch (e) {
+      warnings.push('บทวิเคราะห์หัวข้อ 1-3 ไม่สำเร็จ: ' + e.message);
+      logAiStage_('narrative-failed', { message: e.message });
+    }
   }
 
   // ระยะที่ 3: บทวิเคราะห์หัวข้อ 4 โดยอ้างอิงบทวิเคราะห์ 1-3 ที่เขียนแล้ว
-  try {
-    const sectionsBlock = '\n\n--- บทวิเคราะห์หัวข้อ 1-3 ที่เขียนไว้แล้ว ---\n' +
-      '1. orgAnalysis4M:\n' + (result.orgAnalysis4M || '(ไม่พบ)') + '\n\n' +
-      '2. businessAnalysis:\n' + (result.businessAnalysis || '(ไม่พบ)') + '\n\n' +
-      '3. welfareAnalysis:\n' + (result.welfareAnalysis || '(ไม่พบ)');
-    const summary = callGeminiJson_(
-      [{ text: promptText }, { text: factsBlock }, { text: sectionsBlock }, { text: AI_SUMMARY_STAGE_SUFFIX_ }],
-      AI_SUMMARY_SCHEMA_,
-      'summary',
-      overallDeadline,
-      stageStart
-    );
-    if (typeof summary.summaryAnalysis === 'string' && summary.summaryAnalysis.trim()) {
-      result.summaryAnalysis = summary.summaryAnalysis;
+  const summaryEstimate = estimateStageMs_(summaryFactor);
+  if (!stageFits_(summaryEstimate)) {
+    warnings.push('ข้ามบทวิเคราะห์หัวข้อ 4: เวลาที่เหลือไม่พอ (ประมาณ ' +
+      Math.ceil(summaryEstimate / 1000) + ' วินาที)');
+    logAiStage_('summary-skipped', { estimateMs: summaryEstimate });
+  } else {
+    try {
+      const sectionsBlock = '\n\n--- บทวิเคราะห์หัวข้อ 1-3 ที่เขียนไว้แล้ว ---\n' +
+        '1. orgAnalysis4M:\n' + (result.orgAnalysis4M || '(ไม่พบ)') + '\n\n' +
+        '2. businessAnalysis:\n' + (result.businessAnalysis || '(ไม่พบ)') + '\n\n' +
+        '3. welfareAnalysis:\n' + (result.welfareAnalysis || '(ไม่พบ)');
+      const summary = callGeminiJson_(
+        [{ text: promptText }, { text: factsBlock }, { text: sectionsBlock }, { text: AI_SUMMARY_STAGE_SUFFIX_ }],
+        AI_SUMMARY_SCHEMA_,
+        'summary',
+        overallDeadline,
+        stageStart
+      );
+      if (typeof summary.summaryAnalysis === 'string' && summary.summaryAnalysis.trim()) {
+        result.summaryAnalysis = summary.summaryAnalysis;
+      }
+      markStage_();
+    } catch (e) {
+      warnings.push('บทวิเคราะห์หัวข้อ 4 ไม่สำเร็จ: ' + e.message);
+      logAiStage_('summary-failed', { message: e.message });
     }
-  } catch (e) {
-    warnings.push('บทวิเคราะห์หัวข้อ 4 ไม่สำเร็จ: ' + e.message);
-    logAiStage_('summary-failed', { message: e.message });
   }
 
   if (warnings.length) {

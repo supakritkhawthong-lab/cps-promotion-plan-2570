@@ -120,6 +120,46 @@ test('ระยะ facts → narrative → summary ทำงานครบแ�
   assert.strictEqual(result._aiWarnings, undefined, 'เมื่อทุกระยะสำเร็จต้องไม่มีคำเตือน');
 });
 
+test('ถ้าเวลาที่เหลือไม่พอ ต้องข้ามบทวิเคราะห์และคืนผลระยะ facts พร้อมคำเตือน', function () {
+  const gas = loadGasStaged({
+    // Hard limit is already exceeded, so no further stage may start.
+    props: { AI_HARD_LIMIT_MS: '1' },
+    responder: function (call) {
+      if (call.stage === 'facts') return { assetLatest: '1,000,000.00' };
+      throw new Error('ต้องไม่เรียกระยะ: ' + call.stage);
+    }
+  });
+
+  const result = gas.analyzeUploadedFilesWithAI(basePayload());
+
+  assert.deepStrictEqual(gas.calls.map(function (call) { return call.stage; }), ['facts'],
+    'ต้องเรียกเฉพาะระยะ facts');
+  assert.strictEqual(result.assetLatest, '1,000,000.00', 'ต้องยังคืนผลระยะ facts');
+  assert.strictEqual(result.orgAnalysis4M, undefined, 'ต้องไม่มีบทวิเคราะห์');
+  assert.strictEqual(result.summaryAnalysis, undefined, 'ต้องไม่มีบทสรุป');
+  const warnings = String((result._aiWarnings || []).join(' '));
+  assert.ok(warnings.indexOf('ข้ามบทวิเคราะห์หัวข้อ 1-3') !== -1, 'ต้องเตือนว่าข้ามหัวข้อ 1-3');
+  assert.ok(warnings.indexOf('ข้ามบทวิเคราะห์หัวข้อ 4') !== -1, 'ต้องเตือนว่าข้ามหัวข้อ 4');
+});
+
+test('_aiTrace เก็บ finishReason และ outputChars ของแต่ละระยะ', function () {
+  const gas = loadGasStaged({
+    responder: function (call) {
+      if (call.stage === 'facts') return { assetLatest: '1.00' };
+      if (call.stage === 'narrative') return { orgAnalysis4M: 'O', businessAnalysis: 'B', welfareAnalysis: 'W' };
+      return { summaryAnalysis: 'S' };
+    }
+  });
+
+  const trace = gas.analyzeUploadedFilesWithAI(basePayload())._aiTrace;
+
+  assert.strictEqual(trace.length, 3, 'ต้องมี trace ครบ 3 ระยะ');
+  trace.forEach(function (entry) {
+    assert.strictEqual(entry.finishReason, 'STOP', 'ต้องบันทึก finishReason');
+    assert.ok(entry.outputChars > 0, 'ต้องบันทึกจำนวนตัวอักษรที่ได้');
+  });
+});
+
 test('ระยะ narrative ตัด inlineData ออก แต่ระยะ facts ยังส่งไฟล์แนบ', function () {
   const gas = loadGasStaged({
     responder: function (call) {
