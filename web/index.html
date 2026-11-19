@@ -124,6 +124,29 @@
           </div>
         </div>
 
+        <!-- บริบทหน้างานจากการลงพื้นที่ (Human-in-the-loop) -->
+        <div class="col-12 mt-2">
+          <div class="card border-info">
+            <div class="card-body py-2">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-8">
+                  <label class="form-label small fw-bold mb-1" for="fieldContextNote">บริบทหน้างานเพิ่มเติมจากการลงพื้นที่ (ไม่บังคับ)</label>
+                  <textarea id="fieldContextNote" class="form-control form-control-sm" rows="2" placeholder="เช่น กรรมการชุดใหม่เพิ่งรับตำแหน่ง / สมาชิกส่วนใหญ่เป็นผู้สูงอายุ / เพิ่งประสบภัยแล้ง"></textarea>
+                  <div class="form-text text-muted" style="font-size:0.74rem;">ข้อมูลนี้จะถูกนำไปผสมกับตัวเลขในเอกสารก่อน AI ร่างแผน และระบบจะระบุแยกว่าเป็นข้อมูลหน้างาน</div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold mb-1" for="fieldContextTone">โทนภาษาที่ต้องการ</label>
+                  <select id="fieldContextTone" class="form-select form-select-sm">
+                    <option value="ทางการ กระชับ ตรงประเด็น">ทางการ กระชับ ตรงประเด็น</option>
+                    <option value="อธิบายเพิ่มสำหรับสมาชิกผู้สูงอายุ">อธิบายเพิ่มสำหรับสมาชิกผู้สูงอายุ</option>
+                    <option value="เน้นขั้นตอนปฏิบัติสำหรับกรรมการชุดใหม่">เน้นขั้นตอนปฏิบัติสำหรับกรรมการชุดใหม่</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="col-12 text-end mt-3">
           <button type="button" id="btnAnalyze" class="btn btn-warning fw-bold px-4" onclick="runAIAnalysis()">
             ⚡ ประมวลผลเอกสารความเร็วสูงด้วย AI (ดึงตัวเลขและเกลาสำนวนราชการ)
@@ -1592,7 +1615,7 @@
     var box = document.getElementById('uploadCoverage');
     if (!box) return;
     box.classList.remove('d-none');
-    box.innerHTML = '<div class="text-muted small">📖 กำลังอ่านไฟล์ PDF... อ่านแล้ว ' +
+    box.innerHTML = '<div class="text-muted small">📖 กำลังอ่านงบการเงินและตรวจสอบตัวเลข... อ่านแล้ว ' +
       readSum + '/' + totalSum + ' หน้า</div>';
   }
 
@@ -1883,9 +1906,9 @@
     const btn = document.getElementById('btnAnalyze');
     const alertBox = document.getElementById('aiAlert');
     btn.disabled = true;
-    btn.textContent = "⚡ กำลังสกัดข้อมูลความเร็วสูงและส่งให้ AI ประมวลผล...";
+    btn.textContent = "⚡ กำลังอ่านงบการเงินและตรวจสอบตัวเลข...";
     alertBox.className = "alert alert-info mt-3";
-    alertBox.textContent = "ระบบกำลังอ่านไฟล์ทั้งหมดแบบขนาน (Parallel Smart-Read) และสกัดตัวเลขด้วย AI...";
+    alertBox.textContent = "กำลังอ่านงบการเงินและตรวจสอบตัวเลขในเอกสารที่อัปโหลด...";
 
     try {
       // The 18 MB inlineData ceiling applies to the whole request. Split it
@@ -1927,10 +1950,17 @@
         return acc;
       }, { form: {}, details: {} });
 
+      // บริบทหน้างานจากเจ้าหน้าที่ — ส่งไปผสมกับตัวเลขฝั่ง System Prompt
+      const contextNoteEl = document.getElementById('fieldContextNote');
+      const contextToneEl = document.getElementById('fieldContextTone');
+      const contextNote = contextNoteEl ? String(contextNoteEl.value || '').trim() : '';
+      const contextTone = contextToneEl ? String(contextToneEl.value || '').trim() : '';
+
       const payload = {
         coopName: c.name,
         coopCategoryName: c.coopCategoryName,
         weaknesses: c.weaknesses,
+        fieldContext: { note: contextNote, tone: contextNote ? contextTone : '' },
         dbFiscalYear: document.getElementById('fiscal_year').value,
         // The dropdown holds a month name, not a year. Send the plan year
         // separately so the AI prompt and the year cross-check can use it.
@@ -2104,6 +2134,16 @@
           alertBox.className = "alert alert-success mt-3";
           alertBox.textContent = "✅ ประมวลผลเอกสารความเร็วสูง สกัดตัวเลขงบการเงิน และเกลาสำนวนราชการสำเร็จ!";
         }
+
+        // Human review: conflicting or missing numbers are never guessed. Show
+        // an orange flag so the officer verifies them before saving.
+        var conflictFields = (uploadPlan && uploadPlan.conflicts) ||
+          (res && res._aiConflicts) || {};
+        var conflictCount = Object.keys(conflictFields).length;
+        if (conflictCount > 0 && window.CPD_UI && typeof window.CPD_UI.showToast === 'function') {
+          window.CPD_UI.showToast(
+            'พบจุดที่ควรตรวจสอบเพิ่มเติมก่อนบันทึก (' + conflictCount + ' ฟิลด์)', 'warning');
+        }
         if (typeof window.CPD_scheduleSync === 'function') window.CPD_scheduleSync();
 
         // TASK 4: แจ้งเตือนกรณีไฟล์ PDF สแกนภาพ
@@ -2164,8 +2204,8 @@
             return;
           }
           setAiProgress(step.stage === 'summary'
-            ? "กำลังวิเคราะห์หัวข้อ 4 (บทสรุปและแผนดำเนินการ)..."
-            : "กำลังวิเคราะห์บทวิเคราะห์หัวข้อ 1-3...");
+            ? "กำลังร่างแนวทางส่งเสริมที่เหมาะกับบริบทของกลุ่ม..."
+            : "กำลังเทียบจุดอ่อนจากแบบ RQ2...");
           setTimeout(function () { pollAiJob(jobId, tries); }, 800);
         }).withFailureHandler(function (err) {
           const code = err && err.code;
@@ -2173,7 +2213,7 @@
           if (code !== 'JOB_NOT_FOUND' && tries < AI_JOB_MAX_STEP_FAILURES && !outOfTime) {
             // A killed step (execution limit) leaves the job resumable, so keep
             // polling; the server advances or skips the stage on its own.
-            setAiProgress("ขั้นตอนนี้ใช้เวลานานกว่าปกติ กำลังลองต่อ (ครั้งที่ " + (tries + 1) + ")...");
+            setAiProgress("กำลังตรวจสอบข้อมูลในขั้นตอนนี้อีกครั้ง (ครั้งที่ " + (tries + 1) + ")...");
             setTimeout(function () { pollAiJob(jobId, tries + 1); }, 1500);
             return;
           }
@@ -2195,9 +2235,9 @@
           failAiAnalysis(new Error('ระบบไม่คืนหมายเลขงานวิเคราะห์'));
           return;
         }
-        btn.textContent = "🧠 สกัดตัวเลขเสร็จแล้ว กำลังประมวลผลต่อ...";
+        btn.textContent = "🧠 ตรวจสอบตัวเลขเสร็จแล้ว กำลังเทียบจุดอ่อนจากแบบ RQ2...";
         alertBox.className = "alert alert-info mt-3";
-        alertBox.textContent = "สกัดตัวเลขเสร็จแล้ว กำลังเขียนบทวิเคราะห์หัวข้อ 1-3";
+        alertBox.textContent = "ตรวจสอบตัวเลขเสร็จแล้ว กำลังเทียบจุดอ่อนของกลุ่มจากแบบ RQ2 และบริบทหน้างาน...";
         pollAiJob(start.jobId, 0);
       }).withFailureHandler(failAiAnalysis).startAiAnalysisJob(payload);
     } catch (e) {

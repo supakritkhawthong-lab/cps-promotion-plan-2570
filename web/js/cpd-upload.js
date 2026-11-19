@@ -1519,16 +1519,21 @@
     }
 
     var html = '';
-    if (warnings.length) {
-      html += '<div class="alert alert-warning py-2 mb-2"><div class="fw-bold mb-1">⚠️ ข้อควรตรวจสอบ</div><ul class="mb-0 ps-3">';
-      warnings.forEach(function (w) { html += '<li>' + escapeHtml(w) + '</li>'; });
-      html += '</ul></div>';
+    if (warnings.length || items.length) {
+      html += '<div class="alert alert-warning py-2 mb-2">' +
+        '<span class="cpd-confidence-badge">⚠️ พบจุดที่ควรตรวจสอบเพิ่มเติมก่อนบันทึก</span>';
+      if (warnings.length) {
+        html += '<ul class="mb-0 ps-3 mt-2">';
+        warnings.forEach(function (w) { html += '<li>' + escapeHtml(w) + '</li>'; });
+        html += '</ul>';
+      }
+      html += '</div>';
     }
 
     if (items.length) {
       html += '<div class="card border-warning mb-2"><div class="card-body py-2">';
-      html += '<div class="fw-bold mb-2">🔍 พบ ' + items.length +
-        ' ฟิลด์ที่ยังไม่ถูกเติม เพื่อไม่ให้ทับข้อมูลเดิม กรุณาเลือก</div>';
+      html += '<div class="fw-bold mb-2">ระบบเว้นช่องที่หาไม่เจอหรือมีค่าขัดกันไว้ให้คุณตรวจเอง — เลือก ' + items.length +
+        ' ฟิลด์ที่ต้องการใช้ (ค่าเดิมจะไม่ถูกทับโดยอัตโนมัติ)</div>';
       html += '<div class="table-responsive" style="max-height:320px;overflow:auto">';
       html += '<table class="table table-sm table-bordered align-middle mb-2"><thead class="table-light"><tr>' +
         '<th style="width:36px" class="text-center"><input type="checkbox" id="uploadCheckAll"></th>' +

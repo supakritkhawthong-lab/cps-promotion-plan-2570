@@ -756,6 +756,37 @@ test('analyze: ช่วงที่ล้มเหลวไม่ทำให�
   assert.strictEqual(result._aiFieldSources.assetLatest.file, 'other.pdf');
 });
 
+test('System Prompt เป็นนักวิชาการหน้างาน รับบริบทหน้างาน และเน้นข้อเสนอที่ทำได้จริง', function () {
+  const payload = basePayload();
+  payload.fieldContext = {
+    note: 'กรรมการชุดใหม่เพิ่งรับตำแหน่ง',
+    tone: 'อธิบายเพิ่มสำหรับสมาชิกผู้สูงอายุ'
+  };
+  const gas = loadGasStaged({ responder: function () { return {}; } });
+  gas.analyzeUploadedFilesWithAI(payload);
+
+  const facts = gas.calls.filter(function (call) { return call.stage === 'facts'; })[0];
+  const p = facts.promptText;
+  assert.ok(p.indexOf('Grounded Practitioner') !== -1, 'ต้องสวมบทบาทนักวิชาการหน้างาน');
+  assert.ok(p.indexOf('ห้ามใช้ประโยคเกริ่นนำสไตล์ AI') !== -1);
+  assert.ok(p.indexOf('จากข้อมูลที่ให้มา') !== -1, 'ต้องระบุตัวอย่างประโยคที่ห้ามใช้');
+  assert.ok(p.indexOf('กรรมการชุดใหม่เพิ่งรับตำแหน่ง') !== -1, 'ต้องส่งบริบทหน้างานเข้า prompt');
+  assert.ok(p.indexOf('อธิบายเพิ่มสำหรับสมาชิกผู้สูงอายุ') !== -1, 'ต้องส่งโทนภาษาเข้า prompt');
+  assert.ok(p.indexOf('ฝึกอบรมกรรมการทำบัญชีขั้นต้น') !== -1, 'ต้องเน้นแนวทางที่กลุ่มเล็กทำได้จริง');
+  assert.ok(p.indexOf('การมีส่วนร่วม') !== -1, 'ต้องเชื่อมตัวเลขกับพฤติกรรมสมาชิก');
+  assert.ok(p.indexOf('ใครทำ') !== -1 && p.indexOf('ทำอย่างไร') !== -1, 'ข้อเสนอต้องระบุผู้ทำและวิธีทำ');
+  assert.ok(p.indexOf('ห้ามเดาตัวเลข') !== -1, 'ต้องห้ามเดาตัวเลขที่หาไม่เจอ');
+  assert.strictEqual(p.indexOf('ไม่มีข้อมูลเพิ่มเติมจากหน้างาน'), -1);
+});
+
+test('ไม่มีบริบทหน้างาน → prompt ใช้ข้อความเริ่มต้นและยังห้ามเดาตัวเลข', function () {
+  const gas = loadGasStaged({ responder: function () { return {}; } });
+  gas.analyzeUploadedFilesWithAI(basePayload());
+  const facts = gas.calls.filter(function (call) { return call.stage === 'facts'; })[0];
+  assert.ok(facts.promptText.indexOf('ไม่มีข้อมูลเพิ่มเติมจากหน้างาน') !== -1);
+  assert.ok(facts.promptText.indexOf('ห้ามเดาตัวเลข') !== -1);
+});
+
 test('schema ของไฟล์สแกนมี scanDigest สำหรับส่งต่อระยะบทวิเคราะห์', function () {
   const gas = loadGasStaged({});
   const schema = gas.buildScanFactSchema_();

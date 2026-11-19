@@ -873,3 +873,27 @@ test('plan: ค่าขัดกันต้องเตือน เก็บ 
   assert.ok(meta.conflicts && meta.conflicts.assetLatest);
   assert.strictEqual(meta.conflicts.assetLatest[1].file, 'other.pdf');
 });
+
+test('renderReview แสดงป้ายสีส้มและข้อความให้ตรวจสอบก่อนบันทึก', function () {
+  const web = setup();
+  const container = {
+    innerHTML: '',
+    classList: { add: function () {}, remove: function () {} },
+    querySelectorAll: function () { return []; },
+    querySelector: function () { return null; }
+  };
+
+  web.CPD_UPLOAD.renderReview({
+    warnings: ['ยอดรวมไม่ตรงกับงบดุล'],
+    review: [{
+      id: 'asset_latest', label: 'สินทรัพย์รวม',
+      before: '1,000.00', after: '2,000.00', status: 'conflict'
+    }]
+  }, container);
+
+  assert.ok(container.innerHTML.indexOf('cpd-confidence-badge') !== -1);
+  assert.ok(container.innerHTML.indexOf('พบจุดที่ควรตรวจสอบเพิ่มเติมก่อนบันทึก') !== -1);
+  assert.ok(container.innerHTML.indexOf('ยอดรวมไม่ตรงกับงบดุล') !== -1);
+  assert.ok(container.innerHTML.indexOf('สินทรัพย์รวม') !== -1);
+  assert.ok(container.innerHTML.indexOf('เว้นช่อง') !== -1, 'ต้องบอกว่าระบบไม่เดาตัวเลข');
+});

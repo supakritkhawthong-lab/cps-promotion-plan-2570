@@ -1060,6 +1060,10 @@ function runScanChunks_(promptText, scanChunks, options) {
   // ceiling, which severs the browser connection ("Failed to fetch").
   const maxCallsPerChunk = Math.max(1, Number(getProp_('AI_SCAN_MAX_CALLS', '3')) || 3);
   const maxChunkMs = Math.max(15000, Number(getProp_('AI_SCAN_CHUNK_MS', '75000')) || 75000);
+  // callGeminiJson_ refuses to start a request with less than minCallMs left.
+  // Give every chunk more than that, otherwise a floor equal to minCallMs makes
+  // the very first page fail instantly without any HTTP call being made.
+  const minCallMs = Number(getProp_('AI_MIN_CALL_MS', '15000')) || 15000;
 
   for (let i = 0; i < scanChunks.length; i++) {
     if (Date.now() >= deadline - 5000) {
@@ -1068,19 +1072,22 @@ function runScanChunks_(promptText, scanChunks, options) {
     }
 
     const chunk = scanChunks[i];
-    const parts = [
-      { text: promptText },
-      { inlineData: chunk.inlineData },
-      {
-        text: '\n--- เอกสารแนบ: หน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo +
-          ' ของ ' + chunk.file + ' ---\n'
-      },
-      { text: AI_FACT_STAGE_SUFFIX_ }
-    ];
+    // One chunk may carry several page images (consecutive pages are grouped
+    // in the payload builder). Spread every image into its own inlineData part.
+    const images = Array.isArray(chunk.inlineData) ? chunk.inlineData : [chunk.inlineData];
+    const parts = [{ text: promptText }]
+      .concat(images.map(function (image) { return { inlineData: image }; }))
+      .concat([
+        {
+          text: '\n--- เอกสารแนบ: หน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo +
+            ' ของ ' + chunk.file + ' ---\n'
+        },
+        { text: AI_FACT_STAGE_SUFFIX_ }
+      ]);
 
     const remaining = Math.max(0, deadline - Date.now());
     const chunksLeft = scanChunks.length - i;
-    const sharedMs = Math.max(15000, Math.floor(remaining / chunksLeft));
+    const sharedMs = Math.max(minCallMs + 10000, Math.floor(remaining / chunksLeft));
     const chunkDeadline = Date.now() + Math.min(maxChunkMs, sharedMs);
 
     try {
@@ -1117,9 +1124,15 @@ function runScanChunks_(promptText, scanChunks, options) {
         index: i + 1
       });
     } catch (e) {
-      if (!firstError) firstError = e;
       warnings.push('อ่านไฟล์สแกนหน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo +
         ' ของ ' + chunk.file + ' ไม่สำเร็จ');
+      if (!firstError) {
+        firstError = e;
+        // Surface the real API reason in the on-page warning; users should not
+        // have to open the Apps Script Execution log to diagnose a scan failure.
+        warnings.push('สาเหตุที่ AI อ่านภาพไม่สำเร็จ: ' +
+          String(e && e.message ? e.message : e).slice(0, 240));
+      }
       logAiStage_('scan-chunk-failed', {
         chunk: i + 1,
         file: chunk.file,
@@ -1456,10 +1469,32 @@ function analyzeUploadedFilesWithAI(payload, options) {
   // sent separately by the browser. Use it to anchor Year N in the prompt.
   const planYearNum = Number(payload.dbFiscalYearBE) || 2570;
   const expectedLatestYear = planYearNum - 1;
+  // Field notes from the officer are optional. Accept both { note, tone } and a
+  // plain string so older callers keep working without any change.
+  const rawFieldContext = payload.fieldContext && typeof payload.fieldContext === 'object'
+    ? [payload.fieldContext.note, payload.fieldContext.tone]
+        .filter(function (v) { return v && String(v).trim(); })
+        .map(function (v) { return String(v).trim(); })
+        .join(' | ')
+    : String(payload.fieldContext || '').trim();
+  const fieldContextText = rawFieldContext ||
+    'ไม่มีข้อมูลเพิ่มเติมจากหน้างาน — ให้วิเคราะห์จากเอกสารที่อัปโหลดเท่านั้น';
 
     const promptText = `
-คุณคือนักวิชาการสหกรณ์ชำนาญการพิเศษ กรมส่งเสริมสหกรณ์
-จงอ่านข้อมูลจากเอกสารงบการเงินและรายงานของ "${payload.coopName}" (${payload.coopCategoryName || 'สหกรณ์'}) ปีบัญชี ${payload.dbFiscalYear || '-'} (ปีแผน พ.ศ. ${planYearNum}) แล้วสกัดตัวเลขพร้อมสรุปแผนด้วยภาษาราชการที่กระชับ สมบูรณ์ และเป็นทางการ
+คุณคือนักวิชาการสหกรณ์ผู้เชี่ยวชาญหน้างาน (Grounded Practitioner)
+กรมส่งเสริมสหกรณ์ — ผู้ลงพื้นที่ทำงานร่วมกับคณะกรรมการ ผู้ตรวจสอบกิจการ เจ้าหน้าที่ส่งเสริมฯ และสมาชิก
+
+จงอ่านงบการเงินและรายงานของ "${payload.coopName}" (${payload.coopCategoryName || 'สหกรณ์'}) ปีบัญชี ${payload.dbFiscalYear || '-'} (ปีแผน พ.ศ. ${planYearNum})
+แล้วเขียนบทวิเคราะห์และแผนส่งเสริมด้วยภาษาราชการสมัยใหม่ที่สละสลวย กระชับ ตรงประเด็น อ่านเข้าใจง่าย
+
+กติกาการเขียน (ถือปฏิบัติทุกข้อ)
+- เริ่มที่ข้อเท็จจริงและตัวเลขที่พบในเอกสาร ไม่ต้องเกริ่นนำ
+- ห้ามใช้ประโยคเกริ่นนำสไตล์ AI เช่น "จากข้อมูลที่ให้มา..." "โดยสรุปแล้ว..." "ในยุคปัจจุบัน..."
+- ใช้ประโยคสั้น เครื่องหมายวรรคตอนชัด เลี่ยงศัพท์วิชาการที่ฟุ่มเฟือยโดยไม่เพิ่มความหมาย
+
+--- บริบทหน้างานจากเจ้าหน้าที่ส่งเสริมฯ (ให้นำไปผสมกับตัวเลขก่อนสรุป) ---
+${fieldContextText}
+ข้อมูลข้างต้นเป็นบริบท/โทนที่เจ้าหน้าที่ระบุจากการลงพื้นที่ ให้ใช้แปลผลตัวเลข ไม่ใช่แทนที่ตัวเลขจากเอกสาร
 
 --- การกันสับสนปีบัญชี (ข้อกำหนดบังคับ) ---
 - ให้ยึด "ปีของงบการเงิน" เป็น Year N เสมอ โดยปีล่าสุดที่คาดหวังคือ พ.ศ. ${expectedLatestYear} และปีก่อนหน้าคือ พ.ศ. ${expectedLatestYear - 1}
@@ -1497,6 +1532,11 @@ ${ruleWeaknessesText}
 - ระบุตัวเลข ปีบัญชี และหลักฐานประกอบให้ชัดเจน เปรียบเทียบกับปีก่อนหรือเกณฑ์ที่เอกสารระบุเมื่อมีข้อมูล
 - วิเคราะห์เชิงสาเหตุและผลกระทบ ไม่ใช่เพียงสรุปตัวเลข
 - ข้อเสนอแนะในข้อ 22 ต้องนำไปปฏิบัติได้ ระบุแนวทางและหน่วยงานผู้รับผิดชอบเมื่อเอกสารสนับสนุน
+- วิเคราะห์ตามขนาดและขีดความสามารถจริงขององค์กร ให้ตัดแนวทางที่เกินตัวทิ้ง เช่น กลุ่มเกษตรกรสมาชิกไม่ถึง 50 คน ไม่มีเจ้าหน้าที่ประจำ และยังปิดงบเองไม่ได้ ให้เน้นการฝึกอบรมกรรมการทำบัญชีขั้นต้น การสร้างวินัยการชำระหนี้ และการขยายธุรกิจจัดหาสินค้าตามความต้องการสมาชิก แทนการลงทุนระบบไอทีขนาดใหญ่
+- ทุกตัวเลขให้อ่านคู่กับพฤติกรรมคน เช่น สมาชิกเข้าประชุมลดลงสะท้อนการมีส่วนร่วมที่ลดลง เงินกู้กระจุกตัวในสมาชิกบางรายสะท้อนความเสี่ยงเมื่อภัยแล้งหรือราคาพืชผลตกต่ำ ให้ชี้ให้ชัดว่าตัวเลขใดสะท้อนพฤติกรรมใด
+- นำบริบทหน้างานที่เจ้าหน้าที่ส่งมาไปประกอบการแปลผล โดยระบุให้ชัดว่าเป็นข้อมูลจากการลงพื้นที่ ไม่ใช่ตัวเลขจากเอกสาร
+- ทุกข้อเสนอแนะต้องระบุให้ครบ ใครทำ (คณะกรรมการ / ผู้ตรวจสอบกิจการ / เจ้าหน้าที่ส่งเสริมฯ) ทำอะไร และทำอย่างไร (ขั้นตอน ความถี่ เอกสารที่ต้องเก็บ) ถ้าเอกสารไม่รองรับชื่อหน่วยงานให้ใช้บทบาทหน้าที่แทน และระบุว่าเป็นข้อเสนอจากการวิเคราะห์
+- ความมั่นใจของตัวเลข ห้ามเดาตัวเลขที่หาไม่เจอหรือที่ขัดกับตัวเลขอื่นในเอกสาร ให้ใส่ "-" ห้ามใช้ 0 แทนการไม่พบ ห้ามปัดตัวเลขเพื่อให้สมดุลเอง ระบบจะแสดงป้ายให้เจ้าหน้าที่ตรวจสอบก่อนบันทึก
 - หากข้อมูลไม่พอ ให้ระบุว่า ข้อมูลไม่เพียงพอต่อการวิเคราะห์ และระบุข้อมูลที่ต้องจัดเก็บเพิ่ม
 - เอกสารข้อความที่แนบมาใช้หัวข้อ Markdown "## หน้า N" เป็นเพียงเครื่องหมายบอกเลขหน้า ให้อ่านเป็นเนื้อหาของหน้านั้นได้ตามปกติ (ไม่ใช่ตาราง Markdown)
 - ให้เขียนคำตอบเป็นข้อความล้วน ไม่ใช้ตาราง Markdown หรือสัญลักษณ์ตกแต่ง และให้แต่ละหัวข้อมีความยาวประมาณ 8-15 ข้อ
@@ -1661,19 +1701,36 @@ ${ruleWeaknessesText}
   if (payload.files && payload.files.length > 0) {
     payload.files.forEach(f => {
       // หน้าสแกนที่เรนเดอร์ฝั่งเบราว์เซอร์เป็น JPEG (กว้าง ≤ 1200px, quality 0.75)
-      // นำเข้าทางเดียวกับ scanChunks เดิม แต่ระบุ mimeType image/jpeg ต่อหน้า
+      // รวมหน้าที่ต่อเนื่องกันเข้า call เดียวกัน (ค่าเริ่มต้น 4 หน้า/ชุด) เพื่อไม่ให้
+      // จำนวน call เยอะเกินไปจนหมดเวลา facts ทั้งที่ยังไม่ได้ยิง API เลย
       if (Array.isArray(f.jpegPages) && f.jpegPages.length) {
+        const pagesPerCall = Math.max(1, Number(getProp_('AI_JPEG_PAGES_PER_CALL', '4')) || 4);
+        let batch = [];
+        let lastPageNo = null;
+        function flushJpegBatch_() {
+          if (!batch.length) return;
+          scanChunks.push({
+            inlineData: batch.map(function (page) {
+              return { mimeType: 'image/jpeg', data: page.base64 };
+            }),
+            file: f.name,
+            category: f.category,
+            pagesFrom: Number(batch[0].page) || 1,
+            pagesTo: Number(batch[batch.length - 1].page) || Number(batch[0].page) || 1
+          });
+          batch = [];
+        }
         f.jpegPages.forEach(function (page) {
           if (!page || !page.base64) return;
           const pageNo = Number(page.page) || 1;
-          scanChunks.push({
-            inlineData: { mimeType: 'image/jpeg', data: page.base64 },
-            file: f.name,
-            category: f.category,
-            pagesFrom: pageNo,
-            pagesTo: pageNo
-          });
+          if (batch.length >= pagesPerCall ||
+              (lastPageNo !== null && pageNo !== lastPageNo + 1)) {
+            flushJpegBatch_();
+          }
+          batch.push(page);
+          lastPageNo = pageNo;
         });
+        flushJpegBatch_();
         return;
       }
       if (Array.isArray(f.scanChunks) && f.scanChunks.length) {
