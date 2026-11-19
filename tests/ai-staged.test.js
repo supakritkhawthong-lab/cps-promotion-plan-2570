@@ -787,6 +787,23 @@ test('ไม่มีบริบทหน้างาน → prompt ใช้�
   assert.ok(facts.promptText.indexOf('ห้ามเดาตัวเลข') !== -1);
 });
 
+test('prompt และ schema ไม่มีตัวเลขตัวอย่างให้ AI หยิบไปใช้', function () {
+  const gas = loadGasStaged({ responder: function () { return {}; } });
+  gas.analyzeUploadedFilesWithAI(basePayload());
+
+  const facts = gas.calls.filter(function (call) { return call.stage === 'facts'; })[0];
+  const p = facts.promptText;
+  const schemaText = JSON.stringify(facts.body.generationConfig || {});
+
+  ['25,723,883.12', '1,104,363.77', '58,491.24'].forEach(function (example) {
+    assert.strictEqual(p.indexOf(example), -1, 'prompt ต้องไม่มีตัวเลขตัวอย่าง ' + example);
+    assert.strictEqual(schemaText.indexOf(example), -1, 'schema ต้องไม่มีตัวเลขตัวอย่าง ' + example);
+  });
+  assert.ok(p.indexOf('ห้ามนำตัวเลขที่ปรากฏในคำสั่งนี้') !== -1, 'ต้องมีกติกาห้ามใช้ตัวเลขในคำสั่ง');
+  assert.ok(p.indexOf('ตัวเลขทุกตัวต้องมาจากเอกสารที่อัปโหลดเท่านั้น') !== -1);
+  assert.ok(p.indexOf('รูปแบบ xx,xxx.xx') !== -1, 'ต้องใช้รูปแบบแทนตัวเลขจริง');
+});
+
 test('schema ของไฟล์สแกนมี scanDigest สำหรับส่งต่อระยะบทวิเคราะห์', function () {
   const gas = loadGasStaged({});
   const schema = gas.buildScanFactSchema_();

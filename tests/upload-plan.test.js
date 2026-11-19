@@ -462,6 +462,16 @@ test('scorePageText: หน้างบการเงินได้คะแ�
   assert.strictEqual(web.CPD_UPLOAD.countNumberTokens('(1,234.50) 2,000'), 2);
 });
 
+test('countMonetaryTokens: นับเฉพาะตัวเลขการเงิน ไม่นับเลขหน้า/ปี/จำนวนคน', function () {
+  const web = setup();
+  const count = web.CPD_UPLOAD.countMonetaryTokens;
+
+  assert.strictEqual(count(''), 0);
+  assert.strictEqual(count('[หน้า 1] รายงานประจำปี 2569 คณะกรรมการ 9 คน สมาชิก 150 คน'), 0);
+  assert.strictEqual(count('ทุนเรือนหุ้น 15,000,000.00 บาท กำไรสุทธิ 500,000.00 บาท'), 2);
+  assert.strictEqual(count('สินทรัพย์รวม 25723883.12 บาท หนี้สิน 5000000.00 บาท'), 2);
+});
+
 test('selectPages: เก็บหน้า 1-3 เสมอ เรียงตามหน้า และเคารพ budget', function () {
   const web = setup();
   const sel = web.CPD_UPLOAD.selectPages(makePages(10), {

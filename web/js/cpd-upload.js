@@ -393,6 +393,17 @@
   }
 
   /**
+   * นับโทเค็นตัวเลขที่มีลักษณะเป็นเงิน (มีลูกน้ำคั่นหลักพัน หรือทศนิยม 2 ตำแหน่ง)
+   * ใช้ตรวจว่าข้อความที่ PDF.js อ่านได้มีตัวเลขการเงินจริงหรือไม่
+   * เลขหน้า / ปี พ.ศ. / จำนวนคน จะไม่ถูกนับ
+   */
+  function countMonetaryTokens(text) {
+    var m = String(text || '')
+      .match(/(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2})(?!\d)/g);
+    return m ? m.length : 0;
+  }
+
+  /**
    * ให้คะแนนหน้าตามโอกาสที่จะมีตัวเลข/ข้อมูลสำคัญ
    *   - หัวข้อการเงิน (+3 ต่อคำ, สูงสุด 9)
    *   - คำสำคัญทั่วไป (+1 ต่อคำ, สูงสุด 5)
@@ -1615,6 +1626,7 @@
     captureValues: captureValues,
     normalizeFiles: normalizeFiles,
     countNumberTokens: countNumberTokens,
+    countMonetaryTokens: countMonetaryTokens,
     scorePageText: scorePageText,
     selectPages: selectPages,
     pagePartsFromText: pagePartsFromText,

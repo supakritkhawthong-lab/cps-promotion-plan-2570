@@ -1187,6 +1187,10 @@
     try {
       const arrayBuffer = await file.arrayBuffer();
 
+      // เก็บเหตุผลที่ข้าม text path ไว้แจ้งใน coverage ของ scan path
+      var textSkippedForNoNumbers = false;
+      var textMoneyTokens = 0;
+
       // ขั้นที่ 1: PDF.js อ่านข้อความ "ทุกหน้า"
       //   - อ่านพร้อมกัน 4 หน้า (worker pool) เพราะการอ่านทีละหน้าแบบเรียงลำดับ
       //     ทำให้ไฟล์ใหญ่ใช้เวลา 45 วินาทีหมดไปกับ 4 หน้าแรก
@@ -1252,7 +1256,19 @@
         pages.sort(function (a, b) { return a.page - b.page; });
         pagesReadCount = pages.length + pagesNoText + pagesFailed;
 
-        if (charsAll > 250 && pages.length) {
+        // PDF บางไฟล์มี text layer เกิน 250 ตัวอักษรแต่เป็นเพียงหัวกระดาษ/
+        // เลขหน้า/รายงานประชุมปีก่อน ไม่มีตัวเลขการเงินจริง ถ้าส่งเป็นข้อความ
+        // AI จะไม่มีตัวเลขให้อ่านแล้วไปหยิบตัวเลขตัวอย่างจาก prompt มาแทน
+        // ให้บังคับอ่านจากภาพ (JPEG) แทนในกรณีนี้
+        const MIN_MONEY_TOKENS_IN_TEXT = 6;
+        const textForMoneyCheck = pages.map(function (x) { return x.text; }).join('\n');
+        textMoneyTokens = (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.countMonetaryTokens === 'function')
+          ? window.CPD_UPLOAD.countMonetaryTokens(textForMoneyCheck)
+          : (textForMoneyCheck.match(/(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2})(?!\d)/g) || []).length;
+        const hasFinancialNumbers = textMoneyTokens >= MIN_MONEY_TOKENS_IN_TEXT;
+        textSkippedForNoNumbers = charsAll > 250 && pages.length > 0 && !hasFinancialNumbers;
+
+        if (charsAll > 250 && pages.length && hasFinancialNumbers) {
           const pipe = window.CPD_PDF_PIPELINE;
           const pageOpts = getPdfPageOptions();
 
@@ -1443,6 +1459,8 @@
                 charsTotal: null,
                 charsSent: jpegChars,
                 scanJpeg: true,
+                textFallbackNoNumbers: textSkippedForNoNumbers,
+                textMoneyTokens: textMoneyTokens,
                 pagesNoText: pdfDoc.numPages,
                 pagesFailed: 0,
                 autoTrim: pageOpts.autoTrim,
@@ -1527,6 +1545,8 @@
               charsTotal: null,
               charsSent: null,
               scanPdf: true,
+              textFallbackNoNumbers: textSkippedForNoNumbers,
+              textMoneyTokens: textMoneyTokens,
               pagesNoText: 0,
               pagesFailed: 0,
               stopReason: sizeLimited ? 'scanLimit' : 'scan',
@@ -1676,6 +1696,10 @@
           ' • ' + (Number(cov.evidenceWindows) || 0) + ' ช่วง' +
           ' • ' + Number(cov.evidenceChars).toLocaleString('en-US') + ' ตัวอักษร' +
           (cov.evidenceCapped ? ' (ตัดตามเพดาน)' : '') + '</div>';
+      }
+      if (cov.textFallbackNoNumbers) {
+        html += '<div class="text-warning mt-1">⚠ ข้อความใน PDF ไม่พบตัวเลขการเงิน (' +
+          Number(cov.textMoneyTokens || 0) + ' จำนวน) — ระบบอ่านจากภาพแทน เพื่อไม่ให้ AI เดาตัวเลข</div>';
       }
       if (cov.scanPdf) {
         html += '<div class="text-info mt-1">🖼 PDF นี้ไม่มีข้อความ (ภาพสแกน) — AI อ่านจากภาพ ' +
