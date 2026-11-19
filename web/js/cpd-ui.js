@@ -4185,13 +4185,47 @@
     // คืนอัตราส่วน/ทุนรวมที่ตรวจสอบแล้วก่อนสร้างข้อความ เพื่อให้ตัวเลขในข้อความตรงกับการ์ด
     restoreVerifiedFinancials(currentPreload());
     var result = analyze4M();
+    var s = A();
+    var analysisInfo = s.analysis || {};
+    var coopName = (s.coopProfile && s.coopProfile.coopName) || '';
+    var currentFy = String((s.meta && s.meta.fiscalYear) || '');
+    var uploadedFy = String(analysisInfo.uploadedSectionsFiscalYear || '');
+    var uploadedForThisCoop =
+      String(analysisInfo.uploadedSectionsCoop || '') === String(coopName) &&
+      (!uploadedFy || !currentFy || uploadedFy === currentFy);
+    var preload = currentPreload();
+    var preFourM = (preload && preload.fourM) || {};
+    var verified = {
+      orgAnalysis4M: !!(preFourM.orgAnalysis4M && preFourM.orgAnalysis4M.length),
+      businessAnalysis: !!(preFourM.businessAnalysis && preFourM.businessAnalysis.length),
+      welfareAnalysis: !!(preFourM.welfareAnalysis && preFourM.welfareAnalysis.length),
+      summaryAnalysis: !!(preFourM.orgAnalysis4M && preFourM.orgAnalysis4M.length ||
+        preFourM.businessAnalysis && preFourM.businessAnalysis.length ||
+        preFourM.welfareAnalysis && preFourM.welfareAnalysis.length ||
+        preFourM.summaryAnalysis && preFourM.summaryAnalysis.length)
+    };
+    var uploadedKey = {
+      orgAnalysis4M: 'uploadedOrgAnalysis4M',
+      businessAnalysis: 'uploadedBusinessAnalysis',
+      welfareAnalysis: 'uploadedWelfareAnalysis',
+      summaryAnalysis: 'uploadedSummaryAnalysis'
+    };
     var overwrite = force || !silent;
     Object.keys(result).forEach(function (key) {
       var box = document.querySelector('[data-cpd="analysis.' + key + '"]');
       var existing = box ? String(box.value || '').trim() : '';
+      // AI text extracted from the uploaded file is the primary source. Repeated
+      // auto-pipeline runs with force=true must not replace it with text
+      // synthesized from the form, or the numbers stop matching the document.
+      var uploadedText = '';
+      if (uploadedForThisCoop && uploadedKey[key] && !verified[key]) {
+        uploadedText = String(analysisInfo[uploadedKey[key]] || '').trim();
+      }
       if (overwrite || !existing) {
-        if (box) box.value = result[key];
-        A().analysis[key] = result[key];
+        var next = uploadedText || result[key];
+        result[key] = next;
+        if (box) box.value = next;
+        A().analysis[key] = next;
       }
     });
     
