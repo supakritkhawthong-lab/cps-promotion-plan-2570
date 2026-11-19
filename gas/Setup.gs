@@ -21,8 +21,9 @@ function setPropsFromArgs(pairs) {
 /**
  * ใช้กด Run ในหน้า editor เพื่อ
  *   1) ยืนยันว่าอนุมัติสิทธิ์ (scopes) ครบ
- *   2) ดูว่าตั้ง Script Properties ครบหรือยัง (ไม่แสดงค่าจริง)
- *   3) ทดสอบเปิด Spreadsheet ที่ผูกกับสคริปต์
+ *   2) ดูว่าตั้ง Script Properties ครบหรือยัง (ค่า secret ไม่แสดง)
+ *   3) แสดงค่า config ที่ไม่ใช่ secret เพื่อตรวจว่าพิมพ์ถูกต้อง
+ *   4) ทดสอบเปิด Spreadsheet ที่ผูกกับสคริปต์
  * ผลลัพธ์ดูได้ที่ Execution log
  */
 function setupCheck() {
@@ -33,11 +34,20 @@ function setupCheck() {
     'DRIVE_ROOT_FOLDER_ID',
     'API_TOKEN',
     'GEMINI_MODELS',
-    'DEBUG'
+    'DEBUG',
+    'AI_THINKING_BUDGET',
+    'AI_SCAN_MAX_CALLS'
   ];
   var status = {};
   keys.forEach(function (k) {
     status[k] = props.getProperty(k) ? 'SET' : 'MISSING';
+  });
+
+  // Non-secret runtime config — safe to show so the values can be verified.
+  var runtimeKeys = ['GEMINI_MODELS', 'AI_THINKING_BUDGET', 'AI_SCAN_MAX_CALLS'];
+  var runtimeConfig = {};
+  runtimeKeys.forEach(function (k) {
+    runtimeConfig[k] = props.getProperty(k) || '(not set - using code default)';
   });
 
   var sheetStatus;
@@ -57,6 +67,7 @@ function setupCheck() {
 
   var out = {
     props: status,
+    runtimeConfig: runtimeConfig,
     spreadsheet: sheetStatus,
     driveFolder: driveStatus
   };
