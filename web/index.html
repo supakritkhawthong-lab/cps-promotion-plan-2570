@@ -155,6 +155,7 @@
       </div>
       <div id="aiAlert" class="alert alert-info mt-3 d-none"></div>
       <div id="uploadCoverage" class="mt-2 d-none"></div>
+      <div id="aiExtractDebug" class="mt-2 d-none"></div>
       <div id="uploadReview" class="mt-3 d-none"></div>
       <div id="uploadRollbackBox" class="mt-2 d-none">
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="rollbackLastUpload()">
@@ -1738,6 +1739,90 @@
     box.classList.remove('d-none');
   }
 
+  /**
+   * แผงตรวจสอบ: แสดงสิ่งที่ AI สกัดได้จริงในรอบล่าสุด เพื่อเทียบกับไฟล์ต้นฉบับ
+   * ใช้เฉพาะเมื่อต้องการตรวจว่าตัวเลขมาจากเอกสารหรือจากการสังเคราะห์
+   */
+  function renderAiExtractDebug(res, files, plan) {
+    var box = document.getElementById('aiExtractDebug');
+    if (!box) return;
+    var esc = (window.CPD_UPLOAD && window.CPD_UPLOAD.escapeHtml)
+      ? window.CPD_UPLOAD.escapeHtml
+      : function (s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      };
+    var data = res || {};
+    var editUrl = 'https://script.google.com/macros/s/AKfycbwRmIN0s6DxePBfQYkWCpn0zD-7uw5KuhAqa-wHbzipyTw5BapF9bDVVSsGIBY5GLw/exec';
+    var keys = [
+      'yrLatest', 'yrPrev', 'fyCheckNote',
+      'assetLatest', 'assetPrev', 'debtLatest', 'debtPrev',
+      'shareLatest', 'sharePrev', 'reserveLatest', 'reservePrev',
+      'incomeLatest', 'incomePrev', 'expenseLatest', 'expensePrev',
+      'profitLatest', 'profitPrev', 'memLatest', 'memPrev'
+    ];
+    var rows = keys.map(function (k) {
+      if (data[k] === undefined || data[k] === null || data[k] === '') return '';
+      var src = (data._aiFieldSources && data._aiFieldSources[k]) || {};
+      var where = src.file
+        ? ' @ ' + esc(src.file) + (src.pagesFrom ? ' หน้า ' + src.pagesFrom + '-' + src.pagesTo : '')
+        : '';
+      return '<tr><td class="pe-3 text-nowrap">' + k + '</td><td class="fw-bold">' +
+        esc(Array.isArray(data[k]) ? data[k].join(' / ') : data[k]) +
+        '</td><td class="small text-muted">' + where + '</td></tr>';
+    }).filter(Boolean).join('');
+
+    var fileRows = (files || []).map(function (f) {
+      var cov = f.coverage || {};
+      var flags = [];
+      if (cov.textFallbackNoNumbers) {
+        flags.push('ข้อความไม่มีตัวเลขการเงิน → อ่านจากภาพ (' + (Number(cov.textMoneyTokens) || 0) + ')');
+      }
+      if (cov.scanJpeg) flags.push('JPEG');
+      if (cov.scanPdf) flags.push('PDF-chunk');
+      if (cov.pagesSkippedHighScore && cov.pagesSkippedHighScore.length) {
+        flags.push('ข้ามหน้าสำคัญ: ' + cov.pagesSkippedHighScore.slice(0, 10).join(','));
+      }
+      return '<li>' + esc(f.name) + ' — ' + esc([f.mode, f.pipeline].filter(Boolean).join('/')) +
+        ' ' + (Number(cov.pagesRead) || 0) + '/' + (Number(cov.totalPages) || 0) + ' หน้า' +
+        (flags.length ? ' <span class="text-warning">[' + esc(flags.join(' | ')) + ']</span>' : '') +
+        '</li>';
+    }).join('');
+
+    var conflicts = data._aiConflicts || {};
+    var conflictKeys = Object.keys(conflicts);
+    var conflictText = conflictKeys.length
+      ? esc(conflictKeys.slice(0, 12).join(', '))
+      : '<span class="text-muted">ไม่มี</span>';
+    var digest = String(data.scanDigest || '').replace(/\s+/g, ' ').trim();
+    var analysis = String(data.orgAnalysis4M || '').replace(/\s+/g, ' ').trim();
+    var planFields = (plan && plan.fields) || {};
+    var applied = Object.keys(planFields).filter(function (k) {
+      return planFields[k] && planFields[k].status === 'update';
+    }).slice(0, 20).join(', ');
+
+    var html = '<details class="card border-secondary">' +
+      '<summary class="card-header py-1 small fw-bold text-secondary">' +
+      '🔎 ดีบัก: สิ่งที่ AI สกัดได้รอบล่าสุด (กดเพื่อดู/ส่งให้เจ้าหน้าที่)' + '</summary>' +
+      '<div class="card-body p-2 small">' +
+      '<div class="mb-2"><span class="fw-bold">Endpoint:</span> <span class="text-muted">' + esc(editUrl) + '</span></div>' +
+      '<div class="fw-bold">ไฟล์ที่ส่งเข้า AI</div><ul class="mb-2">' + (fileRows || '<li>ไม่มี</li>') + '</ul>' +
+      '<div class="fw-bold">ตัวเลขที่ AI สกัด (facts)</div>' +
+      (rows ? '<table class="table table-sm table-borderless mb-2"><tbody>' + rows + '</tbody></table>'
+        : '<div class="text-muted mb-2">ไม่มี facts</div>') +
+      '<div class="mb-1"><span class="fw-bold">Conflict:</span> ' + conflictText + '</div>' +
+      '<div class="mb-1"><span class="fw-bold">Warnings:</span> ' +
+      esc((data._aiWarnings || []).join(' | ') || 'ไม่มี') + '</div>' +
+      '<div class="mb-1"><span class="fw-bold">อัปเดตฟอร์ม:</span> ' + esc(applied || 'ไม่มี') + '</div>' +
+      (digest ? '<div class="mb-1"><span class="fw-bold">scanDigest:</span> ' + esc(digest.slice(0, 700)) + '</div>' : '') +
+      (analysis ? '<div class="mb-1"><span class="fw-bold">ข้อ 1 ที่ AI เขียน:</span> ' +
+        esc(analysis.slice(0, 300)) + '</div>' : '') +
+      '</div></details>';
+    box.innerHTML = html;
+    box.classList.remove('d-none');
+  }
+
   // ---------------------------------------------------------------------------
   // PDF page preview — แสดงหน้าที่ส่ง/ตัดอัตโนมัติ และกดเลือกกลับได้
   // ---------------------------------------------------------------------------
@@ -2060,6 +2145,13 @@
             previousFields: (prevMeta && prevMeta.fields) || {}
           });
           appliedRecords = upload.applyPlan(uploadPlan, { document: document });
+        }
+
+        // แสดงสิ่งที่ AI สกัดจริง เพื่อเทียบกับไฟล์ต้นฉบับเมื่อตัวเลขไม่ตรง
+        try {
+          renderAiExtractDebug(res, filesToUpload, uploadPlan);
+        } catch (e) {
+          console.warn('[aiExtractDebug]', e);
         }
 
         if (res.assetNumeric) currentAssetNumeric = Number(res.assetNumeric);
