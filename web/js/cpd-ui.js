@@ -152,7 +152,11 @@
     if (Array.isArray(value)) {
       return value.map(function (v) { return aiText(v); }).filter(Boolean).join('\n');
     }
-    return String(value).trim();
+    var text = String(value).trim();
+    // The prompt tells the model to answer "-" when a fact is absent. Never
+    // paste that placeholder into the form as if it were real analysis.
+    if (/^(-|–|—|n\/a|na|none|null|ไม่พบ|ไม่พบข้อมูล|ไม่มี|ไม่มีข้อมูล|ไม่ระบุ)$/i.test(text)) return '';
+    return text;
   }
 
   /**
@@ -286,9 +290,13 @@
     var preWelfareText = Array.isArray(preFourM.welfareAnalysis)
       ? preFourM.welfareAnalysis.join('\n')
       : String(preFourM.welfareAnalysis || '');
+    var preSummaryText = Array.isArray(preFourM.summaryAnalysis)
+      ? preFourM.summaryAnalysis.join('\n')
+      : String(preFourM.summaryAnalysis || '');
     preBusinessText = String(preBusinessText || '').trim();
     preOrgText = String(preOrgText || '').trim();
     preWelfareText = String(preWelfareText || '').trim();
+    preSummaryText = String(preSummaryText || '').trim();
     var preAuditorText = String(preAnalysis.auditorObservations || '').trim();
     var preDefectsText = String(preAnalysis.coopDefects || '').trim();
     var applied = false;
@@ -359,7 +367,7 @@
       SECTION_HEADING_PATTERNS.welfare);
     // สรุปผลการวิเคราะห์: ใช้ข้อความจากไฟล์ เว้นแต่เป็นสหกรณ์ที่มีข้อความตรวจสอบแล้ว
     setUploadedSection('summaryAnalysis', 'uploadedSummaryAnalysis', res.summaryAnalysis,
-      preOrgText || preBusinessText || preWelfareText, SECTION_HEADING_PATTERNS.summary);
+      preOrgText || preBusinessText || preWelfareText || preSummaryText, SECTION_HEADING_PATTERNS.summary);
 
     // 3) ข้อมูล/ข้อสังเกตด้านธุรกิจจากเอกสารที่อัปโหลด
     var segments = Array.isArray(res.businessSegments) ? res.businessSegments : [];
@@ -1081,7 +1089,7 @@
       textarea('analysis.welfareAnalysis', '3. ด้านการจัดสวัสดิการและสาธารณประโยชน์', 4) +
       textarea('analysis.summaryAnalysis', '4. สรุปผลการวิเคราะห์', 4) +
       textarea('analysis.auditorObservations', 'ข้อสังเกตของผู้สอบบัญชี (ปีบัญชีล่าสุด)', 3, 6) +
-      textarea('analysis.coopDefects', 'ข้อสังเกตตามการประเมินเข้มแข็ง', 3, 6) +
+      textarea('analysis.coopDefects', 'ข้อบกพร่องของสหกรณ์ / ข้อสังเกตตามการประเมินเข้มแข็ง', 3, 6) +
       '    </div></div>' +
       '  </div>' +
       '</div>';
@@ -3549,6 +3557,7 @@
     var uploadedSummary = uploadedForThisCoop ? String(analysisInfo.uploadedSummaryAnalysis || '').trim() : '';
     var preOrgVerified = !!(preload && preload.fourM && preload.fourM.orgAnalysis4M && preload.fourM.orgAnalysis4M.length);
     var preWelfareVerified = !!(preload && preload.fourM && preload.fourM.welfareAnalysis && preload.fourM.welfareAnalysis.length);
+    var preSummaryVerified = !!(preload && preload.fourM && preload.fourM.summaryAnalysis && preload.fourM.summaryAnalysis.length);
     var auditorObs4M = String(analysisInfo.auditorObservations || '').trim();
     var coopDefects4M = String(analysisInfo.coopDefects || '').trim();
     org.push('- สหกรณ์มีการจัดทำแผนงานและงบประมาณประจำปี แต่ยังไม่มีการจัดทำแผนกลยุทธ์/แผนยุทธศาสตร์ระยะยาว (ตามข้อมูลโปรไฟล์ข้อ 22.1)');
@@ -4149,7 +4158,7 @@
     if (uploadedOrg && !preOrgVerified) result.orgAnalysis4M = uploadedOrg;
     if (uploadedBiz && !hasVerifiedBusinessText) result.businessAnalysis = uploadedBiz;
     if (uploadedWelfare && !preWelfareVerified) result.welfareAnalysis = uploadedWelfare;
-    if (uploadedSummary && !preOrgVerified && !hasVerifiedBusinessText && !preWelfareVerified) {
+    if (uploadedSummary && !preOrgVerified && !hasVerifiedBusinessText && !preWelfareVerified && !preSummaryVerified) {
       result.summaryAnalysis = uploadedSummary;
     }
 

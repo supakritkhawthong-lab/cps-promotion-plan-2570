@@ -58,6 +58,10 @@
           <select id="coopSelect" class="form-select fw-bold" onchange="onSelectCoop()">
             <option value="">-- กำลังโหลดรายชื่อสหกรณ์... --</option>
           </select>
+          <div id="coopLoadError" class="small text-danger mt-1 d-none">
+            <span id="coopLoadErrorText"></span>
+            <button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="loadCoopList()">ลองใหม่</button>
+          </div>
         </div>
         <div class="col-md-3">
           <label class="form-label fw-bold">2. จำนวนครั้งเข้าส่งเสริมปี 2570</label>
@@ -396,11 +400,44 @@
 
   window.onload = function() {
     renderEmptyScheduleTable();
-    google.script.run.withSuccessHandler(data => {
-      masterCoops = data || [];
-      populateCoopDropdown(masterCoops);
-    }).getMasterCoopList();
+    loadCoopList();
   };
+
+  function showCoopLoadError(message) {
+    var errBox = document.getElementById('coopLoadError');
+    var errText = document.getElementById('coopLoadErrorText');
+    if (errText) errText.textContent = message;
+    if (errBox) errBox.classList.remove('d-none');
+    var sel = document.getElementById('coopSelect');
+    if (sel) sel.innerHTML = '<option value="">-- ไม่พบรายชื่อสหกรณ์ (กดลองใหม่) --</option>';
+  }
+
+  function loadCoopList() {
+    var errBox = document.getElementById('coopLoadError');
+    if (errBox) errBox.classList.add('d-none');
+    var sel = document.getElementById('coopSelect');
+    if (sel) sel.innerHTML = '<option value="">-- กำลังโหลดรายชื่อสหกรณ์... --</option>';
+    try {
+      google.script.run
+        .withSuccessHandler(function (data) {
+          if (!Array.isArray(data)) {
+            masterCoops = [];
+            showCoopLoadError('รายชื่อสหกรณ์ที่ได้ไม่ถูกต้อง (ไม่ใช่รายการ)');
+            return;
+          }
+          masterCoops = data;
+          populateCoopDropdown(masterCoops);
+        })
+        .withFailureHandler(function (err) {
+          masterCoops = [];
+          showCoopLoadError((err && err.message) || 'โหลดรายชื่อสหกรณ์ไม่สำเร็จ');
+        })
+        .getMasterCoopList();
+    } catch (e) {
+      masterCoops = [];
+      showCoopLoadError((e && e.message) || 'โหลดรายชื่อสหกรณ์ไม่สำเร็จ');
+    }
+  }
 
   function populateCoopDropdown(list) {
     const sel = document.getElementById('coopSelect');
@@ -565,7 +602,15 @@
   }
 
   function validateAccountingEquation() {
-    const parseNum = (str) => { const n = Number(String(str || '').replace(/,/g, '').trim()); return isNaN(n) ? 0 : n; };
+    // The AI returns a loss as "(500,000.00)"; keep its sign instead of letting
+    // Number() turn it into NaN and silently become zero.
+    const parseNum = (str) => {
+      const raw = String(str == null ? '' : str).trim();
+      const negative = /^\(.*\)$/.test(raw);
+      const n = Number(raw.replace(/[(),]/g, '').replace(/บาท/g, '').trim());
+      if (isNaN(n)) return 0;
+      return negative ? -Math.abs(n) : n;
+    };
     const asset = parseNum(document.getElementById('asset_latest').value);
     const debt = parseNum(document.getElementById('debt_latest').value);
     const share = parseNum(document.getElementById('share_latest').value);
@@ -943,8 +988,14 @@
     return { text: t.slice(0, cut).trim(), truncated: true };
   }
 
+  // Scan fallback emitted by PDF.js is copied into page batches and sent as
+  // inlineData. The cap is shared by ALL uploaded files in one request, so the
+  // caller divides it before starting the parallel tasks.
+  const SCAN_CHUNK_PAGES = 12;
+  const SCAN_MAX_BASE64_CHARS = 18 * 1024 * 1024;
+
   // ระบบอ่านและคัดกรองหน้าสำคัญอัจฉริยะ (Smart Read PDF) โดยไม่ต้องระบุเลขหน้า
-  async function smartProcessFile(file, category, maxFallbackPages) {
+  async function smartProcessFile(file, category, maxFallbackPages, scanBudgetChars) {
     if (file.type.startsWith('image/')) {
       var img = await compressImageFile(file, category);
       img.mode = 'image';
@@ -1165,12 +1216,12 @@
 
       // ขั้นที่ 2 (Fallback สำหรับ PDF สแกนภาพ): PDF.js อ่านข้อความไม่ได้ จึงส่งหน้าเป็น
       // ไฟล์ PDF ให้ AI อ่านจากภาพแทน (ของเดิมตัดเพียง 4-6 หน้าแรก ทำให้ 42 หน้าเหลือ 4)
-      //   - แบ่งชุดละ SCAN_CHUNK_PAGES หน้า ถ้าชุดใหญ่เกินเพดานจะลดจำนวนหน้าลงครึ่งหนึ่ง
+      //   - แบ่งชุดละ SCAN_CHUNK_PAGES หน้า ถ้าชุดใหญ่เกินเพดานให้คำนวณจำนวนหน้าที่พอดีกับพื้นที่เหลือ
       //   - รวม base64 ทุกชุดไม่เกิน SCAN_MAX_BASE64_CHARS (เพดาน inline data ของ API ~20MB)
       //   - coverage บอกจำนวนหน้าที่ AI ได้อ่านจริง แทนที่จะเงียบ
-      const SCAN_CHUNK_PAGES = 12;
-      const SCAN_MAX_BASE64_CHARS = 18 * 1024 * 1024;
       if (window.PDFLib) {
+        const scanBudget = Math.max(512 * 1024,
+          Math.min(SCAN_MAX_BASE64_CHARS, Number(scanBudgetChars) || SCAN_MAX_BASE64_CHARS));
         const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
         const totalPages = srcDoc.getPageCount();
         const slicePdfPages = async function (fromPage, toPage) {
@@ -1189,12 +1240,20 @@
         while (cursor < totalPages) {
           let size = Math.min(SCAN_CHUNK_PAGES, totalPages - cursor);
           let chunkBase64 = '';
-          // A single batch that is still too large is halved until it fits.
+          // Measure real bytes per page from the oversized batch, then resize
+          // to what actually fits instead of blindly discarding half the pages.
           while (size >= 1) {
             chunkBase64 = await slicePdfPages(cursor + 1, cursor + size);
-            if (usedChars + chunkBase64.length <= SCAN_MAX_BASE64_CHARS) break;
+            if (usedChars + chunkBase64.length <= scanBudget) break;
+            const bytesPerPage = chunkBase64.length / size;
+            const remaining = scanBudget - usedChars;
+            const fitted = Math.floor(remaining / (bytesPerPage || 1));
             chunkBase64 = '';
-            size = Math.floor(size / 2);
+            if (!isFinite(fitted) || fitted < 1 || fitted >= size) {
+              size = Math.floor(size / 2);
+            } else {
+              size = fitted;
+            }
           }
           if (!chunkBase64) break;
           chunks.push({ base64: chunkBase64, pagesFrom: cursor + 1, pagesTo: cursor + size });
@@ -1452,11 +1511,19 @@
     alertBox.textContent = "ระบบกำลังอ่านไฟล์ทั้งหมดแบบขนาน (Parallel Smart-Read) และสกัดตัวเลขด้วย AI...";
 
     try {
+      // The 18 MB inlineData ceiling applies to the whole request. Split it
+      // across every selected file before processing them in parallel.
+      const allInputFiles = ['fileBasic', 'fileFinance', 'fileAudit', 'fileOther']
+        .reduce(function (acc, id) {
+          var input = document.getElementById(id);
+          return acc.concat(input ? Array.prototype.slice.call(input.files) : []);
+        }, []);
+      const perFileScanBudget = Math.floor(SCAN_MAX_BASE64_CHARS / Math.max(1, allInputFiles.length));
       const tasks = [];
-      for (let f of document.getElementById('fileBasic').files) tasks.push(smartProcessFile(f, 'ข้อมูลพื้นฐาน', 4));
-      for (let f of document.getElementById('fileFinance').files) tasks.push(smartProcessFile(f, 'งบการเงิน/รายงานสอบบัญชี', 6));
-      for (let f of document.getElementById('fileAudit').files) tasks.push(smartProcessFile(f, 'ผลปิดบัญชี/ข้อสังเกต', 5));
-      for (let f of document.getElementById('fileOther').files) tasks.push(smartProcessFile(f, 'ไฟล์อื่นๆ', 5));
+      for (let f of document.getElementById('fileBasic').files) tasks.push(smartProcessFile(f, 'ข้อมูลพื้นฐาน', 4, perFileScanBudget));
+      for (let f of document.getElementById('fileFinance').files) tasks.push(smartProcessFile(f, 'งบการเงิน/รายงานสอบบัญชี', 6, perFileScanBudget));
+      for (let f of document.getElementById('fileAudit').files) tasks.push(smartProcessFile(f, 'ผลปิดบัญชี/ข้อสังเกต', 5, perFileScanBudget));
+      for (let f of document.getElementById('fileOther').files) tasks.push(smartProcessFile(f, 'ไฟล์อื่นๆ', 5, perFileScanBudget));
 
       // ประมวลผลทุกไฟล์พร้อมกันแบบขนาน (Parallel Processing)
       resetReadProgress();
@@ -1486,6 +1553,9 @@
         coopCategoryName: c.coopCategoryName,
         weaknesses: c.weaknesses,
         dbFiscalYear: document.getElementById('fiscal_year').value,
+        // The dropdown holds a month name, not a year. Send the plan year
+        // separately so the AI prompt and the year cross-check can use it.
+        dbFiscalYearBE: getPlanYear(),
         score68: c.score68,
         score69: c.score69,
         plannedVisits: Number(document.getElementById('planned_visits').value || 4),
@@ -1549,7 +1619,7 @@
           uploadPlan = upload.plan(res, {
             formValues: beforeValues,
             files: fileMeta,
-            fiscalYear: document.getElementById('fiscal_year').value,
+            fiscalYear: getPlanYear(),
             previousFields: (prevMeta && prevMeta.fields) || {}
           });
           appliedRecords = upload.applyPlan(uploadPlan, { document: document });
@@ -1700,6 +1770,15 @@
           }
           failAiAnalysis(err);
         }).stepAiAnalysisJob(jobId);
+      }
+
+      // Guard the whole request, not just each file: the RPC body limit is
+      // shared and a rejected start cannot be resumed by pollAiJob.
+      const payloadChars = JSON.stringify(payload).length;
+      if (payloadChars > 40 * 1024 * 1024) {
+        failAiAnalysis(new Error('ไฟล์ที่อัปโหลดรวมกันมีขนาดใหญ่เกินกำหนด (' +
+          Math.ceil(payloadChars / 1024 / 1024) + ' MB) กรุณาลดจำนวนหน้าหรือแยกวิเคราะห์เป็นครั้ง'));
+        return;
       }
 
       google.script.run.withSuccessHandler(function (start) {

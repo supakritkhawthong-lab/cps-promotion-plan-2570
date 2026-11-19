@@ -189,6 +189,12 @@ function startAiAnalysisJob(payload) {
   if (!payload || typeof payload !== 'object') {
     throw apiError_('BAD_REQUEST', 'ต้องส่งข้อมูลสำหรับวิเคราะห์');
   }
+  // The RPC layer has its own body cap, but reject slightly earlier here so the
+  // failure is an actionable message instead of a severed connection.
+  if (JSON.stringify(payload).length > 40 * 1024 * 1024) {
+    throw apiError_('PAYLOAD_TOO_LARGE',
+      'ไฟล์ที่อัปโหลดรวมกันมีขนาดใหญ่เกินกำหนด กรุณาลดจำนวนหน้าหรือแยกวิเคราะห์เป็นครั้ง');
+  }
 
   const jobId = String(Utilities.getUuid ? Utilities.getUuid() : Date.now())
     .replace(/[^a-zA-Z0-9]/g, '')

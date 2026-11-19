@@ -26,9 +26,13 @@ function normalizeFiscalDate(str) {
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
   // ค่าจาก Sheets อาจเป็น Date object — แปลงเป็น "วัน เดือนไทย" ก่อน
   if (Object.prototype.toString.call(str) === '[object Date]' && !isNaN(str.getTime())) {
-    return str.getDate() + ' ' + TH_MONTHS[str.getMonth()];
+    return str.getDate() + ' ' + TH_MONTHS[str.getMonth()] + ' ' + str.getFullYear();
   }
   const s = String(str || '').trim();
+  // Keep an explicit 4-digit year when the document supplied one; otherwise
+  // keep the existing month-only shape (older sheets use 2-digit years).
+  const yearMatch = s.match(/(25\d{2}|20\d{2})/);
+  const yearSuffix = yearMatch ? ' ' + yearMatch[1] : '';
   const map = [
     { keys: ['มกราคม', 'ม.ค.'], full: '31 มกราคม' },
     { keys: ['กุมภาพันธ์', 'ก.พ.'], full: '28 กุมภาพันธ์' },
@@ -45,7 +49,7 @@ function normalizeFiscalDate(str) {
   ];
   for (let i = 0; i < map.length; i++) {
     for (let k = 0; k < map[i].keys.length; k++) {
-      if (s.includes(map[i].keys[k])) return map[i].full;
+      if (s.includes(map[i].keys[k])) return map[i].full + yearSuffix;
     }
   }
   return s || '31 มีนาคม';
@@ -282,7 +286,11 @@ function getMasterCoopList() {
   let defaultDistrict = "";
 
   if (sheetAssign) {
-    sheetAssign.getDataRange().getValues().forEach(row => {
+    // A cooperative name must appear only once in the dropdown. The first row
+    // is the sheet header and must never be treated as a cooperative.
+    const seenCoopNames = {};
+    sheetAssign.getDataRange().getValues().forEach(function (row, rowIndex) {
+      if (rowIndex === 0) return;
       const col1 = cleanName(row[1]);
       if (col1.includes('กลุ่มส่งเสริมสหกรณ์')) {
         const matchZone = col1.match(/กลุ่มส่งเสริมสหกรณ์\s*(\d+)/);
@@ -293,6 +301,8 @@ function getMasterCoopList() {
           defaultDistrict = dists.length === 1 ? dists[0] : "";
         }
       } else if (col1 && (col1.includes('สหกรณ์') || col1.includes('กลุ่มเกษตรกร')) && col1 !== 'สหกรณ์/กลุ่มเกษตรกร') {
+        if (seenCoopNames[col1]) return;
+        seenCoopNames[col1] = true;
         const mainOfficer = cleanName(row[2]);
         const coArr = [row[3], row[4], row[5], row[6], row[7]].map(x => cleanName(x).split(' ')[0]).filter(x => x && x !== 'nan' && x !== 'ชื่อ');
 
@@ -317,7 +327,11 @@ function getMasterCoopList() {
           }
         }
 
-        const coopType = s69.coopType || s68.coopType || (col1.includes('กลุ่มเกษตรกร') ? 'กลุ่มเกษตรกร' : 'สหกรณ์');
+        // A cooperative whose name says กลุ่มเกษตรกร must always use the group
+        // criteria, even if the score sheet carries a generic "สหกรณ์" type.
+        const isGroupRow = col1.includes('กลุ่มเกษตรกร');
+        const coopType = isGroupRow ? 'กลุ่มเกษตรกร'
+          : (s69.coopType || s68.coopType || 'สหกรณ์');
         const sim = s69.simResult || evaluateCoopStrengthAndGap(coopType, {}, 'ชั้น 3', 0);
 
         coopList.push({
@@ -471,7 +485,7 @@ const AI_CRITICAL_FACT_KEYS_ = [
   'shareLatest', 'sharePrev', 'reserveLatest', 'reservePrev',
   'profitLatest', 'profitPrev', 'incomeLatest', 'incomePrev',
   'expenseLatest', 'expensePrev', 'memLatest', 'memPrev',
-  'yrLatest', 'yrPrev', 'fiscalDateFull'
+  'yrLatest', 'yrPrev', 'fiscalDateFull', 'fyCheckNote'
 ];
 
 const AI_CRITICAL_FACT_LABELS_ = {
@@ -530,8 +544,8 @@ const AI_SUMMARY_SCHEMA_ = {
  * และใช้เป็น required เพื่อไม่ให้ key ที่จำเป็นหายไปจากคำตอบ
  */
 const AI_FACT_FIELD_DESCRIPTIONS_ = {
-  yrLatest: 'ปีบัญชีล่าสุดของเอกสาร เช่น ธ.ค. 68',
-  yrPrev: 'ปีบัญชีก่อนของเอกสาร เช่น ธ.ค. 67',
+  yrLatest: 'ปีบัญชีล่าสุดของเอกสาร (ต้องเป็นปีของงบการเงิน ไม่ใช่รายงานปีก่อนที่แนบมา) เช่น ธ.ค. 69',
+  yrPrev: 'ปีก่อนหน้าของงบการเงิน เช่น ธ.ค. 68',
   memLatest: 'จำนวนสมาชิกปีล่าสุด รูปแบบ รวม/สามัญ/สมทบ',
   memPrev: 'จำนวนสมาชิกปีก่อน รูปแบบ รวม/สามัญ/สมทบ',
   assetLatest: 'ยอดรวมสินทรัพย์ (Total Assets) ปีล่าสุด เป็นตัวเลขมีลูกน้ำ เช่น 25,723,883.12',
@@ -548,7 +562,8 @@ const AI_FACT_FIELD_DESCRIPTIONS_ = {
   incomePrev: 'รายได้รวมของปีก่อน',
   expenseLatest: 'ต้นทุนและค่าใช้จ่ายรวมของปีล่าสุด',
   expensePrev: 'ต้นทุนและค่าใช้จ่ายรวมของปีก่อน',
-  fiscalDateFull: 'วันสิ้นปีบัญชี เช่น 31 มีนาคม'
+  fiscalDateFull: 'วันสิ้นปีบัญชี เช่น 31 มีนาคม หรือ 31 มีนาคม 2569 ถ้าเอกสารระบุปี',
+  fyCheckNote: 'ผลตรวจปีบัญชี ให้ใส่ ตรงกัน หรือ ไม่ตรง: พบปี ... แทน ... ห้ามเดา'
 };
 
 function buildFactResponseSchema_() {
@@ -609,7 +624,7 @@ function buildScanFactSchema_() {
   schema.properties.scanDigest = {
     type: 'STRING',
     description: 'สรุปเนื้อหาสำคัญของหน้าที่แนบมา (ชื่อ กิจกรรม ตัวเลข ผลดำเนินงาน) ' +
-      'เป็นภาษาไทยไม่เกิน 800 ตัวอักษร เพื่อใช้เขียนบทวิเคราะห์ในขั้นถัดไป'
+      'เป็นภาษาไทยไม่เกิน 2000 ตัวอักษร เพื่อใช้เขียนบทวิเคราะห์ในขั้นถัดไป'
   };
   return schema;
 }
@@ -1081,7 +1096,14 @@ function runScanChunks_(promptText, scanChunks, options) {
       delete facts.scanDigest;
       if (digest) {
         digests.push('[' + chunk.file + ' หน้า ' + chunk.pagesFrom + '–' + chunk.pagesTo + '] ' +
-          digest.slice(0, 1200));
+          digest.slice(0, 2000));
+        // An empty digest means the model produced no evidence from the images,
+        // so those pages must not be counted as read in the coverage card.
+        readRanges.push({
+          file: chunk.file,
+          from: Number(chunk.pagesFrom) || 0,
+          to: Number(chunk.pagesTo) || 0
+        });
       }
       candidates.push({
         facts: facts,
@@ -1093,13 +1115,6 @@ function runScanChunks_(promptText, scanChunks, options) {
         },
         rank: Number(chunk.rank) || 0,
         index: i + 1
-      });
-      // Report the ranges the model actually read so the upload card can show
-      // real coverage instead of counting every page that was assigned to a batch.
-      readRanges.push({
-        file: chunk.file,
-        from: Number(chunk.pagesFrom) || 0,
-        to: Number(chunk.pagesTo) || 0
       });
     } catch (e) {
       if (!firstError) firstError = e;
@@ -1437,10 +1452,20 @@ function analyzeUploadedFilesWithAI(payload, options) {
   const ruleWeaknessesText = (payload.weaknesses && payload.weaknesses.length > 0)
     ? payload.weaknesses.map((w, i) => `${i + 1}) ${w}`).join("\n")
     : "คะแนนตัวชี้วัดหลักอยู่ในเกณฑ์ดี ให้มุ่งเน้นการรักษามาตรฐานและการควบคุมภายใน";
+  // dbFiscalYear is a month name from the form; dbFiscalYearBE is the plan year
+  // sent separately by the browser. Use it to anchor Year N in the prompt.
+  const planYearNum = Number(payload.dbFiscalYearBE) || 2570;
+  const expectedLatestYear = planYearNum - 1;
 
     const promptText = `
 คุณคือนักวิชาการสหกรณ์ชำนาญการพิเศษ กรมส่งเสริมสหกรณ์
-จงอ่านข้อมูลจากเอกสารงบการเงินและรายงานของ "${payload.coopName}" (${payload.coopCategoryName || 'สหกรณ์'}) ปีบัญชี ${payload.dbFiscalYear || '-'} แล้วสกัดตัวเลขพร้อมสรุปแผนด้วยภาษาราชการที่กระชับ สมบูรณ์ และเป็นทางการ
+จงอ่านข้อมูลจากเอกสารงบการเงินและรายงานของ "${payload.coopName}" (${payload.coopCategoryName || 'สหกรณ์'}) ปีบัญชี ${payload.dbFiscalYear || '-'} (ปีแผน พ.ศ. ${planYearNum}) แล้วสกัดตัวเลขพร้อมสรุปแผนด้วยภาษาราชการที่กระชับ สมบูรณ์ และเป็นทางการ
+
+--- การกันสับสนปีบัญชี (ข้อกำหนดบังคับ) ---
+- ให้ยึด "ปีของงบการเงิน" เป็น Year N เสมอ โดยปีล่าสุดที่คาดหวังคือ พ.ศ. ${expectedLatestYear} และปีก่อนหน้าคือ พ.ศ. ${expectedLatestYear - 1}
+- เอกสารอาจมีรายงานประชุม/รายงานอื่นของปีก่อนแนบท้าย (เช่น พ.ศ. ${expectedLatestYear - 1}) ห้ามนำตัวเลขจากส่วนนั้นไปใส่ช่องท้าย Latest เด็ดขาด ให้ใส่ช่องท้าย Prev เฉพาะเมื่อเป็นงบการเงินของปีก่อนจริง
+- ให้ใส่ปี พ.ศ. ที่พบจริงใน yrLatest และ yrPrev (อย่าใช้ตัวอย่างปีในคำสั่งนี้แทนข้อมูลจากเอกสาร)
+- ให้ตรวจว่า Year N ตรงกับปีงบการเงินที่คาดหวังข้างต้น แล้วตอบ fyCheckNote เป็น "ตรงกัน" เฉพาะเมื่อตรงกัน หากไม่ตรงให้ตอบ "ไม่ตรง: พบปี ... แทน ..." โดยระบุปีที่พบจากเอกสาร ห้ามเดา
 
 ข้อมูลจากการสแกนตัวชี้วัดด้วยระบบ Rule-Based Engine:
 - ผลความเข้มแข็ง ปี 68: ${payload.score68?.level || '-'} (${payload.score68?.total || '-'} คะแนน) | ปี 69: ${payload.score69?.level || '-'} (${payload.score69?.total || '-'} คะแนน)
@@ -1493,11 +1518,11 @@ ${ruleWeaknessesText}
   "auditorType": "ภาครัฐ หรือ ภาคเอกชน",
   "auditorName": "คนึงศรี หรือ พรทิพย์ หรือชื่อผู้สอบบัญชี",
   "fiscalDateFull": "เช่น 31 มีนาคม หรือ 30 กันยายน หรือ 31 ธันวาคม",
-  "fyCheckNote": "ตรงกัน",
+  "fyCheckNote": "ตรงกัน หรือ ไม่ตรง: พบปี ... แทน ...",
   "inspectorCount": "จำนวนผู้ตรวจสอบกิจการ",
   "inspectorName": "ชื่อผู้ตรวจสอบกิจการ",
-  "yrLatest": "เช่น ธ.ค. 68",
-  "yrPrev": "เช่น ธ.ค. 67",
+  "yrLatest": "เดือนและปี พ.ศ. ของงบการเงินล่าสุด เช่น ธ.ค. 69",
+  "yrPrev": "เดือนและปีก่อนหน้าของงบการเงิน เช่น ธ.ค. 68",
   "memLatest": "รวม/สามัญ/สมทบ",
   "memPrev": "รวม/สามัญ/สมทบ",
   "assetLatest": "ยอดรวมสินทรัพย์ (ตัวเลขมีลูกน้ำ ทศนิยม 2 ตำแหน่ง)",
@@ -2368,14 +2393,17 @@ function applyPrevYearFallbacks_(data) {
 
   function toNumber_(value) {
     if (typeof value === 'number') return isFinite(value) ? value : null;
-    const s = String(value === undefined || value === null ? '' : value)
-      .replace(/,/g, '')
-      .replace(/[()]/g, '')
+    const raw = String(value === undefined || value === null ? '' : value).trim();
+    // The prompt allows "(500,000.00)" for a loss; preserve the sign.
+    const negative = /^\(.*\)$/.test(raw);
+    const s = raw
+      .replace(/[(),]/g, '')
       .replace(/บาท|泰铢/g, '')
       .trim();
     if (!s || s === '-') return null;
     const n = Number(s);
-    return isFinite(n) ? n : null;
+    if (!isFinite(n)) return null;
+    return negative ? -Math.abs(n) : n;
   }
 
   function formatNumber_(n) {

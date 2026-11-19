@@ -30,11 +30,21 @@
     return target;
   }
 
+  // AI jobs legitimately run for minutes; everything else (including the
+  // cooperative dropdown) must fail fast so the caller can show a retry.
+  var LONG_RUNNING_FNS = {
+    analyzeUploadedFilesWithAI: true,
+    startAiAnalysisJob: true,
+    stepAiAnalysisJob: true,
+    generatePlanDocument: true
+  };
+
   function invoke(fnName, args, state) {
     if (!cfg.API_URL || cfg.API_URL.indexOf('PASTE_DEPLOYMENT_ID') !== -1) {
       var configError = new Error(
         'ยังไม่ได้ตั้งค่า APP_CONFIG.API_URL ใน web/config.js (ต้องเป็น URL /exec ของ Apps Script)'
       );
+      configError.code = 'API_NOT_CONFIGURED';
       if (typeof state.failure === 'function') state.failure(configError);
       else console.error('[gs-shim]', configError);
       return Promise.resolve(null);
@@ -47,17 +57,32 @@
       token: cfg.API_TOKEN || ''
     };
 
-    return fetch(cfg.API_URL, {
+    var timeoutMs = LONG_RUNNING_FNS[fnName] ? 6 * 60 * 1000 + 10000 : 30000;
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs) : null;
+    var fetchOptions = {
       method: 'POST',
       // text/plain = "simple request" จึงไม่เกิด CORS preflight (Apps Script ไม่รับ OPTIONS)
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
       redirect: 'follow',
       cache: 'no-store'
-    })
+    };
+    if (controller) fetchOptions.signal = controller.signal;
+
+    return fetch(cfg.API_URL, fetchOptions)
       .then(function (res) {
         // อ่านเป็น text ก่อน เพื่อให้ดึงข้อความ error จาก API ได้แม้ HTTP status ไม่ใช่ 2xx
         return res.text().then(function (text) {
+          if (timer) { clearTimeout(timer); timer = null; }
+          var contentType = String((res.headers && res.headers.get && res.headers.get('content-type')) || '');
+          if (/^\s*</.test(text) || contentType.indexOf('text/html') !== -1) {
+            var htmlErr = new Error(
+              'ปลายทางส่งหน้า HTML/redirect แทนข้อมูล JSON (อาจเป็นหน้า login ของ Apps Script)'
+            );
+            htmlErr.code = 'HTML_RESPONSE';
+            throw htmlErr;
+          }
           var json = null;
           try {
             json = text ? JSON.parse(text) : null;
@@ -87,6 +112,14 @@
         return json.result;
       })
       .catch(function (err) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (err && err.name === 'AbortError') {
+          var timeoutErr = new Error(
+            'การเชื่อมต่อหมดเวลา (' + Math.round(timeoutMs / 1000) + ' วินาที)'
+          );
+          timeoutErr.code = 'TIMEOUT';
+          err = timeoutErr;
+        }
         // โค้ดเดิมของ Apps Script ไม่ได้ใช้ Promise จึงไม่ throw ต่อ
         // เพื่อหลีกเลี่ยง unhandled rejection ใน console
         if (typeof state.failure === 'function') state.failure(err);

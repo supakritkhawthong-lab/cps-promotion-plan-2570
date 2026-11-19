@@ -501,15 +501,22 @@ function cpdFilterCoopType_(row, filter) {
   var sub = cpdCleanName_(row.coopSubType || '').toLowerCase();
   var name = cpdCleanName_(row.coopName || '').toLowerCase();
 
-  if (org === f || sub === f) return true;
-  if (name.indexOf(f) !== -1) return true;
+  var isGroupRow = name.indexOf('กลุ่มเกษตรกร') !== -1 ||
+    org.indexOf('กลุ่มเกษตรกร') !== -1 ||
+    sub.indexOf('กลุ่มเกษตรกร') !== -1;
 
   // ตัวเลือก "สหกรณ์" (แบบกว้าง) ต้องได้ทุกประเภทสหกรณ์ แต่ไม่รวมกลุ่มเกษตรกร
+  // ต้องตรวจกลุ่มก่อน เพราะ master บางแถวมี coopType เป็น "สหกรณ์" แบบกว้าง
   if (f === 'สหกรณ์') {
+    if (isGroupRow) return false;
     return org.indexOf('สหกรณ์') !== -1 ||
       sub.indexOf('สหกรณ์') !== -1 ||
       name.indexOf('สหกรณ์') !== -1;
   }
+  if (f === 'กลุ่มเกษตรกร') return isGroupRow;
+
+  if (org === f || sub === f) return true;
+  if (name.indexOf(f) !== -1) return true;
 
   return false;
 }

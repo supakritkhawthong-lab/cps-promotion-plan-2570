@@ -563,7 +563,9 @@ test('findMissingCriticalFacts_: แยกค่าว่าง/ขีด/ศู
   assert.ok(missing.indexOf('shareLatest') !== -1);
   assert.ok(missing.indexOf('assetLatest') === -1, 'ศูนย์จริงต้องไม่ถือว่าขาด');
   assert.ok(missing.indexOf('reserveLatest') === -1);
-  assert.strictEqual(gas.AI_CRITICAL_FACT_KEYS_.length, 19);
+  assert.strictEqual(gas.AI_CRITICAL_FACT_KEYS_.length, 20);
+  assert.ok(gas.AI_CRITICAL_FACT_KEYS_.indexOf('fyCheckNote') !== -1,
+    'fyCheckNote ต้องเป็นฟิลด์วิกฤตเพื่อบังคับ AI ตรวจปีบัญชี');
 });
 
 // ---------------------------------------------------------------------------

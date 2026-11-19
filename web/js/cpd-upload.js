@@ -137,11 +137,17 @@
     return null;
   }
 
-  function resolveAuditorName(text) {
+  function resolveAuditorName(text, auditorType) {
     var s = normText(text);
     if (!s) return null;
-    if (s.indexOf('พรทิพย์') !== -1) return { id: 'gov_auditor_name', value: 'พรทิพย์', key: 'auditorName' };
-    if (s.indexOf('คนึงศรี') !== -1) return { id: 'gov_auditor_name', value: 'คนึงศรี', key: 'auditorName' };
+    var isGov = normText(auditorType).indexOf('รัฐ') !== -1;
+    var isPratip = s.indexOf('พรทิพย์') !== -1;
+    var isKanueksri = s.indexOf('คนึงศรี') !== -1;
+    // The name must land in the select that is actually visible for the type.
+    if (isGov || isPratip || isKanueksri) {
+      var value = isPratip ? 'พรทิพย์' : (isKanueksri ? 'คนึงศรี' : s);
+      return { id: 'gov_auditor_name', value: value, key: 'auditorName' };
+    }
     return { id: 'priv_auditor_name', value: s, key: 'auditorName' };
   }
 
@@ -873,7 +879,7 @@
     };
 
     if (def.kind === 'auditorName') {
-      var resolved = resolveAuditorName(raw);
+      var resolved = resolveAuditorName(raw, res && res.auditorType);
       if (!resolved) { out.missing = true; return out; }
       out.id = resolved.id;
       out.value = resolved.value;
@@ -1032,6 +1038,9 @@
     var yrPrev = extractThaiYear(values.yr_prev);
     if (fiscalYear && yrLatest && yrLatest > fiscalYear) {
       warnings.push('ปีบัญชีในเอกสาร (' + yrLatest + ') ใหม่กว่าปีแผน (' + fiscalYear + ')');
+    }
+    if (fiscalYear && yrLatest && yrLatest < fiscalYear - 1) {
+      warnings.push('ปีบัญชีในเอกสาร (' + yrLatest + ') เก่ากว่าที่คาดหวังสำหรับปีแผน (' + fiscalYear + ') อาจเป็นรายงานปีก่อนที่แนบมา');
     }
     if (yrLatest && yrPrev && yrPrev >= yrLatest) {
       warnings.push('ปีบัญชีก่อนหน้า (' + yrPrev + ') ไม่น้อยกว่าปีล่าสุด (' + yrLatest + ')');
@@ -1264,7 +1273,7 @@
     return (env && env.document) || global.document;
   }
 
-  function setFieldValue(doc, record) {
+  function setFieldValue(doc, record, warnings) {
     if (!doc || !record || !record.id) return false;
     if (record.kind === 'fiscal') {
       if (typeof global.setFiscalDropdownByText === 'function') {
@@ -1273,7 +1282,11 @@
       }
     }
     var el = typeof doc.getElementById === 'function' ? doc.getElementById(record.id) : null;
-    if (!el) return false;
+    if (!el) {
+      var msg = 'ไม่พบช่องฟอร์ม "' + (record.label || record.id) + '" จึงไม่ได้เติมค่า (' + record.id + ')';
+      if (warnings && Array.isArray(warnings) && warnings.indexOf(msg) === -1) warnings.push(msg);
+      return false;
+    }
     el.value = record.after;
     return true;
   }
@@ -1290,12 +1303,13 @@
     (selectedIds || []).forEach(function (id) { selected[id] = true; });
 
     var applied = [];
+    var warnings = plan.warnings || (plan.warnings = []);
     (plan.updates || []).forEach(function (r) {
-      if (setFieldValue(doc, r)) applied.push(r);
+      if (setFieldValue(doc, r, warnings)) applied.push(r);
     });
     (plan.review || []).forEach(function (r) {
       if (!selected[r.id]) return;
-      if (setFieldValue(doc, r)) {
+      if (setFieldValue(doc, r, warnings)) {
         r.appliedManually = true;
         applied.push(r);
       }
