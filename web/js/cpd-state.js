@@ -362,7 +362,9 @@
         summaryAnalysis: '',
         // --- Phase 0: metadata ของรอบอัปโหลด (optional, ไม่กระทบโครงสร้างเดิม) ---
         uploadMeta: null,
-        uploadHistory: []
+        uploadHistory: [],
+        // --- PDF pipeline: Markdown + ฟิลด์ที่ AI สกัด (ไม่เก็บ base64 JPEG) ---
+        extractedDocs: []
       },
       scheduleAndActivities: {
         visitFrequencyPerYear: 4,

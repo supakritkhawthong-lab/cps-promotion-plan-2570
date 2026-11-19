@@ -801,6 +801,44 @@ test('PDF สแกนที่แบ่งหลายชุดต้องถ�
   assert.ok(run.scanDigest.indexOf('สรุปชุดที่ 2') !== -1);
 });
 
+test('jpegPages ส่งเป็น inlineData image/jpeg ทีละหน้า (PDF pipeline)', function () {
+  const gas = loadGasStaged({
+    props: { GEMINI_MODELS: 'gemini-a' },
+    responder: function (call) {
+      const hasImage = call.body.contents[0].parts.some(function (part) { return !!part.inlineData; });
+      if (hasImage) return { assetLatest: '5.00', scanDigest: 'อ่านภาพหน้า 1 และ 4 แล้ว' };
+      return {};
+    }
+  });
+
+  const payload = basePayload();
+  payload.files = [{
+    name: 'scan.jpeg.pdf',
+    category: 'งบการเงิน/รายงานสอบบัญชี',
+    mimeType: 'image/jpeg',
+    mode: 'scan',
+    pipeline: 'jpeg',
+    jpegPages: [
+      { base64: 'JPEG1', page: 1, mimeType: 'image/jpeg', width: 1200, height: 800 },
+      { base64: 'JPEG4', page: 4, mimeType: 'image/jpeg', width: 1200, height: 800 }
+    ]
+  }];
+
+  const run = gas.analyzeUploadedFilesWithAI(payload, { stage: 'facts' });
+  const inlineParts = gas.calls.reduce(function (acc, call) {
+    return acc.concat(call.body.contents[0].parts.filter(function (part) { return !!part.inlineData; }));
+  }, []);
+
+  assert.strictEqual(inlineParts.length, 2, 'ต้องส่งทีละหน้าให้โมเดลอ่าน');
+  assert.strictEqual(inlineParts[0].inlineData.mimeType, 'image/jpeg');
+  assert.strictEqual(inlineParts[0].inlineData.data, 'JPEG1');
+  assert.strictEqual(inlineParts[1].inlineData.data, 'JPEG4');
+  assert.strictEqual(run.facts.assetLatest, '5.00');
+  assert.ok(run.scanDigest.indexOf('อ่านภาพหน้า 1 และ 4 แล้ว') !== -1);
+  assert.ok(run.scanReadRanges.some(function (r) { return r.from === 4 && r.to === 4; }),
+    'ต้องรายงานช่วงหน้าของ JPEG ให้ UI รู้ว่าหน้าใดอ่านแล้ว');
+});
+
 test('scanReadRanges รายงานเฉพาะชุดที่ AI อ่านสำเร็จ ไม่นับชุดที่ล้มเหลว', function () {
   let scanIndex = 0;
   const gas = loadGasStaged({

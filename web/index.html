@@ -99,6 +99,31 @@
           <div class="form-text text-muted" style="font-size: 0.78rem;">รายงานประจำปี / เอกสารประกอบอื่นๆ</div>
         </div>
 
+        <!-- ตัวเลือกหน้า + พรีวิวการตัดอัตโนมัติ (PDF pipeline) -->
+        <div class="col-12 mt-2" id="pdfPageOptions">
+          <div class="card border-secondary">
+            <div class="card-body py-2">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold mb-1" for="pdfPageRange">ช่วงหน้าที่ต้องการส่ง (เช่น 1-12,15,20-25)</label>
+                  <input type="text" id="pdfPageRange" class="form-control form-control-sm" placeholder="เว้นไว้ = ใช้ทุกหน้า">
+                </div>
+                <div class="col-md-5">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="pdfAutoTrim" checked>
+                    <label class="form-check-label small" for="pdfAutoTrim">ตัดหน้ารายงานการประชุมปีเก่าท้ายเล่มอัตโนมัติ</label>
+                  </div>
+                  <div class="form-text text-muted" style="font-size:0.74rem;">หน้าที่ถูกตัดจะแสดงในพรีวิว และกดเลือกกลับได้</div>
+                </div>
+                <div class="col-md-3 text-end">
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="showPdfPagePreview()">👁 พรีวิวหน้า</button>
+                </div>
+              </div>
+              <div id="pdfPagePreview" class="mt-2 d-none"></div>
+            </div>
+          </div>
+        </div>
+
         <div class="col-12 text-end mt-3">
           <button type="button" id="btnAnalyze" class="btn btn-warning fw-bold px-4" onclick="runAIAnalysis()">
             ⚡ ประมวลผลเอกสารความเร็วสูงด้วย AI (ดึงตัวเลขและเกลาสำนวนราชการ)
@@ -193,7 +218,7 @@
         <div class="card shadow-sm mb-3">
           <div class="card-header d-flex justify-content-between align-items-center py-2">
             <span>2. ผลการดำเนินงาน ณ สิ้นปีบัญชีล่าสุด และย้อนหลัง 1 ปี</span>
-            <button type="button" class="btn btn-sm btn-light py-0 fw-bold" onclick="validateAccountingEquation()">🔍 เช็กดุล</button>
+            <button type="button" class="btn btn-sm btn-light py-0 fw-bold" onclick="crossCheckFromCachedDocs()">🔍 เช็กดุล</button>
           </div>
           <div class="card-body py-2">
             <div id="accountingCheckAlert" class="alert alert-secondary py-1 px-2 mb-2" style="font-size:0.8rem;">💡 ตรวจสอบสมการบัญชีอัตโนมัติ (สินทรัพย์ = หนี้สิน + ทุน)</div>
@@ -508,12 +533,49 @@
     });
   }
 
+  /**
+   * PDF pipeline: ผลจำลองจากเอกสารที่อัปโหลดมีสิทธิ์ก่อน c.simResult ของ master
+   * ( financial highlights จาก cache ) แต่ easyWins ยังมาจาก master เสมอ
+   * เพราะเอกสารไม่มีคะแนนตัวชี้วัด 2570 แบบรายข้อ
+   */
+  function getEffectiveSimResult(c) {
+    const master = (c && c.simResult) || {};
+    var docSim = null;
+    const pipe = window.CPD_PDF_PIPELINE;
+    if (pipe && typeof pipe.getDocumentSimResult === 'function') {
+      try {
+        docSim = pipe.getDocumentSimResult(window.CPD_AppState);
+      } catch (e) {
+        console.warn('[docSim]', e);
+        docSim = null;
+      }
+    }
+    if (docSim && docSim.hasData) {
+      var lines = (docSim.gapSummaryLines || []).slice();
+      (master.gapSummaryLines || []).forEach(function (line) {
+        if (lines.indexOf(line) === -1) lines.push(line);
+      });
+      return {
+        source: 'document',
+        gapSummaryLines: lines,
+        easyWins: master.easyWins || [],
+        docHighlights: docSim.financialHighlights || {}
+      };
+    }
+    return {
+      source: 'master',
+      gapSummaryLines: master.gapSummaryLines || [],
+      easyWins: master.easyWins || [],
+      docHighlights: {}
+    };
+  }
+
   function onSelectCoop() {
     const idx = document.getElementById('coopSelect').value;
     if (idx === "") return;
     currentCoopIndex = Number(idx);
     const c = masterCoops[currentCoopIndex];
-    const sim = c.simResult || {};
+    const sim = getEffectiveSimResult(c);
 
     document.getElementById('coopTypeBadge').textContent = `${c.coopType || 'สหกรณ์'} | ${c.coopCategoryName || ''}`;
 
@@ -530,8 +592,13 @@
       </tr>`
     ).join('');
 
+    const simSourceBadge = sim.source === 'document'
+      ? '<div class="small text-success mb-1">📄 ใช้ตัวเลขจากเอกสารที่อัปโหลด (ไม่ต้องอ่านไฟล์ซ้ำ)</div>'
+      : '';
+
     simBox.innerHTML = `
       <h6 class="fw-bold text-primary mb-2">📊 ระบบจำลองคะแนนความเข้มแข็งล่วงหน้า (Strength Score Simulator & Gap Analysis) — จะถูกพิมพ์เป็นหน้าที่ 2 ในไฟล์ Word</h6>
+      ${simSourceBadge}
       ${summaryHtml}
       <div class="table-responsive mt-2">
         <table class="table table-sm table-bordered mb-0 bg-white" style="font-size:0.84rem;">
@@ -639,6 +706,30 @@
     } else {
       alertEl.className = "alert alert-danger py-2 mb-3";
       alertEl.innerHTML = `⚠️ <strong>แจ้งเตือนสมการบัญชีไม่ดุล!</strong> สินทรัพย์ (${asset.toLocaleString('th-TH', {minimumFractionDigits:2})}) ต่างจาก หนี้สิน+ทุน (${totalLiabAndEquity.toLocaleString('th-TH', {minimumFractionDigits:2})}) อยู่ <strong>${diff.toLocaleString('th-TH', {minimumFractionDigits:2})} บาท</strong> กรุณาตรวจสอบตัวเลข`;
+    }
+  }
+
+  /**
+   * PDF pipeline: Cross-Check ใช้ข้อมูลจาก cache ที่ AI สกัดไว้แล้ว
+   * แต่ละครั้งที่กด "เช็กดุล" จะอ่านจาก State/LocalStorage เท่านั้น
+   * ไม่ยิง API หรืออ่านไฟล์ซ้ำ → แสดงแหล่งที่มาให้ผู้ใช้เห็นชัดเจน
+   */
+  function crossCheckFromCachedDocs() {
+    validateAccountingEquation();
+    const pipe = window.CPD_PDF_PIPELINE;
+    if (!pipe || typeof pipe.getDocumentCrossCheck !== 'function') return;
+    try {
+      const cached = pipe.getDocumentCrossCheck(window.CPD_AppState);
+      const alertEl = document.getElementById('accountingCheckAlert');
+      if (!cached.hasData || !alertEl) return;
+      const detail = cached.lines.slice(0, 8).join(' • ');
+      const diffText = cached.difference === null
+        ? ''
+        : ' • ผลต่าง ' + cached.difference.toLocaleString('th-TH', { minimumFractionDigits: 2 }) + ' บาท';
+      alertEl.innerHTML += '<div class="small text-muted mt-1">📄 Cross-Check จากข้อมูลในเครื่อง (ไม่ได้อ่านไฟล์ซ้ำ): ' +
+        detail + diffText + '</div>';
+    } catch (e) {
+      console.warn('[crossCheckCache]', e);
     }
   }
 
@@ -1080,7 +1171,9 @@
       //   - เพดานรวม 150 วินาที หรือ 150 หน้า
       //   - coverage บอกผู้ใช้ว่าอ่านกี่หน้า / ส่งกี่หน้า / ข้ามเพราะอะไร
       if (window.pdfjsLib) {
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+        // เก็บไว้ในตัวแปรร่วม เพื่อให้ขั้นตอนสแกน (JPEG) ใช้ document ตัวเดิมได้
+        pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+        const pdf = pdfDoc;
         const numPages = pdf.numPages;
         const maxReadPages = Math.min(numPages, 150);
         const READ_TOTAL_BUDGET_MS = 150000;
@@ -1137,26 +1230,48 @@
         pagesReadCount = pages.length + pagesNoText + pagesFailed;
 
         if (charsAll > 250 && pages.length) {
-          const fullText = pages.map(x => `[หน้า ${x.page}] ${x.text}`).join('\n');
-          const selection = (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.selectPages === 'function')
-            ? window.CPD_UPLOAD.selectPages(pages, {
-                maxChars: 90000,
-                alwaysPages: 3,
+          const pipe = window.CPD_PDF_PIPELINE;
+          const pageOpts = getPdfPageOptions();
+
+          // 1) กรองช่วงหน้า + ตัดรายงานประชุมปีเก่าท้ายเล่ม (เก็บข้อความไว้ให้พรีวิวกดเลือกกลับ)
+          const filtered = (pipe && typeof pipe.filterRelevantPages === 'function')
+            ? pipe.filterRelevantPages(pages, {
+                range: pageOpts.range,
+                autoTrim: pageOpts.autoTrim,
+                planYearBE: getPlanYear(),
                 declaredTotalPages: numPages
               })
             : {
-                text: fullText,
-                pagesSelected: pages.map(x => x.page),
-                pagesSelectedCount: pages.length,
-                pagesSkipped: [],
-                skippedCount: Math.max(0, numPages - pages.length),
+                pages: pages, trimmed: [], included: pages.map(function (x) { return x.page; }),
+                trimmedPages: [], rangeApplied: false, totalPages: numPages
+              };
+
+          // 2) จัดรูปแบบ Markdown สะอาดเพื่อส่งแทนข้อความล้วน/ไฟล์ PDF
+          const fullText = (pipe && typeof pipe.formatPagesAsMarkdown === 'function')
+            ? pipe.formatPagesAsMarkdown(pages)
+            : pages.map(x => `[หน้า ${x.page}] ${x.text}`).join('\n');
+
+          const selection = (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.selectPages === 'function')
+            ? window.CPD_UPLOAD.selectPages(filtered.pages, {
+                maxChars: 90000,
+                alwaysPages: 3,
+                declaredTotalPages: numPages,
+                outputFormat: 'markdown'
+              })
+            : {
+                text: (pipe && typeof pipe.formatPagesAsMarkdown === 'function')
+                  ? pipe.formatPagesAsMarkdown(filtered.pages) : fullText,
+                pagesSelected: filtered.included,
+                pagesSelectedCount: filtered.included.length,
+                pagesSkipped: filtered.trimmedPages,
+                skippedCount: filtered.trimmedPages.length + Math.max(0, numPages - pages.length),
                 pagesSkippedHighScore: [],
                 charsTotal: charsAll,
                 charsSelected: fullText.length,
                 totalPages: numPages,
                 pagesWithText: pages.length,
                 pagesUnread: Math.max(0, numPages - pages.length),
-                complete: pages.length === numPages
+                complete: !filtered.trimmed.length && pages.length === numPages
               };
 
           const coverage = {
@@ -1173,13 +1288,16 @@
             pagesUnread: selection.pagesUnread,
             pagesNoText: pagesNoText,
             pagesFailed: pagesFailed,
+            trimmedPages: filtered.trimmedPages,
+            autoTrim: pageOpts.autoTrim,
+            pageRange: pageOpts.range,
             stopReason: stoppedEarly ? 'time' : (numPages > maxReadPages ? 'maxPages' : 'read'),
             readCapHit: numPages > maxReadPages || stoppedEarly,
             complete: selection.complete
           };
 
           // Phase 1B: เก็บ "หลักฐานสั้น ๆ" จากหน้าที่ไม่ได้ส่งทั้งหน้า
-          //   เพื่อให้ระยะ facts ยังเห็นตัวเลขสำคัญที่หลุดจาก budget
+          //   (รวมหน้าที่ถูกตัดอัตโนมัติ) เพื่อให้ระยะ facts ยังเห็นตัวเลขสำคัญ
           var evidenceText = '';
           var evidenceMeta = null;
           var skippedPageTexts = pages.filter(function (x) {
@@ -1196,32 +1314,138 @@
           // ใบโปรไฟล์ Smart Coop: ใช้ข้อความจากทุกหน้าที่อ่านได้ (ไม่ใช่แค่ 5 หน้าแรก)
           const profileTrimmed = trimTextAtLineBoundary(fullText, 120000);
 
-          return {
+          const result = {
             name: file.name,
             category: category,
             mode: 'text',
+            pipeline: 'markdown',
             totalPages: numPages,
             pagesRead: selection.pagesSelectedCount,
             chars: selection.charsSelected,
-            truncated: (pages.length - selection.pagesSelectedCount) > 0 || selection.pagesUnread > 0,
+            truncated: (pages.length - selection.pagesSelectedCount) > 0 || selection.pagesUnread > 0 ||
+              filtered.trimmed.length > 0,
             extractedText: selection.text,
+            markdown: selection.text,
             evidenceText: evidenceText,
             evidence: evidenceMeta,
             coverage: coverage,
             profileExtract: (window.CPD_PRELOAD && typeof window.CPD_PRELOAD.parseSmartCoopProfile === 'function')
               ? window.CPD_PRELOAD.parseSmartCoopProfile(profileTrimmed.text) : null
           };
+
+          // เก็บข้อมูลหน้าไว้ให้พรีวิว (เฉพาะหน้าที่ตัด + ข้อความจริง) — ไม่เก็บ base64
+          pdfPageReviews[file.name] = {
+            kind: 'text',
+            file: result,
+            allPages: pages,
+            included: selection.pagesSelected.slice(),
+            trimmed: filtered.trimmed.slice(),
+            totalPages: numPages
+          };
+          renderPdfPageReview(file.name);
+          return result;
         }
       }
 
-      // ขั้นที่ 2 (Fallback สำหรับ PDF สแกนภาพ): PDF.js อ่านข้อความไม่ได้ จึงส่งหน้าเป็น
-      // ไฟล์ PDF ให้ AI อ่านจากภาพแทน (ของเดิมตัดเพียง 4-6 หน้าแรก ทำให้ 42 หน้าเหลือ 4)
-      //   - แบ่งชุดละ SCAN_CHUNK_PAGES หน้า ถ้าชุดใหญ่เกินเพดานให้คำนวณจำนวนหน้าที่พอดีกับพื้นที่เหลือ
-      //   - รวม base64 ทุกชุดไม่เกิน SCAN_MAX_BASE64_CHARS (เพดาน inline data ของ API ~20MB)
-      //   - coverage บอกจำนวนหน้าที่ AI ได้อ่านจริง แทนที่จะเงียบ
+      const scanBudget = Math.max(512 * 1024,
+        Math.min(SCAN_MAX_BASE64_CHARS, Number(scanBudgetChars) || SCAN_MAX_BASE64_CHARS));
+
+      // ขั้นที่ 2 (PDF สแกนภาพ): render เฉพาะหน้าที่ผ่านการกรองเป็น JPEG
+      //   - กว้างสูงสุด 1200px, quality 0.75 (ใช้ PDF.js ตัวเดิม ไม่ต้องตัด PDF)
+      //   - เคารพช่วงหน้าที่ผู้ใช้ระบุ; หน้าสแกนไม่มี text layer จึงตัดอัตโนมัติไม่ได้
+      //     (พรีวิวแสดงรายหน้าให้ผู้ใช้เลือกเองได้)
+      const pipeScan = window.CPD_PDF_PIPELINE;
+      if (pdfDoc && pipeScan && typeof pipeScan.renderPageToJpeg === 'function') {
+        try {
+          const pageOpts = getPdfPageOptions();
+          const parsed = typeof pipeScan.parsePageRange === 'function'
+            ? pipeScan.parsePageRange(pageOpts.range, pdfDoc.numPages) : null;
+          var wantedPages = [];
+          if (parsed && parsed.length) {
+            wantedPages = parsed;
+          } else {
+            for (var wp = 1; wp <= pdfDoc.numPages; wp++) wantedPages.push(wp);
+          }
+
+          const jpegPages = [];
+          var jpegChars = 0;
+          for (var ji = 0; ji < wantedPages.length; ji++) {
+            if (jpegChars > scanBudget) break;
+            const jp = wantedPages[ji];
+            try {
+              const jpage = await pdfDoc.getPage(jp);
+              const jpeg = await pipeScan.renderPageToJpeg(jpage, {
+                document: document,
+                maxWidth: pipeScan.JPEG_MAX_WIDTH,
+                quality: pipeScan.JPEG_QUALITY
+              });
+              if (!jpeg.base64) continue;
+              if (jpegChars + jpeg.base64.length > scanBudget) break;
+              jpegPages.push({
+                base64: jpeg.base64,
+                page: jp,
+                mimeType: 'image/jpeg',
+                width: jpeg.width,
+                height: jpeg.height
+              });
+              jpegChars += jpeg.base64.length;
+            } catch (pageJpegErr) {
+              console.warn('render JPEG หน้า ' + jp + ' ไม่สำเร็จ:', pageJpegErr);
+            }
+          }
+
+          if (jpegPages.length) {
+            const jpegLimited = jpegPages.length < pdfDoc.numPages;
+            const jpegResult = {
+              name: file.name,
+              category: category,
+              mimeType: 'image/jpeg',
+              mode: 'scan',
+              pipeline: 'jpeg',
+              lowTextPdf: true,
+              totalPages: pdfDoc.numPages,
+              pagesRead: jpegPages.length,
+              truncated: jpegLimited,
+              jpegPages: jpegPages,
+              coverage: {
+                totalPages: pdfDoc.numPages,
+                pagesRead: jpegPages.length,
+                pagesIncluded: jpegPages.length,
+                pagesSelected: jpegPages.map(function (x) { return x.page; }),
+                pagesSkipped: wantedPages.filter(function (p) {
+                  return !jpegPages.some(function (x) { return x.page === p; });
+                }),
+                skippedCount: Math.max(0, pdfDoc.numPages - jpegPages.length),
+                pagesSkippedHighScore: [],
+                charsTotal: null,
+                charsSent: jpegChars,
+                scanJpeg: true,
+                pagesNoText: pdfDoc.numPages,
+                pagesFailed: 0,
+                autoTrim: pageOpts.autoTrim,
+                pageRange: pageOpts.range,
+                stopReason: jpegLimited ? 'scanJpegLimit' : 'scanJpeg',
+                readCapHit: jpegLimited,
+                complete: !jpegLimited
+              }
+            };
+            pdfPageReviews[file.name] = {
+              kind: 'jpeg',
+              file: jpegResult,
+              included: jpegPages.map(function (x) { return x.page; }),
+              trimmed: [],
+              totalPages: pdfDoc.numPages
+            };
+            renderPdfPageReview(file.name);
+            return jpegResult;
+          }
+        } catch (jpegErr) {
+          console.warn('JPEG pipeline fallback:', jpegErr);
+        }
+      }
+
+      // ขั้นที่ 3 (Fallback เดิม): ตัด PDF เป็นชุด 12 หน้าแล้วส่ง base64 ให้ AI อ่านจากภาพ
       if (window.PDFLib) {
-        const scanBudget = Math.max(512 * 1024,
-          Math.min(SCAN_MAX_BASE64_CHARS, Number(scanBudgetChars) || SCAN_MAX_BASE64_CHARS));
         const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
         const totalPages = srcDoc.getPageCount();
         const slicePdfPages = async function (fromPage, toPage) {
@@ -1350,6 +1574,10 @@
    * ความคืบหน้าระหว่างอ่าน PDF — หลายไฟล์อ่านพร้อมกัน จึงรวมยอดทุกไฟล์เข้าด้วยกัน
    */
   var readProgressState = {};
+  // PDF pipeline: ใช้ร่วมกันระหว่าง smartProcessFile() และพรีวิว/-toggle หน้า
+  var pdfDoc = null;
+  var pdfPageReviews = {};
+  var lastFilesToUpload = [];
   function resetReadProgress() {
     readProgressState = {};
   }
@@ -1459,6 +1687,155 @@
     box.classList.remove('d-none');
   }
 
+  // ---------------------------------------------------------------------------
+  // PDF page preview — แสดงหน้าที่ส่ง/ตัดอัตโนมัติ และกดเลือกกลับได้
+  // ---------------------------------------------------------------------------
+
+  function getPdfPageOptions() {
+    var rangeEl = document.getElementById('pdfPageRange');
+    var autoEl = document.getElementById('pdfAutoTrim');
+    return {
+      range: rangeEl ? String(rangeEl.value || '').trim() : '',
+      autoTrim: autoEl ? !!autoEl.checked : true
+    };
+  }
+
+  function pdfPreviewEscape(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function buildPdfReviewHtml(fileName, review) {
+    var included = review.included || [];
+    var trimmed = review.trimmed || [];
+    var html = '<div class="border rounded p-2 mb-2 bg-white">' +
+      '<div class="small fw-bold mb-1">📑 ' + pdfPreviewEscape(fileName) +
+      ' <span class="text-muted fw-normal">(' +
+      (review.kind === 'jpeg' ? 'สแกน → JPEG' : 'ข้อความ → Markdown') +
+      ') — ส่ง ' + included.length + '/' + (review.totalPages || 0) + ' หน้า</span></div>';
+
+    if (review.kind === 'jpeg') {
+      var badges = included.slice(0, 120).map(function (p) {
+        return '<span class="badge bg-light text-dark border me-1 mb-1">หน้า ' + p + '</span>';
+      }).join('');
+      html += '<div>' + (badges || '<span class="text-muted small">ไม่มีหน้าที่ส่ง</span>') + '</div>';
+      if (included.length > 120) {
+        html += '<div class="small text-muted">… และอีก ' + (included.length - 120) + ' หน้า</div>';
+      }
+      html += '<div class="form-text text-muted" style="font-size:0.74rem;">' +
+        'หน้าสแกนไม่มีข้อความให้ตรวจปี จึงใช้เฉพาะช่วงหน้าที่กรอก — แก้ช่วงหน้าแล้วกดประมวลผลใหม่ได้</div>';
+    } else if (trimmed.length) {
+      html += '<div class="small text-danger mb-1">✂️ ตัดอัตโนมัติ ' + trimmed.length +
+        ' หน้า (กดเพื่อเลือกกลับ):</div><div class="d-flex flex-wrap gap-2 mb-2">';
+      trimmed.forEach(function (t) {
+        var reason = t.reason === 'oldMeeting' ? 'รายงานประชุมปีเก่า' : 'อยู่นอกช่วงหน้า';
+        var snippet = String(t.text || '').replace(/\s+/g, ' ').trim().slice(0, 36);
+        html += '<label class="mb-0 small">' +
+          '<input type="checkbox" class="form-check-input pdf-trim-toggle me-1" data-file="' +
+          pdfPreviewEscape(fileName) + '" data-page="' + Number(t.page) + '">' +
+          'หน้า ' + t.page + ' <span class="text-muted">(' + pdfPreviewEscape(reason) +
+          (snippet ? ': ' + pdfPreviewEscape(snippet) : '') + ')</span></label>';
+      });
+      html += '</div>';
+      var shown = included.slice(0, 60).join(', ');
+      html += '<div class="small text-muted">ส่งเข้า AI: ' + pdfPreviewEscape(shown || '—') +
+        (included.length > 60 ? ' …' : '') + '</div>';
+    } else {
+      html += '<div class="small text-success">✅ ไม่มีหน้าถูกตัดอัตโนมัติ — ส่ง ' +
+        included.length + ' หน้า</div>';
+    }
+    return html + '</div>';
+  }
+
+  function renderPdfPageReview() {
+    var box = document.getElementById('pdfPagePreview');
+    if (!box) return;
+    var names = Object.keys(pdfPageReviews);
+    if (!names.length) {
+      box.innerHTML = '';
+      box.classList.add('d-none');
+      return;
+    }
+    box.innerHTML = names.map(function (name) {
+      return buildPdfReviewHtml(name, pdfPageReviews[name]);
+    }).join('');
+
+    var toggles = box.querySelectorAll('.pdf-trim-toggle');
+    for (var i = 0; i < toggles.length; i++) {
+      (function (el) {
+        el.addEventListener('change', function () {
+          toggleTrimmedPage(el.getAttribute('data-file'),
+            Number(el.getAttribute('data-page')), el.checked);
+        });
+      })(toggles[i]);
+    }
+    box.classList.remove('d-none');
+  }
+
+  function showPdfPagePreview() {
+    if (!Object.keys(pdfPageReviews).length) {
+      var box = document.getElementById('pdfPagePreview');
+      if (box) {
+        box.innerHTML = '<div class="alert alert-secondary py-2 mb-0 small">' +
+          'ยังไม่มีข้อมูลหน้า — กด "ประมวลผลเอกสารความเร็วสูงด้วย AI" ก่อน หรืออัปโหลดไฟล์ PDF แล้วรอการอ่าน</div>';
+        box.classList.remove('d-none');
+      }
+      return;
+    }
+    renderPdfPageReview();
+  }
+
+  /** ผู้ใช้กดเลือกหน้าที่ถูกตัดกลับ → สร้าง Markdown ใหม่โดยไม่ยิง API */
+  function toggleTrimmedPage(fileName, pageNo, checked) {
+    var r = pdfPageReviews[fileName];
+    if (!r || r.kind !== 'text') return;
+    var picked = null;
+    for (var i = 0; i < r.trimmed.length; i++) {
+      if (r.trimmed[i].page === pageNo) { picked = r.trimmed[i]; break; }
+    }
+    if (!picked) return;
+
+    if (checked) {
+      r.trimmed = r.trimmed.filter(function (x) { return x.page !== pageNo; });
+      if (r.included.indexOf(pageNo) === -1) r.included.push(pageNo);
+      r.included.sort(function (a, b) { return a - b; });
+    } else {
+      r.included = r.included.filter(function (p) { return p !== pageNo; });
+      r.trimmed.push(picked);
+      r.trimmed.sort(function (a, b) { return a.page - b.page; });
+    }
+
+    var wanted = {};
+    r.included.forEach(function (p) { wanted[p] = true; });
+    var chosen = r.allPages.filter(function (p) { return wanted[p.page]; });
+    if (!window.CPD_UPLOAD || typeof window.CPD_UPLOAD.selectPages !== 'function') return;
+    var selection = window.CPD_UPLOAD.selectPages(chosen, {
+      maxChars: 90000,
+      alwaysPages: 0,   // เคารพสิ่งที่ผู้ใช้เลือกจริง ๆ (ไม่บังคับหน้า 1-3)
+      minPageChars: 0,  // หน้าสั้นที่ผู้ใช้เลือกกลับต้องไม่ถูกข้าม
+      declaredTotalPages: r.totalPages,
+      outputFormat: 'markdown'
+    });
+
+    var f = r.file;
+    f.extractedText = selection.text;
+    f.markdown = selection.text;
+    f.chars = selection.charsSelected;
+    f.pagesRead = selection.pagesSelectedCount;
+    if (f.coverage) {
+      f.coverage.pagesIncluded = selection.pagesSelectedCount;
+      f.coverage.pagesSelected = selection.pagesSelected;
+      f.coverage.pagesSkipped = selection.pagesSkipped;
+      f.coverage.skippedCount = selection.skippedCount;
+      f.coverage.charsSent = selection.charsSelected;
+      f.coverage.trimmedPages = r.trimmed.map(function (x) { return x.page; });
+      f.coverage.complete = selection.complete;
+    }
+    renderUploadCoverage(lastFilesToUpload.length ? lastFilesToUpload : [f]);
+    renderPdfPageReview();
+  }
+
   /**
    * แสดงสถานะรอบอัปโหลดล่าสุด + ปุ่มย้อนกลับ
    */
@@ -1528,6 +1905,8 @@
       // ประมวลผลทุกไฟล์พร้อมกันแบบขนาน (Parallel Processing)
       resetReadProgress();
       let filesToUpload = await Promise.all(tasks);
+      // เก็บไว้ให้พรีวิว/การกดเลือกหน้าที่ตัดกลับใช้โดยไม่ต้องอ่านไฟล์ใหม่
+      lastFilesToUpload = filesToUpload;
 
       // Phase 1A: จำกัดตัวอักษรรวมทุกไฟล์ และตัดที่ขอบหน้า (ไม่ตัดกลางหน้า)
       if (window.CPD_UPLOAD && typeof window.CPD_UPLOAD.applyTotalBudget === 'function') {
@@ -1652,15 +2031,45 @@
           validateAccountingEquation();
         }
 
+        // PDF pipeline: เก็บ Markdown + ฟิลด์ที่ AI สกัดลง State/LocalStorage
+        // (ไม่เก็บ base64 JPEG — payload ยังเป็นตัวจริงที่ส่งให้ GAS เหมือนเดิม)
+        var fieldsForCache = (uploadPlan && uploadPlan.fields) || res || {};
+        var documentsForCache = [];
+        filesToUpload.forEach(function (f) {
+          if (!f) return;
+          var markdown = f.markdown || (f.mode === 'text' ? f.extractedText : '');
+          if (!markdown) return;
+          documentsForCache.push({
+            name: f.name,
+            category: f.category,
+            markdown: markdown,
+            pages: (f.coverage && f.coverage.pagesSelected) || [],
+            fields: fieldsForCache,
+            createdAt: new Date().toISOString()
+          });
+        });
+        if (!documentsForCache.length && hasLowTextPdf) {
+          documentsForCache.push({
+            name: 'ผลสกัดจากไฟล์สแกน',
+            category: 'ข้อความจากภาพ',
+            markdown: '## หน้าสแกน\nAI อ่านจากภาพแล้วสกัดฟิลด์ด้านล่าง (ไม่เก็บ base64)',
+            fields: fieldsForCache,
+            createdAt: new Date().toISOString()
+          });
+        }
+
         // Phase 0: เก็บ snapshot + metadata ของรอบอัปโหลด (ใช้ย้อนกลับได้)
         if (upload && uploadPlan) {
           upload.commit(uploadPlan, {
             before: beforeValues,
             applied: appliedRecords,
             extraIds: profileFilledIds,
+            documents: documentsForCache,
             env: { state: window.CPD_AppState, document: document }
           });
           refreshUploadMetaHint();
+          // Cross-Check หลัง commit: อ่านจาก cache ใน State (ไม่ยิง API อ่านไฟล์ซ้ำ)
+          crossCheckFromCachedDocs();
 
           // แสดงรายการที่ "ไม่ถูกเติมอัตโนมัติ" ให้ผู้ใช้เลือกเอง
           upload.renderReview(uploadPlan, document.getElementById('uploadReview'), {
@@ -1902,6 +2311,7 @@
 <script src="js/cpd-mis-reports.js?v=20260214a"></script>
 <script src="js/cpd-4m-engine.js?v=20260214b"></script>
 <script src="js/cpd-business-analysis.js?v=20260214f"></script>
+<script src="js/cpd-pdf-pipeline.js?v=20261119a"></script>
 <script src="js/cpd-upload.js?v=20261117b"></script>
 <script src="js/cpd-ui.js?v=20261112a"></script>
 </body>

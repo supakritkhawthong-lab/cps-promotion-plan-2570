@@ -15,8 +15,8 @@
 flowchart TD
     A["ผู้ใช้อัปโหลดไฟล์ 4 ช่อง<br/>fileBasic / fileFinance / fileAudit / fileOther"] --> B["smartProcessFile()<br/>web/index.html"]
     B --> C{"ชนิดไฟล์"}
-    C -->|"PDF มีข้อความ"| D["PDF.js: อ่านทุกหน้า (สูงสุด 150 หน้า / 150 วินาที)<br/>ให้คะแนนหน้า → เลือกตาม budget 55,000 ตัวอักษร<br/>ไม่ตัดกลางหน้า + coverage"]
-    C -->|"PDF สแกน / รูปภาพ"| E["base64 แบ่งชุดละ 12 หน้า<br/>งบรวม 18MB แบ่งตามจำนวนไฟล์<br/>คำนวณหน้าที่พอดีกับงบที่เหลือ"]
+    C -->|"PDF มีข้อความ"| D["PDF.js: อ่านทุกหน้า (สูงสุด 150 หน้า / 150 วินาที)<br/>กรองช่วงหน้า + ตัดรายงานประชุมปีเก่าท้ายเล่ม<br/>แปลงเป็น Markdown '## หน้า N' → selectPages<br/>เลือกตาม budget 55,000 ตัวอักษร + coverage"]
+    C -->|"PDF สแกน / รูปภาพ"| E["PDF.js render ทีละหน้าเป็น JPEG<br/>กว้าง ≤ 1200px, quality 0.75<br/>ส่งทีละหน้าเป็น inlineData image/jpeg<br/>(fallback เดิม: base64 แบ่งชุดละ 12 หน้า)"]
     C -->|"DOC / DOCX / XLSX"| F["สกัดข้อความ<br/>ถ้าไม่ได้ส่งไฟล์ดิบ"]
     D --> G["profileExtract<br/>parseSmartCoopProfile()"]
     D --> D2["Phase 1B: evidence windows<br/>ข้อความสั้นรอบคำสำคัญจากหน้าที่ไม่ได้ส่ง<br/>≤ 6,000 ตัวอักษร/ไฟล์, ≤ 18,000 รวม"]
@@ -42,6 +42,8 @@ flowchart TD
     N2 --> O["State: syncFromBaseFormToAllTabs()"]
     N3 --> O
     N4 --> O
+    N4 --> N5["CPD_PDF_PIPELINE.cacheDocs()<br/>analysis.extractedDocs = Markdown + ฟิลด์ AI<br/>(ไม่เก็บ base64 JPEG)"]
+    N5 --> N6["Simulator: ใช้ค่าจาก cache ก่อน<br/>Cross-Check: อ่านจาก cache ไม่ยิง API ซ้ำ"]
     O --> P["คำนวณ financials / ratios / strength"]
     M --> Q["applyUploadedAnalysisNotes()"]
     Q --> R["หน้า 2: ข้อ 1-4"]
@@ -73,8 +75,12 @@ flowchart TD
 | `fileAudit` | ผลปิดบัญชี/ข้อสังเกต | PDF.js / DOCX / XLSX / base64 | PDF สแกนแบ่งชุดละ 12 หน้าตามงบที่แบ่งให้ |
 | `fileOther` | ไฟล์อื่น ๆ | PDF.js / DOCX / XLSX / base64 | PDF สแกนแบ่งชุดละ 12 หน้าตามงบที่แบ่งให้ |
 
-### PDF ที่มีข้อความ (Phase 1A)
+### PDF ที่มีข้อความ (Phase 1A + PDF pipeline)
 
+- หน้าเว็บมีช่อง "ช่วงหน้าที่ต้องการส่ง (เช่น 1-12,15,20-25)" และตัวเลือก "ตัดหน้ารายงานการประชุมปีเก่าท้ายเล่มอัตโนมัติ"
+  - `CPD_PDF_PIPELINE.parsePageRange()` แปลงช่วงหน้า; `filterRelevantPages()` จำกัดกลุ่มหน้าก่อน แล้วค่อยตัดรายงานประชุมที่มีแต่ปีเก่ากว่าปีแผนจาก **ท้ายกลุ่ม**
+  - หน้าที่ถูกตัดแสดงใน "👁 พรีวิวหน้า" พร้อมข้อความย่อ และ **กดเลือกกลับได้** (สร้าง Markdown ใหม่ในเครื่อง ไม่ยิง API)
+- ข้อความทุกหน้าถูก `cleanText()` แล้วจัดรูปเป็น Markdown สะอาดด้วย `formatPagesAsMarkdown()` → `## หน้า N`
 - อ่านข้อความ **ทุกหน้า** สูงสุด 150 หน้า หรือจนครบเวลาอ่าน ~150 วินาที (`READ_TOTAL_BUDGET_MS`) (ไม่จำกัด 25 หน้าแรกเหมือนเดิม)
 - ให้คะแนนแต่ละหน้าด้วย `CPD_UPLOAD.scorePageText()`
   - หัวข้อการเงิน (`งบฐานะการเงิน`, `งบดุล`, `งบกำไรขาดทุน`, `งบกระแสเงินสด`, `รวมสินทรัพย์`, `ทุนเรือนหุ้น`, `ทุนสำรอง`) → +3 ต่อคำ (สูงสุด 9)
@@ -82,7 +88,7 @@ flowchart TD
   - ความหนาแน่นของตัวเลข → สูงสุด +6, ลักษณะตารางตัวเลข → +3
   - หน้า 1–3 (ข้อมูลพื้นฐาน/ใบโปรไฟล์) → +2 และ **ถูกเลือกเสมอ**
 - `CPD_UPLOAD.selectPages()` เลือกหน้าคะแนนสูงจนเต็ม budget ต่อไฟล์ 55,000 ตัวอักษร แล้วเรียงกลับตามเลขหน้า
-- **ไม่ตัดกลางหน้า** — ข้อความที่ส่งเข้า AI ถูกตัดที่ขอบหน้าเสมอ และแต่ละหน้าถูกทำเครื่องหมาย `[หน้า N]`
+- **ไม่ตัดกลางหน้า** — ข้อความที่ส่งเข้า AI ถูกตัดที่ขอบหน้าเสมอ และแต่ละหน้าถูกทำเครื่องหมายเป็น `## หน้า N` (โค้ดเดิมที่ใช้ `[หน้า N]` ยังรองรับอยู่)
 - จำกัดตัวอักษรรวมทุกไฟล์ 180,000 ตัวอักษร (`CPD_UPLOAD.applyTotalBudget()`, ขั้นต่ำ 12,000 ตัวอักษร/ไฟล์) โดยตัดไฟล์ที่ใหญ่ที่สุดก่อน
 - **Phase 1B — evidence windows:** หน้าที่ไม่ได้ถูกส่งทั้งหน้า (ถูกข้ามตอนเลือก หรือถูกตัดเพราะ budget) จะถูกเก็บข้อความสั้น ๆ รอบคำสำคัญ เช่น `รวมสินทรัพย์`, `ทุนสำรอง`, `กำไรสุทธิ`, `ผู้สอบบัญชี`, `ข้อสังเกต`
   - `CPD_UPLOAD.extractEvidence()` เก็บไม่เกิน 2 ช่วง/หน้า, 6,000 ตัวอักษร/ไฟล์
@@ -96,7 +102,12 @@ flowchart TD
 
 ### PDF สแกน / รูปภาพ
 
-- ถ้าสกัดข้อความได้น้อย → ใช้ `pdf-lib` แบ่งเป็นชุดละ 12 หน้า แล้วส่งเป็น `base64` (`inlineData`)
+- ถ้าสกัดข้อความได้น้อย → `CPD_PDF_PIPELINE.renderPageToJpeg()` ใช้ **PDF.js ตัวเดิม** render แต่ละหน้าเป็น `image/jpeg`
+  - `computeJpegScale()` จำกัดความกว้าง ≤ 1200px และไม่ขยายเกิน 2x; quality 0.75
+  - หน้าถูกส่ง **ทีละหน้า** เป็น `inlineData` (`mimeType: image/jpeg`) พร้อม `pagesFrom = pagesTo = เลขหน้า`
+  - จำนวนหน้าถูกจำกัดด้วยงบ base64 รวม (แบ่งตามจำนวนไฟล์แบบเดิม) และ `payload.files[].jpegPages` ถูกส่งให้ GAS แทน `scanChunks`
+  - `coverage` บอกจำนวนหน้าที่ render/send จริง พร้อม `scanJpeg: true`
+- **Fallback เดิมยังอยู่:** ถ้า render JPEG ไม่สำเร็จ ระบบกลับไปใช้ `pdf-lib` แบ่งชุดละ 12 หน้าเป็น `base64` (`inlineData`)
 - งบ `base64` รวมทุกไฟล์อยู่ที่ 18MB และถูกแบ่งตามจำนวนไฟล์ที่เลือก (ไม่ใช่ 18MB ต่อไฟล์)
 - ถ้าชุดใดใหญ่เกินงบที่เหลือ ระบบจะวัดขนาดต่อหน้าจริงแล้วคำนวณจำนวนหน้าที่พอดี แทนการตัดครึ่งแล้วเสียหน้าไป
 - ติดธง `lowTextPdf: true` **เฉพาะไฟล์นั้น** (ธงรายไฟล์ ไม่ใช่ธงระดับงาน)
@@ -109,18 +120,35 @@ flowchart TD
 | ฟิลด์ | ความหมาย |
 | --- | --- |
 | `mode` | `text` / `doc` / `docx` / `xlsx` / `scan` / `image` / `binary` |
+| `pipeline` | `markdown` (PDF มีข้อความ) / `jpeg` (สแกน render ภาพ) / `text` |
+| `jpegPages` | metadata `{ page, width, height }` ของหน้าสแกนที่ render (ไม่มี base64 ลง State) |
 | `totalPages` / `pagesRead` | จำนวนหน้าทั้งไฟล์ / จำนวนหน้าที่ส่งเข้า AI |
 | `chars` | จำนวนตัวอักษรที่ส่งเข้า AI |
 | `truncated` | ข้อความถูกตัดเพราะเกิน budget (ตัดที่ขอบหน้า) |
 | `lowTextPdf` | ไฟล์นี้เป็นสแกน/ภาพ (ใช้ตัดสิน `zero` vs `zeroReview`) |
 | `evidence` | `{ pages, chars, windows }` หลักฐานเสริมจากหน้าที่ไม่ได้ส่งทั้งหน้า (metadata เท่านั้น ไม่เก็บข้อความลง State) |
-| `coverage` | `{ totalPages, pagesRead, pagesIncluded, pagesSkipped, skippedCount, pagesSkippedHighScore, charsTotal, charsSent, evidenceChars, evidencePages, evidenceWindows, evidenceCapped, complete }` |
+| `coverage` | `{ totalPages, pagesRead, pagesIncluded, pagesSkipped, skippedCount, pagesSkippedHighScore, charsTotal, charsSent, evidenceChars, evidencePages, evidenceWindows, evidenceCapped, complete, trimmedPages, autoTrim, pageRange, scanJpeg }` |
 
 `coverage` ถูกจำกัดขนาดก่อนเก็บ (หน้า skipped สูงสุด 100 รายการ, หน้าคะแนนสูงสุด 30 รายการ) และเก็บใน `analysis.uploadMeta.files` เพื่อให้ตรวจย้อนหลังได้ว่ารอบนั้นอ่านไฟล์ครบหรือไม่
 
 `plan()` จะสร้างคำเตือนจาก `coverage` เช่น
 `ไฟล์ annual.pdf: อ่าน 62/62 หน้า • ส่งเข้า AI 41 หน้า • ข้าม 21 หน้า`
 และถ้ามีหน้าที่คะแนนสูงถูกข้าม จะระบุเลขหน้าเหล่านั้นเพื่อให้ผู้ใช้แยกไฟล์มาอัปโหลดซ้ำ
+
+### 2.1 Cache ข้อมูลจากเอกสาร (PDF pipeline)
+
+หลัง `CPD_UPLOAD.commit()` ระบบเรียก `CPD_PDF_PIPELINE.cacheDocs()` เก็บลง `analysis.extractedDocs` ใน State (ซึ่ง `saveLocalDraft()` เขียนลง LocalStorage อยู่แล้ว):
+
+| ที่เก็บ | เนื้อหา | ห้ามเก็บ |
+| --- | --- | --- |
+| `analysis.extractedDocs[].markdown` | Markdown สะอาดจาก PDF (สูงสุด 120,000 ตัวอักษร/เอกสาร) | — |
+| `analysis.extractedDocs[].fields` | ฟิลด์ที่ AI สกัด `{ key: { value, display, id } }` | — |
+| `analysis.extractedDocs[].pages` | **เฉพาะเลขหน้า** | base64 JPEG/PDF |
+
+- จำกัด 3 เอกสารล่าสุด และ budget รวม ~250,000 ตัวอักษร (ของใหม่สุดอยู่ก่อน)
+- โหลดซ้ำได้ผ่าน `readCachedDocs()` / `mergeCachedFields()` — **ไม่ต้องอ่านไฟล์หรือยิง API ซ้ำ**
+- **Simulator** (`onSelectCoop()` → `getEffectiveSimResult()`): ใช้ตัวเลขจาก cache ก่อน (`getDocumentSimResult()`) แล้วค่อย fallback `c.simResult` ของ master; `easyWins` ยังมาจาก master เสมอเพราะเอกสารไม่มีคะแนนรายตัวชี้วัด 2570
+- **Cross-Check** (ปุ่ม "🔍 เช็กดุล" → `crossCheckFromCachedDocs()`): `getDocumentCrossCheck()` อ่านค่าจาก cache เพื่อแสดงสมการบัญชี/ผลต่าง พร้อมระบุว่าใช้ข้อมูลในเครื่อง ไม่ได้อ่านไฟล์ซ้ำ
 
 ---
 
@@ -333,6 +361,7 @@ flowchart TD
 | `_aiConflicts` | ค่าที่ขัดกันจากหลายช่วง/หลายไฟล์ (≤ 20 ฟิลด์ × 3 ค่า) พร้อมไฟล์/หน้า (Phase 1C) |
 | `uploadedSectionsCoop` + `uploadedSectionsFiscalYear` | กันบทวิเคราะห์ข้ามสหกรณ์/ข้ามปีบัญชี |
 | `uploadedSectionsRunId` / `uploadedSectionsStatus` | รู้ว่าบทวิเคราะห์มาจากรอบใด และเป็น `uploaded` หรือ `partial` |
+| `analysis.extractedDocs` | cache Markdown + ฟิลด์ AI (ไม่เก็บ base64) ให้ Simulator/Cross-Check ใช้โดยไม่ยิง API ซ้ำ |
 | เตือนหัวข้อที่รอบใหม่ไม่มี | คงข้อความเดิมไว้และแจ้งว่าข้อ 1–4 ข้อใดไม่มีในรอบนี้ |
 
 ---
@@ -340,8 +369,9 @@ flowchart TD
 ## 7. ไฟล์ต้นฉบับถูกเก็บไว้หรือไม่
 
 ในเส้นทาง `analyzeUploadedFilesWithAI()` **ไม่มีการบันทึกไฟล์ต้นฉบับลง Google Drive**
-สิ่งที่ถูกเก็บคือข้อความ/ตัวเลขที่สกัดได้ใน State และร่างที่บันทึกผ่าน `saveDraft`
+สิ่งที่ถูกเก็บคือข้อความ/ตัวเลขที่สกัดได้ใน State (`analysis.extractedDocs` สำหรับ PDF pipeline) และร่างที่บันทึกผ่าน `saveDraft`
 (ยกเว้นฟังก์ชันอื่นของระบบที่แยกไปสร้าง/เก็บเอกสาร Word)
+**base64 ของ PDF/JPEG ไม่ถูกเก็บลง State หรือ LocalStorage** — ใช้เฉพาะใน payload ที่ส่งให้ GAS ระยะ facts เท่านั้น
 
 ---
 

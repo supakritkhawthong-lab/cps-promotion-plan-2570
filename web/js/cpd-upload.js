@@ -345,6 +345,17 @@
         pagesRead: typeof f.pagesRead === 'number' ? f.pagesRead : null,
         chars: typeof f.chars === 'number' ? f.chars : (f.extractedText ? String(f.extractedText).length : null),
         truncated: !!f.truncated,
+        // เก็บเฉพาะ metadata ของ JPEG (ห้ามเก็บ base64 ลง uploadMeta)
+        pipeline: String(f.pipeline || (f.mode === 'scan' ? 'jpeg' : 'text')),
+        jpegPages: Array.isArray(f.jpegPages)
+          ? f.jpegPages.map(function (p) {
+              return {
+                page: Number(p.page) || 0,
+                width: Number(p.width) || 0,
+                height: Number(p.height) || 0
+              };
+            }).slice(0, 200)
+          : [],
         evidence: evidenceMeta,
         coverage: coverage
       };
@@ -428,12 +439,18 @@
   function selectPages(pageTexts, options) {
     var opts = options || {};
     var maxChars = Number(opts.maxChars) > 0 ? Number(opts.maxChars) : 55000;
-    var alwaysPages = Number(opts.alwaysPages) > 0 ? Number(opts.alwaysPages) : 3;
-    var minPageChars = Number(opts.minPageChars) > 0 ? Number(opts.minPageChars) : 20;
+    // ค่า 0 ที่ส่งมาชัดเจน = ไม่บังคับหน้าแรก / ไม่ข้ามหน้าสั้น
+    // (ใช้ตอนผู้ใช้กดเลือกหน้าที่ถูกตัดกลับในพรีวิว)
+    var alwaysPages = opts.alwaysPages === 0 ? 0
+      : (Number(opts.alwaysPages) > 0 ? Number(opts.alwaysPages) : 3);
+    var minPageChars = opts.minPageChars === 0 ? 0
+      : (Number(opts.minPageChars) > 0 ? Number(opts.minPageChars) : 20);
     var highScore = Number(opts.highScore) > 0 ? Number(opts.highScore) : 5;
     var declaredTotal = Number(opts.declaredTotalPages) > 0
       ? Number(opts.declaredTotalPages)
       : (pageTexts || []).length;
+    // PDF pipeline ส่ง Markdown สะอาด (## หน้า N) แทนข้อความล้วน ([หน้า N])
+    var markdown = opts.outputFormat === 'markdown';
 
     var scored = [];
     (pageTexts || []).forEach(function (p) {
@@ -449,7 +466,7 @@
     var usedChars = 0;
     function include(item, force) {
       if (selected[item.page]) return true;
-      var cost = item.chars + 12; // "[หน้า 999] "
+      var cost = item.chars + (markdown ? 16 : 12); // "## หน้า 999\n\n" หรือ "[หน้า 999] "
       if (!force && usedChars + cost > maxChars && Object.keys(selected).length > 0) return false;
       selected[item.page] = true;
       usedChars += cost;
@@ -471,7 +488,12 @@
     var pagesUnread = Math.max(0, declaredTotal - scored.length);
 
     return {
-      text: kept.map(function (item) { return '[หน้า ' + item.page + '] ' + item.text; }).join('\n'),
+      text: kept.map(function (item) {
+        return markdown
+          ? '## หน้า ' + item.page + '\n\n' + item.text
+          : '[หน้า ' + item.page + '] ' + item.text;
+      }).join(markdown ? '\n\n' : '\n'),
+      outputFormat: markdown ? 'markdown' : 'plain',
       pagesSelected: kept.map(function (item) { return item.page; }),
       pagesSelectedCount: kept.length,
       pagesSkipped: skipped.map(function (item) { return item.page; }).slice(0, 200),
@@ -487,17 +509,18 @@
     };
   }
 
+  // รองรับทั้งรูปแบบเดิม [หน้า N] และ Markdown ## หน้า N
   function pagePartsFromText(text) {
     var t = String(text || '');
-    if (!/\[หน้า \d+\]/.test(t)) return null;
-    return t.split(/(?=\[หน้า \d+\] )/)
+    if (!/(?:\[หน้า \d+\]|## หน้า \d+)/.test(t)) return null;
+    return t.split(/(?=\[หน้า \d+\]|## หน้า \d+)/)
       .map(function (s) { return s.replace(/\n+$/, ''); })
       .filter(function (s) { return s.trim(); });
   }
 
   function pageNumbersFromText(text) {
     var out = [];
-    var re = /\[หน้า (\d+)\]/g;
+    var re = /(?:\[หน้า|## หน้า)\s*(\d+)/g;
     var m;
     while ((m = re.exec(String(text || '')))) out.push(Number(m[1]));
     return out;
@@ -735,8 +758,8 @@
     var removedItems = [];
     if (parts) {
       var items = parts.map(function (part) {
-        var m = part.match(/^\[หน้า (\d+)\]/);
-        var page = m ? Number(m[1]) : 0;
+        var m = part.match(/^(?:\[หน้า (\d+)\]|## หน้า (\d+))/);
+        var page = m ? Number(m[1] || m[2]) : 0;
         return { page: page, text: part, chars: part.length, score: scorePageText(part, page).score };
       });
       var used = items.reduce(function (sum, it) { return sum + it.chars + 1; }, 0) - 1;
@@ -751,7 +774,7 @@
           removedParts[victim.page] = victim.text;
           removedItems.push({
             page: victim.page,
-            text: victim.text.replace(/^\[หน้า \d+\]\s*/, '')
+            text: victim.text.replace(/^(?:\[หน้า \d+\]|## หน้า \d+)\s*/, '')
           });
         }
         items = items.filter(function (it) { return it !== victim; });
@@ -1406,6 +1429,17 @@
 
     s.analysis.uploadMeta = meta;
     s.analysis.uploadHistory = history;
+
+    // PDF pipeline: เก็บ Markdown + ฟิลด์ที่ AI สกัด (ไม่เก็บ base64)
+    if (opts.documents && global.CPD_PDF_PIPELINE &&
+        typeof global.CPD_PDF_PIPELINE.cacheDocs === 'function') {
+      try {
+        global.CPD_PDF_PIPELINE.cacheDocs(s, opts.documents);
+      } catch (e) {
+        console.warn('[docCache]', e);
+      }
+    }
+
     scheduleSave(opts.env);
     return meta;
   }

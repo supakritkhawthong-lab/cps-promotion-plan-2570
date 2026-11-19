@@ -38,6 +38,15 @@ test('ฟิลด์ uploaded* มีอยู่ใน State เริ่ม�
   });
 });
 
+test('analysis.extractedDocs มีอยู่ใน State เริ่มต้น (PDF pipeline cache)', function () {
+  reset();
+  assert.ok(Object.prototype.hasOwnProperty.call(AppState.analysis, 'extractedDocs'),
+    'ต้องมี analysis.extractedDocs');
+  assert.strictEqual(Array.isArray(AppState.analysis.extractedDocs), true,
+    'extractedDocs ต้องเป็นอาร์เรย์');
+  assert.strictEqual(AppState.analysis.extractedDocs.length, 0);
+});
+
 test('กำหนดเวลาเริ่มต้น: ปิดบัญชี 30 วัน และประชุมใหญ่ 150 วัน', function () {
   reset();
   const d = S.computeDeadlines();

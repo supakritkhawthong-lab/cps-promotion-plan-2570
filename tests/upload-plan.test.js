@@ -16,6 +16,7 @@ const { loadWebScripts } = require('./helpers/sandbox');
 function setup() {
   const web = loadWebScripts([
     'web/js/cpd-state.js',
+    'web/js/cpd-pdf-pipeline.js',
     'web/js/cpd-upload.js'
   ]);
   web.CPD_STATE.replaceState(web.CPD_STATE.defaultState());
@@ -246,6 +247,84 @@ test('validation: จำนวนสมาชิกไม่สอดคล้�
 // metadata / snapshot / rollback
 // ---------------------------------------------------------------------------
 
+test('commit: documents ถูกเก็บเป็น Markdown + fields แต่ไม่เก็บ base64', function () {
+  const web = setup();
+  const doc = ensureEls(makeDoc({}), allIds(web));
+  const plan = web.CPD_UPLOAD.plan({
+    assetLatest: '10,000,000.00',
+    debtLatest: '4,000,000.00'
+  }, { formValues: {}, fiscalYear: '2570', files: [] });
+
+  web.CPD_UPLOAD.commit(plan, {
+    before: {},
+    applied: [],
+    documents: [{
+      name: 'finance.pdf',
+      category: 'งบการเงิน',
+      markdown: '## หน้า 1\nงบฐานะการเงิน รวมสินทรัพย์',
+      fields: { assetLatest: { value: 10000000, display: '10,000,000.00' } },
+      pages: [{ page: 1, base64: 'SECRET' }]
+    }],
+    env: { state: web.CPD_AppState, document: doc }
+  });
+
+  const cached = web.CPD_PDF_PIPELINE.readCachedDocs(web.CPD_AppState);
+  assert.strictEqual(cached.length, 1);
+  assert.strictEqual(cached[0].markdown.indexOf('## หน้า 1') !== -1, true);
+  assert.strictEqual(cached[0].fields.assetLatest.display, '10,000,000.00');
+  assert.strictEqual(JSON.stringify(web.CPD_AppState).indexOf('SECRET'), -1,
+    'ต้องไม่มี base64 หลุดลง State');
+});
+
+test('normalizeFiles: เก็บ pipeline + jpegPages metadata แต่ไม่เก็บ base64 JPEG', function () {
+  const web = setup();
+  const files = web.CPD_UPLOAD.normalizeFiles([{
+    name: 'scan.pdf',
+    category: 'งบการเงิน',
+    mode: 'scan',
+    lowTextPdf: true,
+    pipeline: 'jpeg',
+    jpegPages: [
+      { page: 1, base64: 'SECRET', width: 1200, height: 800 },
+      { page: 2, base64: 'SECRET2', width: 1200, height: 800 }
+    ]
+  }]);
+
+  assert.strictEqual(files[0].pipeline, 'jpeg');
+  assert.strictEqual(files[0].jpegPages.length, 2);
+  assert.strictEqual(files[0].jpegPages[0].page, 1);
+  assert.strictEqual(files[0].jpegPages[0].width, 1200);
+  assert.strictEqual(JSON.stringify(files).indexOf('SECRET'), -1,
+    'metadata ต้องไม่มี base64');
+});
+
+test('selectPages: outputFormat markdown ใช้หัวข้อ ## หน้า N และตัดที่ขอบหน้า', function () {
+  const web = setup();
+  const pages = [
+    { page: 1, text: 'ข้อมูลพื้นฐานสหกรณ์ ทดสอบระบบ' },
+    { page: 2, text: 'งบฐานะการเงิน รวมสินทรัพย์ 1,234.50 หนี้สิน 2,345.60' }
+  ];
+  const sel = web.CPD_UPLOAD.selectPages(pages, {
+    maxChars: 100000,
+    declaredTotalPages: 2,
+    outputFormat: 'markdown'
+  });
+
+  assert.strictEqual(sel.outputFormat, 'markdown');
+  assert.ok(sel.text.indexOf('## หน้า 1\n\n') === 0, 'ต้องขึ้นหัวข้อ Markdown');
+  assert.ok(sel.text.indexOf('## หน้า 2\n\n') !== -1);
+  assert.strictEqual(sel.text.indexOf('[หน้า '), -1, 'ต้องไม่ใช้รูปแบบเดิม');
+
+  // trimFileToChars ต้องยังตัดข้อความ markdown ได้ (ไม่ตัดกลางหน้า)
+  const file = { extractedText: sel.text };
+  const parts = web.CPD_UPLOAD.pagePartsFromText(file.extractedText);
+  assert.ok(parts && parts.length === 2, 'ต้องแยกหน้าจาก ## หน้า N ได้');
+  assert.strictEqual(web.CPD_UPLOAD.pageNumbersFromText(file.extractedText).join(','), '1,2');
+  const changed = web.CPD_UPLOAD.trimFileToChars(file, 40);
+  assert.strictEqual(changed, true, 'ต้องตัดข้อความ markdown ได้');
+  assert.ok(file.extractedText.indexOf('## หน้า ') !== -1, 'หลังตัดยังต้องเป็น markdown');
+});
+
 test('commit: เก็บ uploadMeta + snapshot และ rollback คืนค่าเดิมได้', function () {
   const web = setup();
   const doc = ensureEls(makeDoc({ debt_latest: '3,000,000.00' }), allIds(web));
@@ -429,6 +508,24 @@ test('selectPages: ข้อความพอดี budget → complete = true 
   assert.strictEqual(sel.pagesSelected.join(','), '1,2,3');
   assert.strictEqual(sel.skippedCount, 0);
   assert.strictEqual(sel.complete, true);
+});
+
+test('selectPages: alwaysPages/minPageChars = 0 เคารพการเลือกหน้ากลับของผู้ใช้', function () {
+  const web = setup();
+  const pages = [
+    { page: 1, text: 'สั้น' },
+    { page: 2, text: 'งบฐานะการเงิน รวมสินทรัพย์ 1,234.50 หนี้สิน 2,345.60' }
+  ];
+  const sel = web.CPD_UPLOAD.selectPages(pages, {
+    maxChars: 60,
+    alwaysPages: 0,
+    minPageChars: 0,
+    declaredTotalPages: 2,
+    outputFormat: 'markdown'
+  });
+
+  assert.strictEqual(sel.pagesSelected.join(','), '2', 'ไม่บังคับหน้า 1 ที่ผู้ใช้ไม่ได้เลือก');
+  assert.strictEqual(sel.text.indexOf('## หน้า 1'), -1);
 });
 
 test('applyTotalBudget: ตัดไฟล์ใหญ่สุดก่อน ทีละหน้า ไม่ตัดกลางหน้า และอัปเดต coverage', function () {
