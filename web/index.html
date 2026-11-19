@@ -1190,6 +1190,9 @@
       // เก็บเหตุผลที่ข้าม text path ไว้แจ้งใน coverage ของ scan path
       var textSkippedForNoNumbers = false;
       var textMoneyTokens = 0;
+      // หลายไฟล์ถูกอ่านพร้อมกัน (Promise.all) ห้ามใช้ pdfDoc ร่วมใน JPEG path
+      // เพราะไฟล์อื่นอาจทับค่าไว้ระหว่างรอ render → ได้หน้าของไฟล์ผิด
+      var localPdfDoc = null;
 
       // ขั้นที่ 1: PDF.js อ่านข้อความ "ทุกหน้า"
       //   - อ่านพร้อมกัน 4 หน้า (worker pool) เพราะการอ่านทีละหน้าแบบเรียงลำดับ
@@ -1199,8 +1202,9 @@
       //   - coverage บอกผู้ใช้ว่าอ่านกี่หน้า / ส่งกี่หน้า / ข้ามเพราะอะไร
       if (window.pdfjsLib) {
         // เก็บไว้ในตัวแปรร่วม เพื่อให้ขั้นตอนสแกน (JPEG) ใช้ document ตัวเดิมได้
-        pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
-        const pdf = pdfDoc;
+        localPdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+        pdfDoc = localPdfDoc; // shared reference for preview compatibility
+        const pdf = localPdfDoc;
         const numPages = pdf.numPages;
         const maxReadPages = Math.min(numPages, 150);
         const READ_TOTAL_BUDGET_MS = 150000;
@@ -1394,16 +1398,16 @@
       //   - เคารพช่วงหน้าที่ผู้ใช้ระบุ; หน้าสแกนไม่มี text layer จึงตัดอัตโนมัติไม่ได้
       //     (พรีวิวแสดงรายหน้าให้ผู้ใช้เลือกเองได้)
       const pipeScan = window.CPD_PDF_PIPELINE;
-      if (pdfDoc && pipeScan && typeof pipeScan.renderPageToJpeg === 'function') {
+      if (localPdfDoc && pipeScan && typeof pipeScan.renderPageToJpeg === 'function') {
         try {
           const pageOpts = getPdfPageOptions();
           const parsed = typeof pipeScan.parsePageRange === 'function'
-            ? pipeScan.parsePageRange(pageOpts.range, pdfDoc.numPages) : null;
+            ? pipeScan.parsePageRange(pageOpts.range, localPdfDoc.numPages) : null;
           var wantedPages = [];
           if (parsed && parsed.length) {
             wantedPages = parsed;
           } else {
-            for (var wp = 1; wp <= pdfDoc.numPages; wp++) wantedPages.push(wp);
+            for (var wp = 1; wp <= localPdfDoc.numPages; wp++) wantedPages.push(wp);
           }
 
           const jpegPages = [];
@@ -1412,7 +1416,7 @@
             if (jpegChars > scanBudget) break;
             const jp = wantedPages[ji];
             try {
-              const jpage = await pdfDoc.getPage(jp);
+              const jpage = await localPdfDoc.getPage(jp);
               const jpeg = await pipeScan.renderPageToJpeg(jpage, {
                 document: document,
                 maxWidth: pipeScan.JPEG_MAX_WIDTH,
@@ -1434,7 +1438,7 @@
           }
 
           if (jpegPages.length) {
-            const jpegLimited = jpegPages.length < pdfDoc.numPages;
+            const jpegLimited = jpegPages.length < localPdfDoc.numPages;
             const jpegResult = {
               name: file.name,
               category: category,
@@ -1442,26 +1446,26 @@
               mode: 'scan',
               pipeline: 'jpeg',
               lowTextPdf: true,
-              totalPages: pdfDoc.numPages,
+              totalPages: localPdfDoc.numPages,
               pagesRead: jpegPages.length,
               truncated: jpegLimited,
               jpegPages: jpegPages,
               coverage: {
-                totalPages: pdfDoc.numPages,
+                totalPages: localPdfDoc.numPages,
                 pagesRead: jpegPages.length,
                 pagesIncluded: jpegPages.length,
                 pagesSelected: jpegPages.map(function (x) { return x.page; }),
                 pagesSkipped: wantedPages.filter(function (p) {
                   return !jpegPages.some(function (x) { return x.page === p; });
                 }),
-                skippedCount: Math.max(0, pdfDoc.numPages - jpegPages.length),
+                skippedCount: Math.max(0, localPdfDoc.numPages - jpegPages.length),
                 pagesSkippedHighScore: [],
                 charsTotal: null,
                 charsSent: jpegChars,
                 scanJpeg: true,
                 textFallbackNoNumbers: textSkippedForNoNumbers,
                 textMoneyTokens: textMoneyTokens,
-                pagesNoText: pdfDoc.numPages,
+                pagesNoText: localPdfDoc.numPages,
                 pagesFailed: 0,
                 autoTrim: pageOpts.autoTrim,
                 pageRange: pageOpts.range,
@@ -1475,7 +1479,7 @@
               file: jpegResult,
               included: jpegPages.map(function (x) { return x.page; }),
               trimmed: [],
-              totalPages: pdfDoc.numPages
+              totalPages: localPdfDoc.numPages
             };
             renderPdfPageReview(file.name);
             return jpegResult;
