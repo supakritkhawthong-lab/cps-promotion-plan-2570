@@ -2,7 +2,7 @@
   "name": "cps-promotion-plan-2570",
   "version": "1.0.0",
   "private": true,
-  "description": "ระบบจัดทำแผนส่งเสริมสหกรณ์/กลุ่มเกษตรกร รายแห่ง ปีงบประมาณ พ.ศ. 2570",
+  "description": "ระบบติดตามการส่งเสริมสหกรณ์ จังหวัดชลบุรี 2570 (3 แท็บ: dashboard/registry/strength)",
   "scripts": {
     "test": "node --test tests/",
     "check:gs": "node tools/check-gs.js",

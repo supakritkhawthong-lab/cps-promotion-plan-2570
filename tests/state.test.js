@@ -24,29 +24,6 @@ test('ค่าเริ่มต้นผูกกับปีงบประ�
   assert.strictEqual(AppState.coopProfile.fiscalEndDate, '31 มีนาคม');
 });
 
-test('ฟิลด์ uploaded* มีอยู่ใน State เริ่มต้น (สัญญากับฝั่ง AI)', function () {
-  reset();
-  [
-    'uploadedSectionsCoop',
-    'uploadedOrgAnalysis4M',
-    'uploadedBusinessAnalysis',
-    'uploadedWelfareAnalysis',
-    'uploadedSummaryAnalysis'
-  ].forEach(function (key) {
-    assert.ok(Object.prototype.hasOwnProperty.call(AppState.analysis, key), 'ต้องมี analysis.' + key);
-    assert.strictEqual(typeof AppState.analysis[key], 'string', 'analysis.' + key + ' ต้องเป็นสตริง');
-  });
-});
-
-test('analysis.extractedDocs มีอยู่ใน State เริ่มต้น (PDF pipeline cache)', function () {
-  reset();
-  assert.ok(Object.prototype.hasOwnProperty.call(AppState.analysis, 'extractedDocs'),
-    'ต้องมี analysis.extractedDocs');
-  assert.strictEqual(Array.isArray(AppState.analysis.extractedDocs), true,
-    'extractedDocs ต้องเป็นอาร์เรย์');
-  assert.strictEqual(AppState.analysis.extractedDocs.length, 0);
-});
-
 test('กำหนดเวลาเริ่มต้น: ปิดบัญชี 30 วัน และประชุมใหญ่ 150 วัน', function () {
   reset();
   const d = S.computeDeadlines();

@@ -2,8 +2,9 @@
 
 /**
  * Security tests for the HTTP API layer.
- * - fetch errors must never leak the Gemini API key (the URL carries ?key=)
+ * - fetch errors must never leak a key (the URL carries ?key=...)
  * - doPost must redact secrets from message/stack before responding
+ * - removed plan/AI RPCs must not be reachable from the browser
  */
 
 const test = require('node:test');
@@ -42,9 +43,9 @@ test('doPost กรองข้อมูลลับก่อนส่ง error 
   assert.ok(api.indexOf('stack: isDebug_() ? redactSecrets_(') !== -1, 'stack ต้องผ่าน redactSecrets_');
 });
 
-test('callGeminiJson_ ครอบ UrlFetchApp.fetch ด้วย try/catch เพื่อไม่ให้ URL ที่มี key หลุด', function () {
-  const code = readRepo('gas', 'Code.gs');
-  const block = sliceBetween(code, 'for (let attempt = 1; attempt <= 2; attempt++) {', 'if (code === 503 || code === 429) {');
-  assert.ok(/try \{\s*res = UrlFetchApp\.fetch\(url, options\);/.test(block), 'ต้องมี try/catch ครอบ fetch');
-  assert.ok(block.indexOf('ตัดการเชื่อมต่อ') !== -1, 'ต้องบันทึกข้อความที่ไม่มี URL/key');
+test('doPost ปฏิเสธ RPC ที่ไม่มีอยู่ใน allowlist', function () {
+  const api = readRepo('gas', 'Api.gs');
+  assert.ok(api.indexOf('RPC_ALLOWLIST.indexOf(body.fn) === -1') !== -1,
+    'ต้องตรวจ allowlist ก่อนเรียกฟังก์ชัน');
+  assert.strictEqual(api.indexOf('AI_RPC_FUNCTIONS'), -1, 'ต้องลบช่องทาง RPC ของ AI ออก');
 });

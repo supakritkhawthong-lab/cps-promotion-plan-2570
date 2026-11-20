@@ -2,7 +2,7 @@
  * Setup.gs — ตัวช่วยตั้งค่าและตรวจสอบระบบ (ใช้ครั้งเดียว/ใช้ตรวจสอบ)
  *
  * วิธีตั้งค่า Script Properties โดยไม่ฝังความลับในโค้ด:
- *   clasp run setPropsFromArgs -p '[["GEMINI_API_KEY","..."],["API_TOKEN","..."]]'
+ *   clasp run setPropsFromArgs -p '[["API_TOKEN","..."]]'
  * (ต้อง deploy เป็น API executable ก่อน — ถ้าใช้ไม่ได้ ให้ตั้งในหน้า editor แทน)
  *
  * ไฟล์นี้ไม่ถูกเรียกจากเว็บ (doPost เรียกได้เฉพาะฟังก์ชันใน RPC_ALLOWLIST)
@@ -30,24 +30,12 @@ function setupCheck() {
   var props = PropertiesService.getScriptProperties();
   var keys = [
     'SPREADSHEET_ID',
-    'GEMINI_API_KEY',
-    'DRIVE_ROOT_FOLDER_ID',
     'API_TOKEN',
-    'GEMINI_MODELS',
-    'DEBUG',
-    'AI_THINKING_BUDGET',
-    'AI_SCAN_MAX_CALLS'
+    'DEBUG'
   ];
   var status = {};
   keys.forEach(function (k) {
     status[k] = props.getProperty(k) ? 'SET' : 'MISSING';
-  });
-
-  // Non-secret runtime config — safe to show so the values can be verified.
-  var runtimeKeys = ['GEMINI_MODELS', 'AI_THINKING_BUDGET', 'AI_SCAN_MAX_CALLS'];
-  var runtimeConfig = {};
-  runtimeKeys.forEach(function (k) {
-    runtimeConfig[k] = props.getProperty(k) || '(not set - using code default)';
   });
 
   var sheetStatus;
@@ -57,19 +45,9 @@ function setupCheck() {
     sheetStatus = 'ERROR: ' + (err && err.message ? err.message : String(err));
   }
 
-  var driveStatus;
-  try {
-    var folderId = getProp_('DRIVE_ROOT_FOLDER_ID');
-    driveStatus = folderId ? ('OK: ' + DriveApp.getFolderById(folderId).getName()) : 'MISSING DRIVE_ROOT_FOLDER_ID';
-  } catch (err2) {
-    driveStatus = 'ERROR: ' + (err2 && err2.message ? err2.message : String(err2));
-  }
-
   var out = {
     props: status,
-    runtimeConfig: runtimeConfig,
-    spreadsheet: sheetStatus,
-    driveFolder: driveStatus
+    spreadsheet: sheetStatus
   };
   Logger.log(JSON.stringify(out, null, 2));
   return out;

@@ -10,18 +10,8 @@ function getProp_(key, fallback) {
   return (v === null || v === '') ? (fallback === undefined ? '' : fallback) : v;
 }
 
-/**
- * อ่านคีย์ Gemini จาก Script Properties ทุกครั้งที่เรียก
- * ใช้ฟังก์ชันแทนตัวแปร global เพื่อกันชื่อชนกับไฟล์เก่าในโปรเจกต์
- * (เช่น Code.js ที่อาจมี var GEMINI_API_KEY = '...' ค้างอยู่)
- */
-function getGeminiKey_() {
-  return getProp_('GEMINI_API_KEY');
-}
-
 var CONFIG = {
   SPREADSHEET_ID: getProp_('SPREADSHEET_ID'),
-  DRIVE_ROOT_FOLDER_ID: getProp_('DRIVE_ROOT_FOLDER_ID'),
   SHEETS: {
     ASSIGN: 'คำสั่งมอบหมาย',
     YEAR68: 'ผลปี68',

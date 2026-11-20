@@ -1,41 +1,24 @@
 /**
- * Api.gs — ชั้น HTTP API สำหรับเรียกจากเว็บที่ host บน GitHub Pages
+ * Api.gs — HTTP API layer for the GitHub Pages frontend.
  *
- * frontend เดิมที่เรียก google.script.run จะถูกแปลงเป็น fetch โดย
- * web/js/google-script-shim.js แล้วมาลงที่ doPost() นี้
- *
- * รูปแบบ request:
+ * The web/js/google-script-shim.js translates google.script.run into fetch()
+ * calls that arrive here:
  *   POST <webapp-url>/exec
- *   Content-Type: text/plain;charset=utf-8   (เลี่ยง CORS preflight)
+ *   Content-Type: text/plain;charset=utf-8
  *   { "action": "rpc", "fn": "getMasterCoopList", "args": [], "token": "..." }
  *
- * รูปแบบ response:
- *   { "ok": true,  "result": ... }
- *   { "ok": false, "error": { "code": "...", "message": "..." } }
+ * Only read-only dashboard endpoints remain. Plan/AI upload endpoints were
+ * removed when the app was reduced to dashboard, registry and strength pages.
  */
 
-/** ฟังก์ชันที่อนุญาตให้เรียกจากภายนอก — เพิ่มชื่อที่นี่เมื่อทำ endpoint ใหม่ */
+/** Functions the browser is allowed to call. */
 var RPC_ALLOWLIST = [
   'getMasterCoopList',
-  'saveDraftToSheet',
-  'analyzeUploadedFilesWithAI',
-  'startAiAnalysisJob',
-  'stepAiAnalysisJob',
-  'generatePlanDocument',
-  'saveCompleteCoopRecord',
-  'getCompleteCoopRecord',
   'getDashboardSummaryData'
 ];
 
-/** จำกัดขนาด body (~34 MB ไบนารีหลัง base64) กัน memory quota */
-var MAX_BODY_CHARS = 45 * 1024 * 1024;
-
-/** ฟังก์ชันที่ต้องมี GEMINI_API_KEY ก่อนเรียก */
-var AI_RPC_FUNCTIONS = [
-  'analyzeUploadedFilesWithAI',
-  'startAiAnalysisJob',
-  'stepAiAnalysisJob'
-];
+/** Request body guard (dashboard filters are small). */
+var MAX_BODY_CHARS = 64 * 1024;
 
 function doPost(e) {
   var started = Date.now();
@@ -44,7 +27,7 @@ function doPost(e) {
   if (raw.length > MAX_BODY_CHARS) {
     return apiJson_({
       ok: false,
-      error: { code: 'PAYLOAD_TOO_LARGE', message: 'ไฟล์ที่ส่งมีขนาดใหญ่เกินกำหนด' }
+      error: { code: 'PAYLOAD_TOO_LARGE', message: 'ขนาดคำขอเกินกำหนด' }
     });
   }
 
@@ -73,9 +56,6 @@ function doPost(e) {
     }
     if (RPC_ALLOWLIST.indexOf(body.fn) === -1) {
       throw apiError_('FORBIDDEN', 'ไม่อนุญาตให้เรียกฟังก์ชัน: ' + body.fn);
-    }
-    if (AI_RPC_FUNCTIONS.indexOf(body.fn) !== -1 && !getGeminiKey_()) {
-      throw apiError_('CONFIG', 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY ใน Script Properties');
     }
 
     var fn = resolveRpc_(body.fn);
@@ -122,29 +102,18 @@ function apiError_(code, message) {
   return err;
 }
 
-/** V8 มี globalThis อยู่แล้ว แต่เผื่อ runtime เก่า */
+/** V8 has globalThis, but keep a fallback for older runtimes. */
 function getGlobal_() {
   return (typeof globalThis !== 'undefined') ? globalThis : this;
 }
 
-/**
- * หาฟังก์ชันที่จะเรียกแบบเจาะจง
- * ไม่พึ่ง globalThis[ชื่อ] อย่างเดียว เพราะ Apps Script บาง entorno
- * ไม่ผูกฟังก์ชันระดับบนสุดไว้กับ global object
- */
+/** Resolve RPC functions explicitly: some GAS runtimes do not bind top-level functions to globalThis. */
 function resolveRpc_(name) {
   var g = getGlobal_();
   if (g && typeof g[name] === 'function') return g[name];
 
   var handlers = {
     getMasterCoopList: getMasterCoopList,
-    saveDraftToSheet: saveDraftToSheet,
-    analyzeUploadedFilesWithAI: analyzeUploadedFilesWithAI,
-    startAiAnalysisJob: startAiAnalysisJob,
-    stepAiAnalysisJob: stepAiAnalysisJob,
-    generatePlanDocument: generatePlanDocument,
-    saveCompleteCoopRecord: saveCompleteCoopRecord,
-    getCompleteCoopRecord: getCompleteCoopRecord,
     getDashboardSummaryData: getDashboardSummaryData
   };
   return handlers[name];
@@ -156,10 +125,7 @@ function apiJson_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * ถ้าไม่ได้ตั้ง API_TOKEN ใน Script Properties = เปิดให้ทุกคนเรียกได้
- * (ใช้เฉพาะช่วงพัฒนาเท่านั้น)
- */
+/** An empty API_TOKEN means open access (development only). */
 function assertApiToken_(token) {
   var expected = getProp_('API_TOKEN');
   if (!expected) return;

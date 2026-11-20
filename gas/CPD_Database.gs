@@ -1,15 +1,15 @@
 /**
- * CPD_Database.gs — ชั้นฐานข้อมูลกลางของระบบแผนส่งเสริม 5 แท็บ
+ * CPD_Database.gs - read layer for the Chonburi dashboard.
  *
- * ชีตที่จัดการ (สร้าง/ตั้งหัวตารางอัตโนมัติ):
- *   1) CPD_Plans_2570        — ข้อมูลแผนฉบับเต็ม + full_state_json
- *   2) CPD_Monthly_Tracking  — สถานะรายเดือน + monthly_json
- *   3) CPD_Closing_Success   — ผลปิดบัญชี/ประชุมใหญ่ + closing_json
+ * Sheets read:
+ *   1) CPD_Plans_2570        - plan/KPI fields (full_state_json is no longer used)
+ *   2) CPD_Monthly_Tracking  - monthly status (monthly_json is no longer used)
+ *   3) CPD_Closing_Success   - closing/AGM results (closing_json is no longer used)
  *
- * ฟังก์ชันที่เปิดให้ frontend เรียกผ่าน RPC:
- *   - saveCompleteCoopRecord(payload)
+ * RPC exposed to the frontend:
  *   - getDashboardSummaryData(filters)
- *   - getCompleteCoopRecord(payload)
+ *
+ * Write/load-to-edit functions were removed when the app was reduced to three pages.
  */
 
 var CPD_DB = {
@@ -309,163 +309,6 @@ function cpdDerived_(state) {
  *   payload.form  = ข้อมูลฟอร์มเดิม (ไม่บังคับ) — ใช้ fallback ชื่อ/ปีบัญชี
  * @return {{savedAt:string, planId:string, coopId:string, coopName:string}}
  */
-function saveCompleteCoopRecord(payload) {
-  return withScriptLock_(function () {
-    var state = (payload && payload.state) ? payload.state : (payload || {});
-    var form = (payload && payload.form) || {};
-    var meta = state.meta || {};
-    var coop = state.coopProfile || {};
-    var sched = state.scheduleAndActivities || {};
-    var close = state.closingReport || {};
-    var now = new Date();
-    var fiscalYear = cpdFiscalYear_(state);
-    var coopId = cpdCleanName_(coop.coopId13 || '');
-    var coopName = cpdCleanName_(coop.coopName || form.coop_name || '');
-    if (!coopName) throw new Error('ไม่พบชื่อสหกรณ์/กลุ่มเกษตรกร กรุณาเลือกสหกรณ์ก่อนบันทึก');
-
-    var zone = cpdCleanName_(coop.promotionZone || form.group_zone || '');
-    var d = cpdDerived_(state);
-    var planId = cpdPlanId_(state, coopId, coopName);
-    meta.planId = planId;
-    meta.fiscalYear = fiscalYear;
-    meta.updatedAt = Utilities.formatDate(now, 'GMT+7', "yyyy-MM-dd'T'HH:mm:ss");
-    state.meta = meta;
-
-    var fullStateJson = JSON.stringify(state);
-
-    // ---- 1. CPD_Plans_2570 ----
-    var planRow = {
-      updated_at: Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy HH:mm'),
-      fiscal_year: fiscalYear,
-      coop_id: coopId,
-      coop_name: coopName,
-      org_type: cpdCleanName_(coop.orgType || ''),
-      coop_sub_type: cpdCleanName_(coop.coopSubType || ''),
-      district: cpdCleanName_(coop.district || form.district || ''),
-      promotion_zone: zone,
-      distance_km: cpdNum_(coop.distanceKm || form.distance),
-      primary_officer: cpdCleanName_(coop.primaryOfficer || form.main_officer || ''),
-      co_officer: cpdCleanName_(coop.coOfficer || form.co_officers || ''),
-      fiscal_end_date: d.fiscalEndDate,
-      target_close_30d: d.targetClose30d,
-      target_agm_150d: d.targetAgm150d,
-      members_total: d.membersTotal,
-      assets_latest: d.assetsLatest,
-      liabilities_latest: d.liabilitiesLatest,
-      equity_latest: d.totalEquity,
-      net_profit_latest: d.netProfitLatest,
-      business_vol_latest: d.businessVolLatest,
-      strength_class_prev: d.classPrev,
-      strength_score_prev: d.scorePrev,
-      strength_class_latest: d.classLatest,
-      strength_score_latest: d.scoreLatest,
-      dim1_score: d.dim1,
-      dim2_score: d.dim2,
-      dim3_score: d.dim3,
-      dim4_score: d.dim4,
-      approval_status: cpdCleanName_(meta.approvalStatus || 'ร่าง'),
-      approver_name: cpdCleanName_(meta.approverName || ''),
-      full_state_json: fullStateJson
-    };
-    cpdUpsert_(CPD_DB.PLANS, CPD_DB_HEADERS.plans, planRow, fiscalYear, coopId, coopName);
-
-    // ---- 2. CPD_Monthly_Tracking ----
-    var monthly = sched.monthlyPlan12Months || [];
-    var statusByMonth = {};
-    var reported = 0;
-    monthly.forEach(function (m) {
-      var color = cpdCleanName_(m.statusColor || 'white') || 'white';
-      statusByMonth[cpdCleanName_(m.month)] = color;
-      if (color !== 'white') reported++;
-    });
-
-    var monthlyRow = {
-      updated_at: planRow.updated_at,
-      fiscal_year: fiscalYear,
-      coop_id: coopId,
-      coop_name: coopName,
-      promotion_zone: zone,
-      progress_percent: Math.round((reported / 12) * 100),
-      monthly_json: JSON.stringify(sched)
-    };
-    CPD_MONTH_KEYS.forEach(function (pair) {
-      monthlyRow[pair[1]] = statusByMonth[pair[0]] || 'white';
-    });
-    cpdUpsert_(CPD_DB.MONTHLY, CPD_DB_HEADERS.monthly, monthlyRow, fiscalYear, coopId, coopName);
-
-    // ---- 3. CPD_Closing_Success ----
-    var closingRow = {
-      updated_at: planRow.updated_at,
-      fiscal_year: fiscalYear,
-      coop_id: coopId,
-      coop_name: coopName,
-      promotion_zone: zone,
-      can_close_account: cpdCleanName_(close.canCloseAccount || ''),
-      close_timeframe: cpdCleanName_(close.closeAccountTimeframe || ''),
-      auditor_receive_date: cpdCleanName_(close.auditorReceiveDate || ''),
-      auditor_certify_date: cpdCleanName_(close.auditorCertifyDate || ''),
-      can_hold_agm: cpdCleanName_(close.canHoldAgm || ''),
-      agm_date: cpdCleanName_(close.agmDate || ''),
-      agm_timeframe: cpdCleanName_(close.agmTimeframe || ''),
-      supervisor_status: cpdCleanName_(close.supervisorComment || ''),
-      closing_json: JSON.stringify(close)
-    };
-    cpdUpsert_(CPD_DB.CLOSING, CPD_DB_HEADERS.closing, closingRow, fiscalYear, coopId, coopName);
-
-    return {
-      savedAt: planRow.updated_at,
-      planId: planId,
-      coopId: coopId,
-      coopName: coopName,
-      fiscalYear: fiscalYear
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 2) โหลดข้อมูลกลับมาแก้ไข
-// ---------------------------------------------------------------------------
-
-function getCompleteCoopRecord(payload) {
-  var p = payload || {};
-  var fiscalYear = cpdCleanName_(p.fiscalYear || '2570');
-  var coopId = cpdCleanName_(p.coopId || '');
-  var coopName = cpdCleanName_(p.coopName || '');
-
-  var plans = cpdReadTable_(CPD_DB.PLANS);
-  for (var i = 0; i < plans.length; i++) {
-    var row = plans[i];
-    if (cpdCleanName_(row.fiscal_year) !== fiscalYear) continue;
-    var idMatch = coopId && cpdCleanName_(row.coop_id) === coopId;
-    var nameMatch = coopName &&
-      cpdCleanName_(row.coop_name).toLowerCase() === coopName.toLowerCase();
-    if (idMatch || nameMatch) {
-      var state = null;
-      try {
-        state = JSON.parse(row.full_state_json || '{}');
-      } catch (e) {
-        state = null;
-      }
-      return {
-        found: true,
-        savedAt: cpdCleanName_(row.updated_at),
-        state: state,
-        summary: {
-          coopName: cpdCleanName_(row.coop_name),
-          approvalStatus: cpdCleanName_(row.approval_status),
-          assetsLatest: cpdNum_(row.assets_latest),
-          businessVolLatest: cpdNum_(row.business_vol_latest)
-        }
-      };
-    }
-  }
-  return { found: false };
-}
-
-// ---------------------------------------------------------------------------
-// 3) Dashboard ระดับจังหวัด
-// ---------------------------------------------------------------------------
-
 function cpdNormalizeClass_(value) {
   var s = cpdCleanName_(value);
   var m = s.match(/(\d)/);
@@ -758,47 +601,66 @@ function getDashboardSummaryData(filters) {
 }
 
 // ---------------------------------------------------------------------------
-// 4) ฟังก์ชันช่วยเหลือสำหรับผู้ดูแลระบบ
+// Admin helper - run once from the Apps Script editor
 // ---------------------------------------------------------------------------
 
-/** สร้างชีตทั้ง 3 ทันที (เรียกจาก editor หรือ setupCheck) */
-function ensureCpdDatabase() {
-  ensureCpdSheet_(CPD_DB.PLANS, CPD_DB_HEADERS.plans);
-  ensureCpdSheet_(CPD_DB.MONTHLY, CPD_DB_HEADERS.monthly);
-  ensureCpdSheet_(CPD_DB.CLOSING, CPD_DB_HEADERS.closing);
-  return {
-    ok: true,
-    sheets: [CPD_DB.PLANS, CPD_DB.MONTHLY, CPD_DB.CLOSING]
-  };
+/**
+ * Clear only plan/AI payload columns. Master data, KPI fields, strength
+ * classes and scores are preserved so the 3 remaining pages still work.
+ * Affected: full_state_json / monthly_json / closing_json / JSON_DATA (column H
+ * of the legacy draft sheet).
+ */
+function clearPlanAiData_() {
+  var result = { cleared: {}, errors: [] };
+  try {
+    var ss = getSS_();
+    var tasks = [
+      { sheet: CPD_DB.PLANS, header: 'full_state_json' },
+      { sheet: CPD_DB.MONTHLY, header: 'monthly_json' },
+      { sheet: CPD_DB.CLOSING, header: 'closing_json' }
+    ];
+
+    tasks.forEach(function (task) {
+      try {
+        var sh = ss.getSheetByName(task.sheet);
+        if (!sh || sh.getLastRow() < 2 || sh.getLastColumn() < 1) {
+          result.cleared[task.sheet] = 0;
+          return;
+        }
+        var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+          .map(cpdCleanName_);
+        var col = headers.indexOf(task.header) + 1;
+        if (!col) {
+          result.cleared[task.sheet] = 0;
+          return;
+        }
+        var range = sh.getRange(2, col, sh.getLastRow() - 1, 1);
+        range.clearContent();
+        result.cleared[task.sheet] = range.getNumRows();
+      } catch (err) {
+        result.errors.push(task.sheet + ': ' + (err && err.message ? err.message : String(err)));
+      }
+    });
+
+    try {
+      var logSheet = ss.getSheetByName(CONFIG.SHEETS.DRAFT);
+      if (logSheet && logSheet.getLastRow() > 1 && logSheet.getLastColumn() >= 8) {
+        var logRange = logSheet.getRange(2, 8, logSheet.getLastRow() - 1, 1);
+        logRange.clearContent();
+        result.cleared[CONFIG.SHEETS.DRAFT] = logRange.getNumRows();
+      } else {
+        result.cleared[CONFIG.SHEETS.DRAFT] = 0;
+      }
+    } catch (err) {
+      result.errors.push(CONFIG.SHEETS.DRAFT + ': ' + (err && err.message ? err.message : String(err)));
+    }
+
+    Logger.log('clearPlanAiData_: ' + JSON.stringify(result));
+    return result;
+  } catch (err) {
+    var message = 'clearPlanAiData_ ล้มเหลว: ' + (err && err.message ? err.message : String(err));
+    Logger.log(message);
+    return { cleared: {}, errors: [message] };
+  }
 }
 
-/** ลบข้อมูลทดสอบของสหกรณ์หนึ่งรายออกจากทั้ง 3 ชีต (ใช้จาก editor เท่านั้น) */
-function deleteCpdRecord(fiscalYear, coopId, coopName) {
-  var sheets = [
-    [CPD_DB.PLANS, CPD_DB_HEADERS.plans],
-    [CPD_DB.MONTHLY, CPD_DB_HEADERS.monthly],
-    [CPD_DB.CLOSING, CPD_DB_HEADERS.closing]
-  ];
-  var deleted = 0;
-  sheets.forEach(function (pair) {
-    var sh = ensureCpdSheet_(pair[0], pair[1]);
-    var lastRow = sh.getLastRow();
-    if (lastRow < 2) return;
-    var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(cpdCleanName_);
-    var iYear = headers.indexOf('fiscal_year');
-    var iId = headers.indexOf('coop_id');
-    var iName = headers.indexOf('coop_name');
-    var data = sh.getRange(2, 1, lastRow - 1, headers.length).getValues();
-    for (var r = data.length - 1; r >= 0; r--) {
-      var sameYear = cpdCleanName_(data[r][iYear]) === cpdCleanName_(fiscalYear);
-      var sameId = coopId && cpdCleanName_(data[r][iId]) === cpdCleanName_(coopId);
-      var sameName = coopName &&
-        cpdCleanName_(data[r][iName]).toLowerCase() === cpdCleanName_(coopName).toLowerCase();
-      if (sameYear && (sameId || sameName)) {
-        sh.deleteRow(r + 2);
-        deleted++;
-      }
-    }
-  });
-  return { deleted: deleted };
-}

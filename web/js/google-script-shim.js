@@ -30,14 +30,8 @@
     return target;
   }
 
-  // AI jobs legitimately run for minutes; everything else (including the
-  // cooperative dropdown) must fail fast so the caller can show a retry.
-  var LONG_RUNNING_FNS = {
-    analyzeUploadedFilesWithAI: true,
-    startAiAnalysisJob: true,
-    stepAiAnalysisJob: true,
-    generatePlanDocument: true
-  };
+  // Dashboard reads are fast; keep a single timeout for all RPCs.
+  var LONG_RUNNING_FNS = {};
 
   function invoke(fnName, args, state) {
     if (!cfg.API_URL || cfg.API_URL.indexOf('PASTE_DEPLOYMENT_ID') !== -1) {
